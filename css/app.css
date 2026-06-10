@@ -116,7 +116,18 @@ table.week-grid {
 .week-grid thead .day-head .dow { font-size: 14.5px; font-weight: 700; }
 .week-grid thead .day-head .date { color: var(--muted); font-weight: 500; font-size: 12px; }
 .week-grid thead .day-head.sat .dow { color: #2563eb; }
-.week-grid thead .day-head.holiday-mark .dow { color: #dc2626; }
+.week-grid thead .day-head.holiday-mark .dow,
+.week-grid thead .day-head.holiday-mark .date { color: #dc2626; }
+.week-grid thead .day-head .hol-name {
+  display: block; font-size: 10px; color: #dc2626; font-weight: 600; line-height: 1.1;
+}
+.week-grid .pattern-row td { background: #fafafa; }
+
+td.cell.off {
+  background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e8edf3 6px, #e8edf3 12px);
+  cursor: default;
+}
+td.cell.off:hover { background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e8edf3 6px, #e8edf3 12px); }
 
 .week-grid .period-head {
   background: #f8fafc; text-align: center; padding: 4px 2px; font-size: 12.5px;

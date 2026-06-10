@@ -70,6 +70,23 @@ export function confirmDialog(message, { okLabel = 'OK', danger = false } = {}) 
   });
 }
 
+/**
+ * 処理結果のURLを開く。window.openがポップアップブロックされた場合は
+ * リンク付きモーダルを出してユーザーのクリックで開けるようにする。
+ */
+export function openResultLink(url, label = '開く') {
+  const win = window.open(url, '_blank');
+  if (win) return;
+  openModal(`
+    <h2>書き出しが完了しました</h2>
+    <p style="font-size:14px;">ブラウザにポップアップがブロックされました。下のリンクから開いてください。</p>
+    <p><a href="${esc(url)}" target="_blank" rel="noopener" class="btn primary" style="display:inline-block; text-decoration:none;">${esc(label)}</a></p>
+    <div class="modal-foot"><button class="btn" data-close>閉じる</button></div>
+  `, (modal, close) => {
+    modal.querySelector('[data-close]').onclick = close;
+  });
+}
+
 /** select要素のHTMLを生成 */
 export function selectHTML(name, options, value, { allowEmpty = null, attrs = '' } = {}) {
   const opts = [];

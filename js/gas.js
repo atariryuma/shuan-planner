@@ -58,8 +58,40 @@ export class GasClient {
     return this.call({ action: 'pull', key: 'default' });
   }
 
-  /** Googleカレンダーから予定を取得(from/to: YYYY-MM-DD) */
-  events(from, to, calendarId = '') {
-    return this.call({ action: 'events', from, to, calendarId });
+  /** Googleカレンダーから予定を取得(from/to: YYYY-MM-DD)。calendarIds省略時はメインカレンダー */
+  events(from, to, calendarIds = []) {
+    return this.call({ action: 'events', from, to, calendarIds });
+  }
+
+  /** 利用可能なカレンダー一覧 */
+  calendars() {
+    return this.call({ action: 'calendars' });
+  }
+
+  /** 週案を専用カレンダー「週案」へ書き出す(再実行で置き換え) */
+  pushWeek(events, from, to) {
+    return this.call({ action: 'pushWeek', events, from, to });
+  }
+
+  /** 全データをGoogleドライブへバックアップ(世代管理付き) */
+  driveBackup(state, keep = 20) {
+    const data = JSON.parse(JSON.stringify(state));
+    if (data.settings?.gas) data.settings.gas.token = '';
+    return this.call({ action: 'driveBackup', data, keep });
+  }
+
+  /** 時数レポートをスプレッドシートへ書き出す(reportはbuildHoursReportの戻り値をそのまま渡す) */
+  sheetReport(report) {
+    return this.call({ action: 'sheetReport', report });
+  }
+
+  /** 週案をスプレッドシートへ書き出す(weekはbuildWeekSheetの戻り値をそのまま渡す) */
+  sheetWeek(week) {
+    return this.call({ action: 'sheetWeek', week });
+  }
+
+  /** 週案をHTMLメールで送信 */
+  mailWeek(payload) {
+    return this.call({ action: 'mailWeek', ...payload });
   }
 }

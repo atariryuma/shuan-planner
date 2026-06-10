@@ -49,6 +49,12 @@ export function defaultSettings(schoolType = 'elementary') {
     fiscalYear: fy,
     saturday: false,
     periods: defaultPeriods(schoolType),
+    // 日課表パターン(短縮・特別日課など)。各パターンは校時ごとの上書き(無効化/時刻/係数)を持つ
+    periodPatterns: [],   // [{id, name, overrides: {[periodId]: {enabled,start,end,minutes,coefficient}}}]
+    termSystem: 3,        // 3=3学期制 / 2=2学期制
+    termEnds: ['07-31', '12-31'], // 学期の区切り(月-日)。3学期制=1学期末・2学期末 / 2学期制=前期末のみ使用
+    showDayNotes: false,  // 日ごとのメモ欄(画面のみ・印刷されない)
+    showHolidays: true,   // 祝日の表示
     subjects: defaultSubjects(schoolType),
     hoursBase: 35,            // 年間授業週数(時数の進捗目安に使用)
     stampBoxes: ['校長', '教頭', '担任'],
@@ -58,12 +64,27 @@ export function defaultSettings(schoolType = 'elementary') {
     printShowHours: true,
     printFontSize: 'normal',  // small | normal | large
     weekStartNote: '',
-    gas: { url: '', token: '', auto: false, lastSync: null },
+    gas: {
+      url: '', token: '', auto: false, lastSync: null,
+      calendarIds: [],      // 行事取り込み元のカレンダーID(空=メインカレンダー)
+      calendarNames: {},    // 表示用 {id: name}
+      mailTo: '',           // 週案のメール提出先
+      senderName: '',       // メールの差出人表示名
+      autoBackup: false,    // サーバー送信時にDriveへもバックアップ
+    },
   };
 }
 
 export function blankWeek(startDateStr) {
-  return { start: startDateStr, cells: {}, events: ['', '', '', '', '', ''], goals: '', reflection: '' };
+  return {
+    start: startDateStr,
+    cells: {},
+    events: ['', '', '', '', '', ''],
+    dayNotes: ['', '', '', '', '', ''],
+    dayPatterns: {},      // {dayIdx: patternId} 省略=通常日課
+    goals: '',
+    reflection: '',
+  };
 }
 
 export function defaultState() {
@@ -263,6 +284,20 @@ export function cellKey(dayIdx, periodId) {
   return `d${dayIdx}p${periodId}`;
 }
 
+/**
+ * その日(週の日課パターン適用後)の実効校時を返す。
+ * 戻り値: 校時オブジェクト(パターンの上書き反映済み) / その日は無効な校時なら null。
+ */
+export function effectivePeriod(settings, week, dayIdx, period) {
+  const patId = week?.dayPatterns?.[dayIdx];
+  if (!patId) return period;
+  const pat = (settings.periodPatterns || []).find(p => p.id === patId);
+  const ov = pat?.overrides?.[period.id];
+  if (!ov) return period;
+  if (ov.enabled === false) return null;
+  return { ...period, ...ov, enabled: undefined };
+}
+
 export function newEntry() {
   return {
     id: uid(), subjectKey: '', scope: null, text: '', auto: true, note: '',
@@ -324,8 +359,14 @@ function migrate(data) {
       if (!cell.entries.length) delete w.cells[ck];
     }
     if (!Array.isArray(w.events)) w.events = ['', '', '', '', '', ''];
+    if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
+    if (!w.dayPatterns || typeof w.dayPatterns !== 'object') w.dayPatterns = {};
     w.goals = String(w.goals ?? '');
     w.reflection = String(w.reflection ?? '');
+  }
+  if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
+  if (!Array.isArray(data.settings.termEnds) || !data.settings.termEnds.length) {
+    data.settings.termEnds = data.settings.termSystem === 2 ? ['09-30'] : ['07-31', '12-31'];
   }
   if (!data.baseTimetable || typeof data.baseTimetable !== 'object' || typeof data.baseTimetable.cells !== 'object') {
     data.baseTimetable = { cells: {} };
@@ -365,8 +406,6 @@ function fiscalRangeOf(weekStart) {
  */
 export function computeOrdinals(state, refWeekStart) {
   const { settings, weeks } = state;
-  const periodOrder = settings.periods.map(p => p.id);
-  const periodType = Object.fromEntries(settings.periods.map(p => [p.id, p.type]));
   const range = refWeekStart ? fiscalRangeOf(refWeekStart) : null;
   const counters = new Map();
   const ordinals = new Map();
@@ -376,12 +415,13 @@ export function computeOrdinals(state, refWeekStart) {
     if (range && (wk < range.from || wk >= range.to)) continue;
     const week = weeks[wk];
     for (let d = 0; d < 7; d++) {
-      for (const pid of periodOrder) {
-        const cell = week.cells[cellKey(d, pid)];
+      for (const p of settings.periods) {
+        if (!effectivePeriod(settings, week, d, p)) continue; // その日は無効な校時
+        const cell = week.cells[cellKey(d, p.id)];
         if (!cell) continue;
         for (const e of cell.entries) {
           if (!e.subjectKey || e.cancelled) continue;
-          const isModule = periodType[pid] === 'module';
+          const isModule = p.type === 'module';
           const advances = e.advance === null || e.advance === undefined ? !isModule : !!e.advance;
           if (!advances) continue;
           const k = scopeKey(e.subjectKey, e.scope);
@@ -458,7 +498,6 @@ export function scopeGrade(settings, scope) {
  */
 export function computeHours(state, currentWeekStart) {
   const { settings, weeks } = state;
-  const coef = Object.fromEntries(settings.periods.map(p => [p.id, p.coefficient ?? 1]));
   const range = fiscalRangeOf(currentWeekStart);
   const acc = new Map(); // scopeKey -> {week, total}
 
@@ -470,13 +509,15 @@ export function computeHours(state, currentWeekStart) {
     const week = weeks[wk];
     for (let d = 0; d < 7; d++) {
       for (const p of settings.periods) {
+        const eff = effectivePeriod(settings, week, d, p);
+        if (!eff) continue;
         const cell = week.cells[cellKey(d, p.id)];
         if (!cell) continue;
         for (const e of cell.entries) {
           if (!e.subjectKey || e.noCount || e.cancelled) continue;
           const k = scopeKey(e.subjectKey, e.scope);
           const cur = acc.get(k) || { week: 0, total: 0 };
-          const c = (coef[p.id] ?? 1) * (e.fraction ?? 1);
+          const c = (eff.coefficient ?? 1) * (e.fraction ?? 1);
           cur.total += c;
           if (isCurrent) cur.week += c;
           acc.set(k, cur);
@@ -485,6 +526,75 @@ export function computeHours(state, currentWeekStart) {
     }
   }
   return acc;
+}
+
+/**
+ * 月別・学期別の時数集計(年度内、入力済みの全週)。
+ * 月またぎの週も「コマの実際の日付」で按分するため正確。
+ * 戻り値: { months: Map<月(1-12), Map<scopeKey, hours>>, terms: [{name, hours: Map<scopeKey, hours>}] }
+ */
+export function computeMonthlyHours(state, refWeekStart) {
+  const { settings, weeks } = state;
+  const range = fiscalRangeOf(refWeekStart);
+  const months = new Map();
+  const termRangesList = termRanges(settings, fiscalYearOf(addDays(parseDate(refWeekStart), 3)));
+  const terms = termRangesList.map(t => ({ name: t.name, hours: new Map() }));
+
+  const bump = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
+  const fy = fiscalYearOf(addDays(parseDate(refWeekStart), 3));
+  const fyStart = `${fy}-04-01`;
+  const fyEnd = `${fy + 1}-03-31`;
+
+  for (const wk of Object.keys(weeks).sort()) {
+    if (wk < range.from || wk >= range.to) continue;
+    const week = weeks[wk];
+    const monday = parseDate(wk);
+    for (let d = 0; d < 7; d++) {
+      const date = addDays(monday, d);
+      const dateStr = fmtDate(date);
+      // 年度の端の週に含まれる年度範囲外の日(3月末など)は月別・学期別に計上しない
+      // (monthsとtermsの母集合を一致させるため)
+      if (dateStr < fyStart || dateStr > fyEnd) continue;
+      const month = date.getMonth() + 1;
+      const termIdx = termRangesList.findIndex(t => dateStr >= t.from && dateStr <= t.to);
+      for (const p of settings.periods) {
+        const eff = effectivePeriod(settings, week, d, p);
+        if (!eff) continue;
+        const cell = week.cells[cellKey(d, p.id)];
+        if (!cell) continue;
+        for (const e of cell.entries) {
+          if (!e.subjectKey || e.noCount || e.cancelled) continue;
+          const k = scopeKey(e.subjectKey, e.scope);
+          const c = (eff.coefficient ?? 1) * (e.fraction ?? 1);
+          if (!months.has(month)) months.set(month, new Map());
+          bump(months.get(month), k, c);
+          if (termIdx >= 0) bump(terms[termIdx].hours, k, c);
+        }
+      }
+    }
+  }
+  return { months, terms };
+}
+
+/** 学期の日付範囲リスト。termEnds(月-日)から年度内の実日付に展開する */
+export function termRanges(settings, fiscalYear) {
+  const md2date = (md) => {
+    const [m, d] = md.split('-').map(Number);
+    const y = m >= 4 ? fiscalYear : fiscalYear + 1;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+  const start = `${fiscalYear}-04-01`;
+  const end = `${fiscalYear + 1}-03-31`;
+  const ends = (settings.termEnds || []).map(md2date).filter(d => d > start && d < end).sort();
+  const names = settings.termSystem === 2 ? ['前期', '後期'] : ['1学期', '2学期', '3学期'];
+  const ranges = [];
+  let from = start;
+  for (let i = 0; i < ends.length && i < names.length - 1; i++) {
+    ranges.push({ name: names[i], from, to: ends[i] });
+    from = fmtDate(addDays(parseDate(ends[i]), 1));
+  }
+  ranges.push({ name: names[ranges.length] || `${ranges.length + 1}学期`, from, to: end });
+  return ranges;
 }
 
 /**

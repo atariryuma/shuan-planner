@@ -1,8 +1,9 @@
 /** 週案編集ビュー(グリッド・セル編集・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, weekNumberInFiscalYear, DAY_NAMES, esc, uid } from '../utils.js';
-import { openModal, toast, confirmDialog, selectHTML } from '../ui.js';
+import { holidayName } from '../holidays.js';
+import { openModal, toast, confirmDialog, selectHTML, openResultLink } from '../ui.js';
 
 export function renderWeekView(root, ctx) {
   const state = store.state;
@@ -17,13 +18,40 @@ export function renderWeekView(root, ctx) {
   const dayHeads = [];
   for (let d = 0; d < dayCount; d++) {
     const date = addDays(monday, d);
+    const hol = s.showHolidays ? holidayName(date) : null;
     dayHeads.push(`
       <th>
-        <div class="day-head ${d === 5 ? 'sat' : ''}">
+        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''}">
           <span class="dow">${DAY_NAMES[d]}</span>
           <span class="date">${fmtMD(date)}</span>
+          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : ''}
         </div>
       </th>`);
+  }
+
+  // 日課パターン行(パターンが定義されているときだけ表示)
+  let patternRow = '';
+  if (s.periodPatterns.length) {
+    const cells = [];
+    for (let d = 0; d < dayCount; d++) {
+      const cur = week.dayPatterns?.[d] || '';
+      cells.push(`<td style="padding:2px 4px;">${selectHTML('daypat', [
+        { value: '', label: '通常' },
+        ...s.periodPatterns.map(p => ({ value: p.id, label: p.name })),
+      ], cur, { attrs: `data-day="${d}" class="daypat-select" style="width:100%; border:none; background:transparent; font-size:11.5px; color:var(--muted);"` })}</td>`);
+    }
+    patternRow = `<tr class="pattern-row"><th class="period-head" style="font-size:11px;">日課</th>${cells.join('')}</tr>`;
+  }
+
+  // 日ごとのメモ行(設定でON時のみ。印刷には出ない)
+  let dayNotesRow = '';
+  if (s.showDayNotes) {
+    const cells = [];
+    for (let d = 0; d < dayCount; d++) {
+      cells.push(`<td style="background:#f0fdf4;"><textarea class="event-input daynote-input" data-day="${d}" rows="1"
+        style="color:#166534;" placeholder="">${esc(week.dayNotes?.[d] || '')}</textarea></td>`);
+    }
+    dayNotesRow = `<tr><th class="period-head" style="font-size:11.5px; background:#dcfce7; color:#166534;" title="画面のみ(印刷されません)">メモ</th>${cells.join('')}</tr>`;
   }
 
   const eventCells = [];
@@ -48,7 +76,7 @@ export function renderWeekView(root, ctx) {
         </th>
         ${cells.join('')}
       </tr>`;
-  }).join('');
+  }).join('') + dayNotesRow;
 
   root.innerHTML = `
     <div class="week-nav">
@@ -67,6 +95,9 @@ export function renderWeekView(root, ctx) {
         <summary class="btn">その他 ▾</summary>
         <div class="menu-items">
           <button class="btn ghost" id="wk-save-base">この週を基本時間割として登録</button>
+          <button class="btn ghost" id="wk-cal-push" title="専用カレンダー「週案」に授業予定を登録(再実行で置き換え)">📤 Googleカレンダーへ書き出し</button>
+          <button class="btn ghost" id="wk-sheet-push" title="スプレッドシートに週案を書き出し(共有・提出用)">📊 スプレッドシートへ書き出し</button>
+          <button class="btn ghost" id="wk-mail" title="設定した宛先(管理職など)へ週案をメール送信">📧 メールで提出</button>
           <button class="btn ghost danger" id="wk-clear">この週をクリア</button>
         </div>
       </details>
@@ -80,6 +111,7 @@ export function renderWeekView(root, ctx) {
         <table class="week-grid">
           <thead>
             <tr><th class="corner"></th>${dayHeads.join('')}</tr>
+            ${patternRow}
             <tr class="event-row"><th class="period-head">行事</th>${eventCells.join('')}</tr>
           </thead>
           <tbody>${bodyRows}</tbody>
@@ -108,6 +140,10 @@ export function renderWeekView(root, ctx) {
 
 function renderCell(state, week, dayIdx, period, ordinals, ctx) {
   const s = state.settings;
+  // 日課パターンでこの日が無効な校時は、グレーの操作不可セルにする
+  if (!effectivePeriod(s, week, dayIdx, period)) {
+    return `<td class="cell off" data-day="${dayIdx}" data-period="${esc(period.id)}" title="この日の日課にはない校時です"></td>`;
+  }
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
   const isModule = period.type === 'module';
@@ -229,15 +265,75 @@ function wireNav(root, ctx, monday) {
     ctx.rerender();
   };
 
-  root.querySelector('#wk-calendar').onclick = async () => {
-    if (!ctx.gas.configured) {
-      toast('設定画面でGAS連携を設定すると、Googleカレンダーから行事を取り込めます', 'error', 4000);
+  // ---- Google Workspace連携(カレンダー書き出し・シート・メール)
+  const requireGas = () => {
+    if (ctx.gas.configured) return true;
+    toast('設定画面でGAS連携(URL・トークン)を設定すると使えます', 'error', 4000);
+    return false;
+  };
+
+  root.querySelector('#wk-cal-push').onclick = async () => {
+    if (!requireGas()) return;
+    const { buildCalendarEvents } = await import('../gws.js');
+    const payload = buildCalendarEvents(fmtDate(monday));
+    if (!payload.events.length) { toast('書き出せる授業がありません(校時に開始・終了時刻が必要です)', 'error', 4500); return; }
+    const ok = await confirmDialog(
+      `この週の授業 ${payload.events.length}件 を、Googleカレンダーの専用カレンダー「週案」に登録します。\n` +
+      `(前回書き出した同期間の予定は自動で置き換えられます)` +
+      (payload.skipped ? `\n⚠ 時刻未設定の校時 ${payload.skipped}コマ はスキップされます` : ''),
+      { okLabel: '書き出す' });
+    if (!ok) return;
+    try {
+      toast('カレンダーへ書き出し中…(数秒かかります)');
+      const res = await ctx.gas.pushWeek(payload.events, payload.from, payload.to);
+      toast(`✅ カレンダー「${res.calendarName}」に ${res.created}件 登録しました${res.removed ? `(${res.removed}件を置き換え)` : ''}`, 'info', 4500);
+    } catch (e) {
+      toast('書き出し失敗: ' + e.message, 'error', 6000);
+    }
+  };
+
+  root.querySelector('#wk-sheet-push').onclick = async () => {
+    if (!requireGas()) return;
+    try {
+      toast('スプレッドシートへ書き出し中…');
+      const { buildWeekSheet } = await import('../gws.js');
+      const res = await ctx.gas.sheetWeek(buildWeekSheet(fmtDate(monday)));
+      toast('✅ 書き出しました', 'info', 3000);
+      openResultLink(res.url, 'スプレッドシートを開く');
+    } catch (e) {
+      toast('書き出し失敗: ' + e.message, 'error', 6000);
+    }
+  };
+
+  root.querySelector('#wk-mail').onclick = async () => {
+    if (!requireGas()) return;
+    const s = store.settings;
+    if (!s.gas.mailTo) {
+      toast('設定画面の「Google連携」で提出先メールアドレスを設定してください', 'error', 5000);
       return;
     }
+    const { buildWeekEmail } = await import('../gws.js');
+    const mail = buildWeekEmail(fmtDate(monday));
+    const ok = await confirmDialog(`この週の週案を ${s.gas.mailTo} へメール送信します。\n件名: ${mail.subject}`, { okLabel: '送信する' });
+    if (!ok) return;
+    try {
+      toast('送信中…');
+      const res = await ctx.gas.mailWeek({ to: s.gas.mailTo, subject: mail.subject, html: mail.html, text: mail.text, senderName: s.gas.senderName || s.teacherName });
+      toast(`✅ 送信しました(本日の残り送信枠: ${res.remaining}通)`, 'info', 4000);
+    } catch (e) {
+      toast('送信失敗: ' + e.message, 'error', 6000);
+    }
+  };
+
+  root.querySelector('#wk-calendar').onclick = async () => {
+    if (!requireGas()) return;
     try {
       toast('カレンダーから取得中…');
       const dayCount = store.settings.saturday ? 6 : 5;
-      const res = await ctx.gas.events(fmtDate(monday), fmtDate(addDays(monday, dayCount - 1)));
+      const res = await ctx.gas.events(fmtDate(monday), fmtDate(addDays(monday, dayCount - 1)), store.settings.gas.calendarIds || []);
+      if (res.errors?.length) {
+        toast('⚠ 一部のカレンダーを読めませんでした: ' + res.errors.join(' / '), 'error', 6000);
+      }
       const week = store.getWeek(fmtDate(monday), true);
       let n = 0;
       for (const ev of res.events || []) {
@@ -276,6 +372,27 @@ function wireWeekInputs(root, weekStart, ctx) {
     w.reflection = ev.target.value;
     store.commit();
   });
+  // 日課パターンの切替
+  root.querySelectorAll('.daypat-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const w = store.getWeek(weekStart, true);
+      const d = Number(sel.dataset.day);
+      if (sel.value) w.dayPatterns[d] = sel.value;
+      else delete w.dayPatterns[d];
+      ctx.swapSource = null; // 移動モード中の切替で無効セルへ移動できてしまうのを防ぐ
+      store.commit();
+      ctx.rerender();
+    });
+  });
+  // 日ごとのメモ
+  root.querySelectorAll('.daynote-input').forEach(ta => {
+    ta.addEventListener('input', () => {
+      const w = store.getWeek(weekStart, true);
+      if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
+      w.dayNotes[Number(ta.dataset.day)] = ta.value;
+      store.commit();
+    });
+  });
 }
 
 // ---------------------------------------------------------------- セル操作(クリック編集・DnD)
@@ -283,6 +400,7 @@ function wireWeekInputs(root, weekStart, ctx) {
 function wireCells(root, weekStart, ctx) {
   root.querySelectorAll('td.cell').forEach(td => {
     td.addEventListener('click', (ev) => {
+      if (td.classList.contains('off')) return; // 日課パターンで無効な校時
       if (ev.target.closest('[data-clear]')) return;
       // 移動モード中: タップで入替(iPad等のタッチ環境向け)
       if (ctx.swapSource) {
@@ -315,6 +433,7 @@ function wireCells(root, weekStart, ctx) {
     td.addEventListener('drop', (ev) => {
       ev.preventDefault();
       td.classList.remove('drag-over');
+      if (td.classList.contains('off')) return;
       let src;
       try { src = JSON.parse(ev.dataTransfer.getData('text/plain')); } catch { return; }
       if (!src || src.day == null) return;
@@ -324,9 +443,18 @@ function wireCells(root, weekStart, ctx) {
   });
 }
 
-/** 2つのコマの中身を入れ替える(片方が空なら移動になる) */
+/** 2つのコマの中身を入れ替える(片方が空なら移動になる)。無効な校時へは移動させない */
 function swapCells(weekStart, from, to) {
+  const s = store.settings;
   const w = store.getWeek(weekStart, true);
+  const fromP = s.periods.find(p => p.id === String(from.period));
+  const toP = s.periods.find(p => p.id === String(to.period));
+  if (!fromP || !toP
+    || !effectivePeriod(s, w, Number(from.day), fromP)
+    || !effectivePeriod(s, w, Number(to.day), toP)) {
+    toast('この日の日課にない校時へは移動できません', 'error');
+    return;
+  }
   const kFrom = cellKey(from.day, from.period);
   const kTo = cellKey(to.day, to.period);
   if (kFrom === kTo) return;
@@ -487,8 +615,11 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       c.entries = c.entries.filter(e => e.subjectKey || (e.text && !e.auto) || e.note);
       if (!c.entries.length) delete w.cells[key];
     }
-    // 週全体が空(コマ・行事・めあて・反省すべて無し)ならゴースト週ごと消す
-    if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection && !(w.events || []).some(Boolean)) {
+    // 週全体が空(コマ・行事・めあて・反省・日課割当・日メモすべて無し)ならゴースト週ごと消す
+    if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
+      && !(w.events || []).some(Boolean)
+      && !Object.keys(w.dayPatterns || {}).length
+      && !(w.dayNotes || []).some(Boolean)) {
       delete store.state.weeks[weekStart];
     }
     store.commit();

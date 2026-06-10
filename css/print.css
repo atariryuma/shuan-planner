@@ -77,6 +77,14 @@ table.pp-grid {
 }
 .pp-grid thead .dow { font-size: calc(var(--pfs) + 1pt); font-weight: 700; }
 .pp-grid thead .date { font-weight: 400; font-size: calc(var(--pfs) - 1pt); }
+.pp-grid .hol { display: block; font-size: 6.5pt; color: #c00; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+/* 日課パターンで無効な校時(その日は授業なし) */
+.pp-grid td.pcell-off {
+  background: repeating-linear-gradient(45deg, #fff, #fff 1.2mm, #ddd 1.2mm, #ddd 1.6mm);
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
 
 .pp-grid .ph {
   background: #efefef;

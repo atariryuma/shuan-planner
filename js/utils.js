@@ -35,9 +35,14 @@ export function fiscalYearOf(date) {
   return date.getMonth() >= 3 ? date.getFullYear() : date.getFullYear() - 1;
 }
 
-/** 年度の開始月曜(4/1を含む週の月曜) */
+/**
+ * 年度の第1週の月曜。
+ * 週の所属年度は「週の木曜日」で判定するため(weekNumberInFiscalYear等と整合)、
+ * 4/1を含む週の木曜が3月中の年(4/1が金土日)は翌週が年度第1週になる。
+ */
 export function fiscalYearFirstMonday(fiscalYear) {
-  return mondayOf(new Date(fiscalYear, 3, 1));
+  const m = mondayOf(new Date(fiscalYear, 3, 1));
+  return fiscalYearOf(addDays(m, 3)) === fiscalYear ? m : addDays(m, 7);
 }
 
 /** 年度内の第n週(1始まり)。月曜日付から計算 */

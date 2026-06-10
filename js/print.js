@@ -7,8 +7,9 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, computeOrdinals, resolveEntryText, computeHours, fmtHours, scopeKey } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, fmtHours, scopeKey } from './store.js';
 import { parseDate, addDays, fmtMD, weekNumberInFiscalYear, DAY_NAMES, esc } from './utils.js';
+import { holidayName } from './holidays.js';
 import { openModal, toast } from './ui.js';
 import { fracLabel } from './views/week.js';
 
@@ -183,7 +184,8 @@ function renderTablePeriods(state, week, monday, dayCount, ordinals, innerW) {
 
   const head = `<tr><th style="width:${cornerW}mm"></th>${Array.from({ length: dayCount }, (_, d) => {
     const date = addDays(monday, d);
-    return `<th><span class="dow">${DAY_NAMES[d]}</span> <span class="date">${fmtMD(date)}</span></th>`;
+    const hol = s.showHolidays ? holidayName(date) : null;
+    return `<th><span class="dow">${DAY_NAMES[d]}</span> <span class="date">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ''}</th>`;
   }).join('')}</tr>`;
 
   const eventsRow = `<tr class="pp-events"><td class="ph">行事</td>${Array.from({ length: dayCount }, (_, d) =>
@@ -213,9 +215,10 @@ function renderTableDays(state, week, monday, dayCount, ordinals, innerW) {
 
   const rows = Array.from({ length: dayCount }, (_, d) => {
     const date = addDays(monday, d);
+    const hol = s.showHolidays ? holidayName(date) : null;
     const cells = s.periods.map(p => renderPrintCell(state, week, d, p, ordinals)).join('');
     return `<tr>
-      <td class="ph"><span class="p-label">${DAY_NAMES[d]}</span><span class="p-time">${fmtMD(date)}</span></td>
+      <td class="ph"><span class="p-label">${DAY_NAMES[d]}</span><span class="p-time">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ''}</td>
       ${cells}
       <td class="pcell" style="font-size: calc(var(--pfs) - 1pt);">${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>
     </tr>`;
@@ -226,6 +229,7 @@ function renderTableDays(state, week, monday, dayCount, ordinals, innerW) {
 
 function renderPrintCell(state, week, dayIdx, period, ordinals) {
   const s = state.settings;
+  if (!effectivePeriod(s, week, dayIdx, period)) return `<td class="pcell pcell-off"></td>`;
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
   if (!entries.length) return `<td class="pcell"></td>`;

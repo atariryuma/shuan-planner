@@ -1,7 +1,7 @@
 /** データ管理ビュー: JSONバックアップ・復元・GAS同期・初期化 */
 
 import { store } from '../store.js';
-import { toast, confirmDialog, openModal } from '../ui.js';
+import { toast, confirmDialog, openModal, openResultLink } from '../ui.js';
 import { esc, fmtDate } from '../utils.js';
 
 export function renderDataView(root, ctx) {
@@ -37,6 +37,8 @@ export function renderDataView(root, ctx) {
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn primary" id="gas-push" ${ctx.gas.configured ? '' : 'disabled'}>☁⬆ サーバーへ送信</button>
           <button class="btn" id="gas-pull" ${ctx.gas.configured ? '' : 'disabled'}>☁⬇ サーバーから取得</button>
+          <button class="btn" id="gas-drive" ${ctx.gas.configured ? '' : 'disabled'} title="Googleドライブの「週案バックアップ」フォルダにJSONを保存(最新20世代)">🗂 Driveへバックアップ</button>
+          <button class="btn" id="gas-report" ${ctx.gas.configured ? '' : 'disabled'} title="教科×月の時数レポートをスプレッドシートに書き出す">📈 時数レポートを出力</button>
         </div>
         ${ctx.gas.configured ? '' : '<p class="hint" style="margin-top:8px;">→ 「設定」タブでGASのURLとトークンを入力すると使えます。</p>'}
       </div>
@@ -104,8 +106,38 @@ export function renderDataView(root, ctx) {
       store.notify();
       toast('✅ サーバーへ保存しました');
       ctx.rerender();
+      // 任意: Driveへの自動バックアップ(失敗しても同期自体は成功扱い)
+      if (store.settings.gas.autoBackup) {
+        ctx.gas.driveBackup(store.state)
+          .then(r => toast(`🗂 Driveにもバックアップしました(${r.file})`, 'info', 3500))
+          .catch(e => toast('Driveバックアップ失敗: ' + e.message, 'error', 5000));
+      }
     } catch (e) {
       toast('送信失敗: ' + e.message, 'error', 6000);
+    }
+  };
+
+  root.querySelector('#gas-drive').onclick = async () => {
+    try {
+      toast('Driveへバックアップ中…');
+      const res = await ctx.gas.driveBackup(store.state);
+      toast(`✅ 保存しました: ${res.file}(${res.kept}世代保持)`, 'info', 4000);
+    } catch (e) {
+      toast('バックアップ失敗: ' + e.message, 'error', 6000);
+    }
+  };
+
+  root.querySelector('#gas-report').onclick = async () => {
+    try {
+      toast('時数レポートを作成中…');
+      const { buildHoursReport } = await import('../gws.js');
+      const report = buildHoursReport(ctx.getWeekStart());
+      if (!report.rows.length) { toast('まだ集計できる授業がありません', 'error'); return; }
+      const res = await ctx.gas.sheetReport(report);
+      toast('✅ 書き出しました', 'info', 3000);
+      openResultLink(res.url, '時数レポートを開く');
+    } catch (e) {
+      toast('出力失敗: ' + e.message, 'error', 6000);
     }
   };
 

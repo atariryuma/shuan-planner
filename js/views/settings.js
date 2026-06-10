@@ -79,6 +79,40 @@ export function renderSettingsView(root, ctx) {
         <button class="btn small" id="period-add-mod">＋ モジュール枠を追加</button>
         <button class="btn small ghost" id="period-reset">既定に戻す</button>
       </div>
+
+      <h3>日課表パターン(短縮・特別日課など)</h3>
+      <p class="hint">通常と異なる時程のパターンを登録すると、週案の各曜日に割り当てられます(例: 水曜=B日課、テスト週=短縮40分)。</p>
+      <div id="pattern-list" style="display:flex; flex-direction:column; gap:6px;">
+        ${(s.periodPatterns || []).map((pat, i) => `
+          <div class="plan-item" data-pat="${i}" style="padding:7px 12px;">
+            <span class="p-subj">${esc(pat.name)}</span>
+            <span class="p-meta">${Object.values(pat.overrides || {}).filter(o => o.enabled === false).length ? Object.values(pat.overrides).filter(o => o.enabled === false).length + '校時カット' : '時刻変更'}</span>
+            <span class="spacer"></span>
+            <button class="btn small" data-pat-edit>編集</button>
+            <button class="btn small danger" data-pat-del>削除</button>
+          </div>`).join('')}
+      </div>
+      <button class="btn small" id="pattern-add" style="margin-top:8px;">＋ パターンを追加</button>
+    </div>
+
+    <div class="panel">
+      <h2>学期・表示</h2>
+      <div class="field"><label>学期制</label>
+        ${selectHTML('termSystem', [
+          { value: 3, label: '3学期制' },
+          { value: 2, label: '2学期制(前期・後期)' },
+        ], s.termSystem)}
+      </div>
+      <div class="field"><label>学期の区切り(終了日)</label>
+        <div class="inline" id="term-ends">
+          ${(s.termEnds || []).map((md, i) => `<input type="text" data-term="${i}" value="${esc(md)}" placeholder="07-31" style="max-width:110px;" title="月-日(例: 07-31)">`).join('')}
+        </div>
+        <p class="hint">${s.termSystem === 2 ? '前期の最終日' : '1学期・2学期の最終日'}を「月-日」で入力(時数集計の学期別集計に使用)。</p>
+      </div>
+      <div class="checkline"><input type="checkbox" id="set-holidays" ${s.showHolidays ? 'checked' : ''}>
+        <label for="set-holidays">祝日を表示する(自動計算)</label></div>
+      <div class="checkline"><input type="checkbox" id="set-daynotes" ${s.showDayNotes ? 'checked' : ''}>
+        <label for="set-daynotes">日ごとのメモ欄を表示する(画面のみ・印刷されません)</label></div>
     </div>
 
     <div class="panel">
@@ -142,6 +176,24 @@ export function renderSettingsView(root, ctx) {
       <div style="display:flex; gap:8px;">
         <button class="btn" id="gas-test">接続テスト</button>
       </div>
+
+      <h3>行事の取り込み元カレンダー</h3>
+      <p class="hint">「📆 行事を取得」で読むカレンダーを選びます(未設定ならメインカレンダー)。学校行事用の共有カレンダーを追加するのがおすすめ。</p>
+      <div id="gas-cal-list">
+        ${(s.gas.calendarIds || []).length
+          ? (s.gas.calendarIds || []).map(id => `<span class="subj-chip" style="background:#5d8aa8; margin:2px 4px 2px 0;">${esc(s.gas.calendarNames?.[id] || id)}</span>`).join('')
+          : '<span class="hint">メインカレンダー(既定)</span>'}
+      </div>
+      <button class="btn small" id="gas-cal-pick" style="margin-top:6px;">カレンダーを選ぶ…</button>
+
+      <h3>メール提出・バックアップ</h3>
+      <div class="field"><label>週案のメール提出先(管理職など)</label>
+        <input type="text" data-gas="mailTo" value="${esc(s.gas.mailTo || '')}" placeholder="kocho@example.jp"></div>
+      <div class="field"><label>メールの差出人表示名(任意)</label>
+        <input type="text" data-gas="senderName" value="${esc(s.gas.senderName || '')}" placeholder="${esc(s.teacherName || '○○')}"></div>
+      <div class="checkline"><input type="checkbox" id="gas-autobackup" ${s.gas.autoBackup ? 'checked' : ''}>
+        <label for="gas-autobackup">「サーバーへ送信」時にGoogleドライブへもバックアップする(最新20世代を保持)</label></div>
+
       <p class="hint" style="margin-top:8px;">⚠ 児童生徒の個人名などの個人情報は同期データに含めない運用を推奨します(備考はイニシャル等で)。</p>
     </div>
   </div>
@@ -309,6 +361,46 @@ function wireSettings(root, ctx) {
     store.commit(); ctx.rerender();
   };
 
+  // 日課表パターン(新規はドラフトで開き、保存時にのみ追加する=キャンセルでゴミが残らない)
+  root.querySelector('#pattern-add').onclick = () => {
+    const pat = { id: uid(), name: `パターン${(s.periodPatterns?.length || 0) + 1}`, overrides: {} };
+    openPatternEditor(pat, ctx, { isNew: true });
+  };
+  root.querySelectorAll('[data-pat]').forEach(el => {
+    const pat = s.periodPatterns[Number(el.dataset.pat)];
+    el.querySelector('[data-pat-edit]').onclick = () => openPatternEditor(pat, ctx);
+    el.querySelector('[data-pat-del]').onclick = async () => {
+      const ok = await confirmDialog(`日課表パターン「${pat.name}」を削除しますか?\n(このパターンを割り当てていた曜日は通常日課に戻ります)`, { okLabel: '削除', danger: true });
+      if (!ok) return;
+      s.periodPatterns = s.periodPatterns.filter(p => p.id !== pat.id);
+      store.commit(); ctx.rerender();
+    };
+  });
+
+  // 学期
+  root.querySelector('[name="termSystem"]').addEventListener('change', (ev) => {
+    s.termSystem = Number(ev.target.value);
+    s.termEnds = s.termSystem === 2 ? ['09-30'] : ['07-31', '12-31'];
+    store.commit(); ctx.rerender();
+  });
+  root.querySelectorAll('#term-ends input').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const v = inp.value.trim();
+      const match = /^(\d{1,2})-(\d{1,2})$/.exec(v);
+      const m = match ? Number(match[1]) : 0;
+      const d = match ? Number(match[2]) : 0;
+      if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+        s.termEnds[Number(inp.dataset.term)] = `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        store.commit();
+      } else {
+        toast('「月-日」の形式で入力してください(例: 07-31)', 'error');
+        inp.value = s.termEnds[Number(inp.dataset.term)];
+      }
+    });
+  });
+  root.querySelector('#set-holidays').addEventListener('change', (ev) => { s.showHolidays = ev.target.checked; store.commit(); });
+  root.querySelector('#set-daynotes').addEventListener('change', (ev) => { s.showDayNotes = ev.target.checked; store.commit(); });
+
   // 教科テーブル
   root.querySelectorAll('#subjects-body tr').forEach(tr => {
     const i = Number(tr.dataset.s);
@@ -350,6 +442,118 @@ function wireSettings(root, ctx) {
       toast('❌ 接続失敗: ' + e.message, 'error', 6000);
     }
   };
+
+  root.querySelector('#gas-autobackup').addEventListener('change', (ev) => {
+    s.gas.autoBackup = ev.target.checked;
+    store.commit();
+  });
+
+  // カレンダー選択(一覧を取得してチェックボックスで選ぶ)
+  root.querySelector('#gas-cal-pick').onclick = async () => {
+    if (!ctx.gas.configured) { toast('先にGASのURLとトークンを設定してください', 'error', 4000); return; }
+    try {
+      toast('カレンダー一覧を取得中…');
+      const res = await ctx.gas.calendars();
+      const selected = new Set(s.gas.calendarIds || []);
+      const items = (res.calendars || []).map((c, i) => `
+        <div class="checkline">
+          <input type="checkbox" id="calpick-${i}" value="${esc(c.id)}" data-name="${esc(c.name)}"
+            ${selected.has(c.id) || (!selected.size && c.primary) ? 'checked' : ''}>
+          <label for="calpick-${i}">${esc(c.name)}${c.primary ? '(メイン)' : ''}</label>
+        </div>`).join('');
+      openModal(`
+        <h2>行事の取り込み元カレンダー</h2>
+        <p class="hint">チェックしたカレンダーの予定が「📆 行事を取得」で行事欄に入ります。</p>
+        <div style="max-height:50vh; overflow-y:auto;">${items || '<p class="hint">カレンダーが見つかりません</p>'}</div>
+        <div class="modal-foot">
+          <button class="btn" data-cancel>キャンセル</button>
+          <button class="btn primary" data-save>保存</button>
+        </div>
+      `, (modal, close) => {
+        modal.querySelector('[data-cancel]').onclick = close;
+        modal.querySelector('[data-save]').onclick = () => {
+          const ids = [];
+          const names = {};
+          modal.querySelectorAll('input[type="checkbox"]:checked').forEach(chk => {
+            ids.push(chk.value);
+            names[chk.value] = chk.dataset.name;
+          });
+          s.gas.calendarIds = ids;
+          s.gas.calendarNames = names;
+          store.commit();
+          close();
+          ctx.rerender();
+        };
+      });
+    } catch (e) {
+      toast('取得失敗: ' + e.message, 'error', 6000);
+    }
+  };
 }
 
 function swap(arr, i, j) { [arr[i], arr[j]] = [arr[j], arr[i]]; }
+
+/** 日課表パターンの編集モーダル。校時ごとに有効/時刻/分/係数を上書きできる */
+function openPatternEditor(pat, ctx, { isNew = false } = {}) {
+  const s = store.settings;
+  const rows = s.periods.map(p => {
+    const ov = pat.overrides?.[p.id] || {};
+    const enabled = ov.enabled !== false;
+    return `
+      <tr data-period="${esc(p.id)}">
+        <td style="text-align:center;"><input type="checkbox" name="enabled" ${enabled ? 'checked' : ''} title="この校時を行う"></td>
+        <td style="text-align:center; font-weight:600;">${esc(p.label)}</td>
+        <td><input type="time" name="start" value="${esc(ov.start ?? p.start ?? '')}"></td>
+        <td><input type="time" name="end" value="${esc(ov.end ?? p.end ?? '')}"></td>
+        <td><input type="number" name="minutes" value="${esc(ov.minutes ?? p.minutes)}" min="5" max="120"></td>
+        <td><input type="number" name="coefficient" value="${esc(ov.coefficient ?? p.coefficient)}" min="0" max="2" step="0.001"></td>
+      </tr>`;
+  }).join('');
+
+  openModal(`
+    <h2>日課表パターンの編集</h2>
+    <div class="field"><label>パターン名</label>
+      <input type="text" name="patname" value="${esc(pat.name)}" placeholder="例: 短縮日課 / B日課 / テスト時程"></div>
+    <p class="hint">チェックを外した校時はその日課の日に表示されません。分・係数は時数集計に反映されます(40分授業でも1時数と数える運用なら係数は1のまま)。</p>
+    <table class="edit-table">
+      <thead><tr><th style="width:44px;">実施</th><th style="width:54px;">校時</th><th>開始</th><th>終了</th><th style="width:60px;">分</th><th style="width:70px;">係数</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="modal-foot">
+      <button class="btn" data-cancel>キャンセル</button>
+      <button class="btn primary" data-save>保存</button>
+    </div>
+  `, (modal, close) => {
+    modal.querySelector('[data-cancel]').onclick = close;
+    modal.querySelector('[data-save]').onclick = () => {
+      pat.name = modal.querySelector('[name="patname"]').value.trim() || pat.name;
+      const overrides = {};
+      modal.querySelectorAll('tbody tr').forEach(tr => {
+        const pid = tr.dataset.period;
+        const master = s.periods.find(p => p.id === pid);
+        if (!master) return;
+        const ov = {};
+        if (!tr.querySelector('[name="enabled"]').checked) ov.enabled = false;
+        const start = tr.querySelector('[name="start"]').value;
+        const end = tr.querySelector('[name="end"]').value;
+        const minutes = Number(tr.querySelector('[name="minutes"]').value);
+        // 空欄は「変更なし」。Number('')=0 が係数0として保存されるのを防ぐ
+        const rawCoef = tr.querySelector('[name="coefficient"]').value.trim();
+        const coefficient = Number(rawCoef);
+        if (start && start !== master.start) ov.start = start;
+        if (end && end !== master.end) ov.end = end;
+        if (minutes && minutes !== master.minutes) ov.minutes = minutes;
+        if (rawCoef !== '' && isFinite(coefficient) && coefficient >= 0 && coefficient !== master.coefficient) ov.coefficient = coefficient;
+        if (Object.keys(ov).length) overrides[pid] = ov;
+      });
+      pat.overrides = overrides;
+      if (isNew) {
+        s.periodPatterns = s.periodPatterns || [];
+        s.periodPatterns.push(pat);
+      }
+      store.commit();
+      close();
+      ctx.rerender();
+    };
+  });
+}
