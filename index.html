@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>週案プランナー</title>
+<meta name="description" content="小・中学校教員向けの週案(週指導計画)作成Webアプリ。年間指導計画からの自動反映、時数集計、A4印刷対応。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>📅</text></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/print.css">
+</head>
+<body>
+<div id="app" class="app">
+  <header class="topbar screen-only">
+    <div class="brand">
+      <span class="brand-icon">📅</span>
+      <h1>週案プランナー</h1>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="week">週案</button>
+      <button class="tab" data-tab="plans">年間指導計画</button>
+      <button class="tab" data-tab="stats">時数集計</button>
+      <button class="tab" data-tab="settings">設定</button>
+      <button class="tab" data-tab="data">データ</button>
+    </nav>
+    <div class="topbar-actions">
+      <span id="save-indicator" class="save-indicator" title="自動保存の状態">●</span>
+      <button id="btn-print" class="btn primary">🖨 印刷 / PDF</button>
+    </div>
+  </header>
+
+  <main id="main" class="main screen-only"></main>
+
+  <div id="modal-layer"></div>
+  <div id="toast-layer"></div>
+</div>
+
+<!-- 印刷専用DOM(印刷時のみ表示。画面とは独立に組み立てる) -->
+<div id="print-root" class="print-only"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "shuan",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["serve.py", "8731"],
+      "port": 8731
+    }
+  ]
+}

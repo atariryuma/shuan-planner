@@ -1,0 +1,164 @@
+/* ============ 印刷専用スタイル ============
+ * 方針:
+ *  - 画面用DOMは印刷せず、#print-root に印刷専用DOMを組み立てる(@media printで切替)
+ *  - 寸法はすべて mm / pt で指定し、ビューポート単位(vh/vw)は使わない
+ *  - table-layout: fixed + overflow: hidden で「はみ出してもレイアウトは崩れない」
+ *  - @page の size / margin は print.js が印刷オプションに応じて動的に注入する
+ *  - 背景色は print-color-adjust: exact で確実に出す(モノクロ印刷でも読める濃度に抑える)
+ */
+
+#print-root {
+  --pfs: 9pt;          /* 基本フォントサイズ(印刷オプションで変更) */
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  color: #000;
+}
+
+@media print {
+  html, body { width: auto; height: auto; margin: 0 !important; padding: 0 !important; background: #fff; }
+}
+
+.print-page {
+  width: var(--page-w);          /* print.jsが向きに応じて設定(余白を引いた実寸) */
+  height: var(--page-h);
+  overflow: hidden;
+  break-after: page;
+  break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+}
+.print-page:last-child { break-after: auto; }
+
+/* ---------- ヘッダー ---------- */
+.pp-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 6mm;
+  margin-bottom: 2mm;
+  flex: 0 0 auto;
+}
+.pp-title { font-size: 14pt; font-weight: 700; letter-spacing: .25em; }
+.pp-range { font-size: calc(var(--pfs) + 1.5pt); font-weight: 600; }
+.pp-weekno { font-size: var(--pfs); color: #333; }
+.pp-school { font-size: var(--pfs); margin-left: auto; text-align: right; line-height: 1.5; }
+
+/* 押印欄 */
+.pp-stamps { display: flex; flex: 0 0 auto; }
+.pp-stamps .stamp {
+  width: 14mm; height: 16mm;
+  border: 0.3mm solid #000;
+  margin-left: -0.3mm;
+  text-align: center;
+  font-size: 7pt;
+  padding-top: 0.6mm;
+}
+
+/* ---------- 週案グリッド ---------- */
+.pp-table-wrap { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+table.pp-grid {
+  width: 100%;
+  height: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.pp-grid th, .pp-grid td {
+  border: 0.3mm solid #000;
+  vertical-align: top;
+  overflow: hidden;
+  padding: 0.8mm 1mm;
+}
+.pp-grid thead th {
+  background: #efefef;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+  text-align: center;
+  font-size: var(--pfs);
+  padding: 0.8mm 0.5mm;
+  vertical-align: middle;
+}
+.pp-grid thead .dow { font-size: calc(var(--pfs) + 1pt); font-weight: 700; }
+.pp-grid thead .date { font-weight: 400; font-size: calc(var(--pfs) - 1pt); }
+
+.pp-grid .ph {
+  background: #efefef;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+  text-align: center;
+  vertical-align: middle;
+  font-size: calc(var(--pfs) - 0.5pt);
+  padding: 0.5mm;
+}
+.pp-grid .ph .p-label { font-weight: 700; font-size: var(--pfs); display: block; }
+.pp-grid .ph .p-time { font-size: 6.5pt; color: #333; display: block; }
+
+/* 行事行 */
+.pp-grid tr.pp-events td {
+  font-size: calc(var(--pfs) - 1pt);
+  line-height: 1.3;
+  height: 8mm;
+  vertical-align: top;
+}
+.pp-grid tr.pp-events .ph { font-size: calc(var(--pfs) - 1pt); }
+
+/* 授業セル */
+.pp-grid td.pcell { line-height: 1.25; }
+.pp-entry { padding: 0.2mm 0; }
+.pp-entry + .pp-entry { border-top: 0.2mm dashed #777; margin-top: 0.4mm; padding-top: 0.5mm; }
+.pp-entry .e-line1 { display: flex; align-items: baseline; gap: 1.2mm; }
+.pp-entry .e-subj {
+  font-weight: 700;
+  font-size: var(--pfs);
+  white-space: nowrap;
+  border-left: 1.1mm solid var(--subj-color, #555);
+  padding-left: 1mm;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.pp-entry .e-scope { font-size: calc(var(--pfs) - 1.5pt); font-weight: 700; white-space: nowrap; }
+.pp-entry .e-text { font-size: calc(var(--pfs) - 1pt); }
+.pp-entry .e-note { font-size: calc(var(--pfs) - 2pt); color: #222; }
+
+/* ---------- フッター(目標・反省・時数) ---------- */
+.pp-footer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2mm;
+  margin-top: 2mm;
+}
+.pp-box {
+  border: 0.3mm solid #000;
+  padding: 1mm 1.5mm;
+  font-size: calc(var(--pfs) - 1pt);
+  line-height: 1.45;
+  overflow: hidden;
+}
+.pp-box .box-label {
+  font-size: 6.5pt;
+  font-weight: 700;
+  color: #333;
+  display: block;
+}
+/* 長文でも切らずにフッターを伸ばす(ページは固定高なのでグリッド側が縮む)。上限だけ設ける */
+.pp-goals { flex: 1; min-height: 14mm; max-height: 38mm; }
+.pp-reflection { flex: 1.4; min-height: 14mm; max-height: 38mm; }
+
+/* 週時数の小表 */
+.pp-hours { flex: 1.2; min-height: 14mm; max-height: 38mm; padding: 0; border: none; overflow: hidden; }
+table.pp-hours-table { border-collapse: collapse; width: 100%; height: 100%; table-layout: fixed; }
+.pp-hours-table th, .pp-hours-table td {
+  border: 0.3mm solid #000;
+  font-size: 6.5pt;
+  text-align: center;
+  padding: 0.3mm 0;
+  overflow: hidden;
+}
+/* 教科数が多いとき(15列超)は全教科を収めるためにさらに縮小 */
+.pp-hours.compact .pp-hours-table th, .pp-hours.compact .pp-hours-table td { font-size: 5pt; }
+.pp-hours-table th { background: #efefef; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+/* ---------- 画面でのプレビュー表示(印刷プレビューモーダル内) ---------- */
+.print-preview-host .print-page {
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0,0,0,.25);
+  margin: 0 auto 16px;
+  transform-origin: top left;
+}
