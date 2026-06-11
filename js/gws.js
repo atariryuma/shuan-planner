@@ -6,6 +6,7 @@
 
 import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, scopeKey, fmtHours, standardHoursFor } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, DAY_NAMES, esc } from './utils.js';
+import { holidayName } from './holidays.js';
 import { subjectOf, fracLabel } from './views/week.js';
 
 const MONTH_ORDER = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
@@ -99,7 +100,8 @@ export function buildWeekEmail(weekStart) {
 
   let head = `<tr><th style="${th}"></th>`;
   for (let d = 0; d < dayCount; d++) {
-    head += `<th style="${th}">${DAY_NAMES[d]} ${fmtMD(addDays(monday, d))}</th>`;
+    const hol = s.showHolidays ? holidayName(addDays(monday, d)) : null;
+    head += `<th style="${th}">${DAY_NAMES[d]} ${fmtMD(addDays(monday, d))}${hol ? `<br><span style="color:#cc0000; font-size:10px;">${esc(hol)}</span>` : ''}</th>`;
   }
   head += '</tr>';
 
@@ -110,32 +112,87 @@ export function buildWeekEmail(weekStart) {
   eventsRow += '</tr>';
 
   let body = '';
+  let filled = 0;
+  const blanks = [];
   for (const p of s.periods) {
     body += `<tr><th style="${th}">${esc(p.label)}</th>`;
     for (let d = 0; d < dayCount; d++) {
       const eff = effectivePeriod(s, week, d, p);
       const text = eff ? cellText(state, week, d, p, ordinals) : '—';
+      if (eff && p.type === 'lesson') {
+        if (text) filled++;
+        else blanks.push(`${DAY_NAMES[d]}${p.label}`);
+      }
       body += `<td style="${td}">${esc(text).replace(/\n/g, '<br>')}</td>`;
     }
     body += '</tr>';
   }
 
+  // 受け取る側(管理職)が確認しやすいサマリー: 入力済み/空白コマと週時数
+  const summary = `入力済み${filled}コマ` + (blanks.length ? ` / 空白${blanks.length}コマ(${blanks.slice(0, 8).join('・')}${blanks.length > 8 ? '…' : ''})` : ' / 空白なし');
+
+  // 週・累計の時数ミニ表(印刷フッターと同じ情報)
+  const hours = computeHours(state, weekStart);
+  const hourItems = [];
+  for (const subj of s.subjects) {
+    if (subj.parent) continue;
+    let wk = 0, tt = 0;
+    const scopes = s.mode === 'senka' ? [...s.senkaClasses.map(c => c.id), null]
+      : s.mode === 'fukushiki' ? s.fukushikiGrades : [null];
+    for (const k of [subj.key, ...s.subjects.filter(x => x.parent === subj.key).map(x => x.key)]) {
+      for (const sc of scopes) {
+        const v = hours.get(scopeKey(k, sc));
+        if (v) { wk += v.week; tt += v.total; }
+      }
+    }
+    if (wk > 0 || tt > 0) hourItems.push({ name: subj.short || subj.name, wk, tt });
+  }
+  const hoursTable = hourItems.length ? `
+    <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; margin-top:10px;">
+      <tr><th style="${th}"></th>${hourItems.map(i => `<th style="${th}">${esc(i.name)}</th>`).join('')}</tr>
+      <tr><th style="${th}">週</th>${hourItems.map(i => `<td style="${td} text-align:center;">${fmtHours(i.wk)}</td>`).join('')}</tr>
+      <tr><th style="${th}">計</th>${hourItems.map(i => `<td style="${td} text-align:center;">${fmtHours(i.tt)}</td>`).join('')}</tr>
+    </table>` : '';
+
   const title = `週指導計画 ${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日(第${weekNo}週)`;
   const html = `
   <div style="font-family:sans-serif; color:#222222; background-color:#ffffff;">
     <h2 style="font-size:16px; color:#222222;">${esc(title)}</h2>
-    <p style="font-size:13px; color:#222222;">${esc(s.schoolName || '')} ${esc(modeLabel)} ${esc(s.teacherName || '')}</p>
+    <p style="font-size:13px; color:#222222;">${esc(s.schoolName || '')} ${esc(modeLabel)} ${esc(s.teacherName || '')}<br>
+      <span style="color:#666666; font-size:12px;">${esc(summary)}</span></p>
     <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; width:100%; max-width:900px;">
       ${head}${eventsRow}${body}
     </table>
-    ${week.goals ? `<p style="font-size:12.5px; color:#222222;"><b>今週のめあて・重点:</b> ${esc(week.goals).replace(/\n/g, '<br>')}</p>` : ''}
-    ${week.reflection ? `<p style="font-size:12.5px; color:#222222;"><b>反省・次週への課題:</b> ${esc(week.reflection).replace(/\n/g, '<br>')}</p>` : ''}
+    ${week.goals ? `<p style="font-size:12.5px; color:#222222;"><b>今週のめあて:</b> ${esc(week.goals).replace(/\n/g, '<br>')}</p>` : ''}
+    ${week.reflection ? `<p style="font-size:12.5px; color:#222222;"><b>反省:</b> ${esc(week.reflection).replace(/\n/g, '<br>')}</p>` : ''}
+    ${hoursTable}
     <p style="font-size:11px; color:#888888;">週案プランナーから送信</p>
   </div>`;
 
-  const text = `${title}\n${s.schoolName || ''} ${modeLabel} ${s.teacherName || ''}\n(HTML対応のメールソフトでご覧ください)`;
-  const subject = `【週案】${monday.getMonth() + 1}/${monday.getDate()}〜 ${modeLabel} ${s.teacherName || ''}`.trim();
-  return { subject, html, text };
+  // テキスト版にもタブ区切りの表を入れる(HTML非対応メーラー対策)
+  const textRows = [title, `${s.schoolName || ''} ${modeLabel} ${s.teacherName || ''}`, summary, ''];
+  textRows.push(['', ...Array.from({ length: dayCount }, (_, d) => `${DAY_NAMES[d]}${fmtMD(addDays(monday, d))}`)].join('\t'));
+  for (const p of s.periods) {
+    const row = [p.label];
+    for (let d = 0; d < dayCount; d++) {
+      const eff = effectivePeriod(s, week, d, p);
+      row.push(eff ? cellText(state, week, d, p, ordinals, { withNote: false }).replace(/\n/g, ' / ') : '—');
+    }
+    textRows.push(row.join('\t'));
+  }
+  const text = textRows.join('\n');
+
+  // 件名: 第n週+肩書+氏名。同週の再送には再提出マークを付ける(最新版がどれか分かるように)
+  const resent = week.lastMailedAt ? `(再提出 ${new Date().getMonth() + 1}/${new Date().getDate()} ${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')})` : '';
+  const subject = `【週案】第${weekNo}週 ${monday.getMonth() + 1}/${monday.getDate()}〜 ${modeLabel} ${s.teacherName || ''}${resent}`.trim();
+  return { subject, html, text, summary };
+}
+
+/** メール送信成功後に呼ぶ(再送マーク用の送信記録) */
+export function markMailed(weekStart) {
+  const week = store.getWeek(weekStart, true);
+  week.lastMailedAt = Date.now();
+  store.commit();
 }
 
 // ---------------------------------------------------------------- シート書き出し

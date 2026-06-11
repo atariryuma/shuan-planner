@@ -14,50 +14,42 @@ export function renderDataView(root, ctx) {
   root.innerHTML = `
     <div class="settings-grid">
       <div class="panel">
-        <h2>バックアップ(JSONファイル)</h2>
+        <h2>バックアップ</h2>
         <p class="hint">
-          データはこの端末のブラウザ(localStorage)に自動保存されています。<br>
-          <b>現在: ${weekCount}週分の週案 / ${planCount}件の年間指導計画 / 約${(bytes / 1024).toFixed(0)}KB</b><br>
-          ブラウザのデータ消去や端末の変更に備えて、<b>長期休業の前など定期的にエクスポート</b>してください。
+          ${weekCount}週分・計画${planCount}件・約${(bytes / 1024).toFixed(0)}KB(この端末に自動保存)<br>
+          長期休業の前にはエクスポートを。
         </p>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn primary" id="data-export">⬇ エクスポート(保存)</button>
+          <button class="btn primary" id="data-export">⬇ エクスポート</button>
           <label class="btn" style="display:inline-block; cursor:pointer;">
-            ⬆ インポート(復元)<input type="file" id="data-import" accept=".json" style="display:none;">
+            ⬆ インポート<input type="file" id="data-import" accept=".json" style="display:none;">
           </label>
         </div>
       </div>
 
+      ${ctx.gas.configured ? `
       <div class="panel">
-        <h2>Google同期(GAS)</h2>
-        <p class="hint">
-          設定画面でGAS連携を設定すると、全データをGoogleスプレッドシートに保存して端末間で共有できます。<br>
-          ${lastSync ? `最終同期: ${new Date(lastSync).toLocaleString('ja-JP')}` : 'まだ同期していません。'}
-        </p>
+        <h2>Google連携</h2>
+        <p class="hint">${lastSync ? `最終保存: ${new Date(lastSync).toLocaleString('ja-JP')}` : 'まだ保存していません'}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn primary" id="gas-push" ${ctx.gas.configured ? '' : 'disabled'}>☁⬆ サーバーへ送信</button>
-          <button class="btn" id="gas-pull" ${ctx.gas.configured ? '' : 'disabled'}>☁⬇ サーバーから取得</button>
-          <button class="btn" id="gas-drive" ${ctx.gas.configured ? '' : 'disabled'} title="Googleドライブの「週案バックアップ」フォルダにJSONを保存(最新20世代)">🗂 Driveへバックアップ</button>
-          <button class="btn" id="gas-report" ${ctx.gas.configured ? '' : 'disabled'} title="教科×月の時数レポートをスプレッドシートに書き出す">📈 時数レポートを出力</button>
+          <button class="btn primary" id="gas-push">⬆ Googleへ保存</button>
+          <button class="btn" id="gas-pull">⬇ Googleから取得</button>
+          <button class="btn" id="gas-drive">🗂 ドライブへバックアップ</button>
+          <button class="btn" id="gas-report">📈 時数レポート出力</button>
         </div>
-        ${ctx.gas.configured ? '' : '<p class="hint" style="margin-top:8px;">→ 「設定」タブでGASのURLとトークンを入力すると使えます。</p>'}
-      </div>
+      </div>` : ''}
 
       <div class="panel">
         <h2>このアプリについて</h2>
         <p class="hint" style="font-size:13px;">
-          <b>週案プランナー</b> — 小・中学校教員のための週指導計画作成ツール。<br>
-          ・データはすべて<b>この端末のブラウザ内</b>に保存されます(サーバーには送信されません。GAS同期を設定した場合のみ、自分のGoogleアカウントへ送信)。<br>
-          ・児童生徒の個人名は入力せず、イニシャル等での運用をおすすめします。<br>
-          ・印刷は Chrome / Edge を推奨します。<br>
-          ・標準授業時数は学校教育法施行規則 別表第一・第二(現行学習指導要領)に基づきます。
+          データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。<br>
+          児童生徒の個人名は入力しない運用を推奨します。
         </p>
       </div>
 
       <div class="panel">
-        <h2 style="color:var(--danger)">危険な操作</h2>
-        <p class="hint">すべての週案・計画・設定を削除して初期状態に戻します。実行前に自動でエクスポートを促します。</p>
-        <button class="btn danger" id="data-reset">全データを消去して初期化</button>
+        <h2 style="color:var(--danger)">初期化</h2>
+        <button class="btn danger" id="data-reset">全データを消去</button>
       </div>
     </div>
   `;
@@ -87,7 +79,8 @@ export function renderDataView(root, ctx) {
     }
   });
 
-  root.querySelector('#gas-push').onclick = async () => {
+  const gasPush = root.querySelector('#gas-push');
+  if (gasPush) gasPush.onclick = async () => {
     try {
       toast('送信中…(数秒かかります)');
       let res = await ctx.gas.push(store.state);
@@ -117,7 +110,8 @@ export function renderDataView(root, ctx) {
     }
   };
 
-  root.querySelector('#gas-drive').onclick = async () => {
+  const gasDrive = root.querySelector('#gas-drive');
+  if (gasDrive) gasDrive.onclick = async () => {
     try {
       toast('Driveへバックアップ中…');
       const res = await ctx.gas.driveBackup(store.state);
@@ -127,7 +121,8 @@ export function renderDataView(root, ctx) {
     }
   };
 
-  root.querySelector('#gas-report').onclick = async () => {
+  const gasReport = root.querySelector('#gas-report');
+  if (gasReport) gasReport.onclick = async () => {
     try {
       toast('時数レポートを作成中…');
       const { buildHoursReport } = await import('../gws.js');
@@ -141,7 +136,8 @@ export function renderDataView(root, ctx) {
     }
   };
 
-  root.querySelector('#gas-pull').onclick = async () => {
+  const gasPull = root.querySelector('#gas-pull');
+  if (gasPull) gasPull.onclick = async () => {
     try {
       toast('取得中…(数秒かかります)');
       const res = await ctx.gas.pull();
@@ -165,13 +161,28 @@ export function renderDataView(root, ctx) {
     }
   };
 
-  root.querySelector('#data-reset').onclick = async () => {
-    const ok1 = await confirmDialog('全データを消去します。先にバックアップ(エクスポート)しましたか?', { okLabel: 'エクスポート済み・次へ', danger: true });
-    if (!ok1) { exportJSON(); return; }
-    const ok2 = await confirmDialog('本当にすべての週案・計画・設定を削除しますか? この操作は取り消せません。', { okLabel: 'すべて削除', danger: true });
-    if (!ok2) return;
-    localStorage.removeItem('shuan-planner-data');
-    location.reload();
+  // 3択(キャンセルは何もしない。「キャンセルでファイルが落ちてくる」隠れ副作用は持たない)
+  root.querySelector('#data-reset').onclick = () => {
+    const wc = Object.keys(store.state.weeks).length;
+    openModal(`
+      <h2>全データを消去</h2>
+      <p style="font-size:14px; line-height:1.7;">${wc}週分の週案・計画・設定をすべて削除します。<br>この操作は取り消せません。</p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn" data-act="save">バックアップを保存してから消去</button>
+        <button class="btn danger" data-act="wipe">保存せずに消去</button>
+        <button class="btn primary" data-act="cancel">キャンセル</button>
+      </div>
+    `, (modal, close) => {
+      modal.querySelector('[data-act="cancel"]').onclick = close;
+      const wipe = () => {
+        localStorage.removeItem('shuan-planner-data');
+        localStorage.removeItem('shuan-onboarded');
+        localStorage.removeItem('shuan-card-done');
+        location.reload();
+      };
+      modal.querySelector('[data-act="save"]').onclick = () => { exportJSON(); setTimeout(wipe, 600); };
+      modal.querySelector('[data-act="wipe"]').onclick = wipe;
+    });
   };
 }
 

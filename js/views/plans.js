@@ -26,16 +26,12 @@ export function renderPlansView(root, ctx) {
   root.innerHTML = `
     <div class="panel">
       <h2>年間指導計画</h2>
-      <p class="hint">
-        教科ごとに単元と時数を登録すると、週案のコマに<b>単元名・本時の内容が自動で反映</b>されます(進度は入力済みのコマ数から自動計算)。<br>
-        教科書会社(東京書籍・光村図書・啓林館など)の年間指導計画Excelからコピーして貼り付けるか、CSVで取り込めます。
-        ※各社の指導計画データは著作物のため、ご自身でダウンロードしてご利用ください。
-      </p>
+      <p class="hint">単元を登録すると、週案のコマに単元名・内容が自動で入ります。</p>
       <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
-        <button class="btn primary" id="plan-new">＋ 新しい計画を作成</button>
-        <button class="btn" id="plan-import">📥 Excel貼り付け / CSVから取り込み</button>
+        <button class="btn primary" id="plan-new">＋ 作成</button>
+        <button class="btn" id="plan-import">📥 取り込み</button>
       </div>
-      <div class="plan-list">${items || '<p class="hint">まだ計画がありません。「＋ 新しい計画を作成」または「📥 取り込み」から始めてください。</p>'}</div>
+      <div class="plan-list">${items || '<p class="hint">教科書会社サイトの年間指導計画(Excel)をコピーして「📥 取り込み」に貼り付けるのが早道です。</p>'}</div>
     </div>
   `;
 
@@ -45,9 +41,14 @@ export function renderPlansView(root, ctx) {
     const plan = state.plans.find(p => p.id === el.dataset.id);
     el.querySelector('[data-edit]').onclick = () => openPlanEditor(plan, ctx);
     el.querySelector('[data-del]').onclick = async () => {
-      const ok = await confirmDialog(`「${plan.units.length}単元」を含むこの計画を削除しますか?`, { okLabel: '削除', danger: true });
+      const subjName = store.settings.subjects.find(x => x.key === plan.subjectKey)?.name || plan.subjectKey;
+      const ok = await confirmDialog(
+        `${subjName}${plan.grade ? `(${plan.grade}年)` : ''} の計画(${plan.units.length}単元)を削除しますか?\n週案の自動反映が消えます。`,
+        { okLabel: '削除', danger: true });
       if (!ok) return;
+      store.snapshot('計画の削除');
       store.removePlan(plan.id);
+      toast('計画を削除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     };
   });

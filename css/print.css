@@ -159,8 +159,30 @@ table.pp-hours-table { border-collapse: collapse; width: 100%; height: 100%; tab
   padding: 0.3mm 0;
   overflow: hidden;
 }
-/* 教科数が多いとき(15列超)は全教科を収めるためにさらに縮小 */
-.pp-hours.compact .pp-hours-table th, .pp-hours.compact .pp-hours-table td { font-size: 5pt; }
+/* 管理職の指導・助言欄 */
+.pp-manager { flex: 1; min-height: 14mm; max-height: 38mm; }
+
+/* ---------- 時数集計の印刷(A4縦) ---------- */
+.ps-h3 { font-size: 11pt; margin: 4mm 0 1.5mm; }
+table.ps-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-bottom: 4mm;
+  break-inside: avoid;
+}
+.ps-table th, .ps-table td {
+  border: 0.3mm solid #000;
+  font-size: 8pt;
+  text-align: center;
+  padding: 0.8mm 0.5mm;
+  overflow: hidden;
+}
+.ps-table th {
+  background: #efefef;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
 .pp-hours-table th { background: #efefef; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 
 /* ---------- 画面でのプレビュー表示(印刷プレビューモーダル内) ---------- */

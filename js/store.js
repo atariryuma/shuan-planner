@@ -20,7 +20,7 @@ export const SCHEMA_VERSION = 1;
 export function defaultPeriods(schoolType) {
   const base = schoolType === 'junior' ? 50 : 45;
   const p = [];
-  p.push({ id: 'mod', label: '朝', type: 'module', minutes: 15, coefficient: round3(15 / base), start: '08:15', end: '08:30' });
+  p.push({ id: 'mod', label: '朝学習', type: 'module', minutes: 15, coefficient: round3(15 / base), start: '08:15', end: '08:30' });
   const times = schoolType === 'junior'
     ? [['08:50', '09:40'], ['09:50', '10:40'], ['10:50', '11:40'], ['11:50', '12:40'], ['13:30', '14:20'], ['14:30', '15:20']]
     : [['08:50', '09:35'], ['09:40', '10:25'], ['10:45', '11:30'], ['11:35', '12:20'], ['13:40', '14:25'], ['14:30', '15:15']];
@@ -57,7 +57,11 @@ export function defaultSettings(schoolType = 'elementary') {
     showHolidays: true,   // 祝日の表示
     subjects: defaultSubjects(schoolType),
     hoursBase: 35,            // 年間授業週数(時数の進捗目安に使用)
+    senkaSubject: '',         // 専科: 担当教科(新規コマの既定教科)
+    uiScale: 'normal',        // 画面の文字サイズ: normal | large
     stampBoxes: ['校長', '教頭', '担任'],
+    printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
+    printManagerBox: false,   // 印刷に管理職の指導・助言欄を出す
     printOrientation: 'landscape',
     printLayout: 'periods',   // periods=縦軸が校時(バーチカル型) | days=縦軸が曜日(Excel型)
     printShowTimes: false,
@@ -94,7 +98,7 @@ export function defaultState() {
     settings: defaultSettings(),
     plans: [],
     weeks: {},
-    baseTimetable: { cells: {} },   // 基本時間割(週作成時に流し込むひな形)
+    baseTimetables: [],   // 基本時間割(名前付き・最大3件。週へワンタッチで流し込むひな形)
   };
 }
 
@@ -107,7 +111,26 @@ class Store {
     this.state = this.load();
     this.listeners = new Set();
     this._saveTimer = null;
+    this._undo = null; // 直前の破壊的操作のスナップショット {json, label}
   }
+
+  /** 破壊的操作の直前に呼ぶ。undo()で1回だけ巻き戻せる */
+  snapshot(label) {
+    this._undo = { json: JSON.stringify(this.state), label };
+  }
+
+  /** 直前のスナップショットへ巻き戻す。戻り値は操作ラベル(なければnull) */
+  undo() {
+    if (!this._undo) return null;
+    const { json, label } = this._undo;
+    this._undo = null;
+    this.state = migrate(JSON.parse(json));
+    this.persist();
+    this.notify();
+    return label;
+  }
+
+  get canUndo() { return !!this._undo; }
 
   load() {
     try {
@@ -196,18 +219,33 @@ class Store {
     return true;
   }
 
-  /** この週の時間割を基本時間割として登録(内容・備考は持たない) */
-  saveAsBaseTimetable(weekStart) {
+  /**
+   * この週の時間割を基本時間割として登録(内容・備考は持たない)。
+   * 名前付きで最大3件まで(A週/B週・学期替えなどに対応)。
+   * nameを省略すると先頭(基本)を上書きする。
+   */
+  saveAsBaseTimetable(weekStart, name = null) {
     const src = this.state.weeks[weekStart];
     if (!src || !Object.keys(src.cells).length) return false;
-    this.state.baseTimetable = { cells: cloneCells(src.cells, false) };
+    const list = this.state.baseTimetables;
+    const cells = cloneCells(src.cells, false);
+    if (name) {
+      const existing = list.find(b => b.name === name);
+      if (existing) existing.cells = cells;
+      else if (list.length < 3) list.push({ id: uid(), name, cells });
+      else return false;
+    } else if (list.length) {
+      list[0].cells = cells;
+    } else {
+      list.push({ id: uid(), name: '基本', cells });
+    }
     this.commit();
     return true;
   }
 
-  /** 基本時間割をこの週へ流し込む */
-  applyBaseTimetable(weekStart) {
-    const base = this.state.baseTimetable;
+  /** 基本時間割をこの週へ流し込む(idを省略すると先頭) */
+  applyBaseTimetable(weekStart, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     if (!base || !Object.keys(base.cells).length) return false;
     const w = this.getWeek(weekStart, true);
     w.cells = cloneCells(base.cells, false);
@@ -216,7 +254,7 @@ class Store {
   }
 
   get hasBaseTimetable() {
-    return Object.keys(this.state.baseTimetable?.cells || {}).length > 0;
+    return (this.state.baseTimetables || []).length > 0;
   }
 
   // -------- plans
@@ -305,6 +343,8 @@ export function newEntry() {
     advance: null,     // 進度カウント(null=校時種別の既定に従う)
     fraction: 1,       // 分数時数: このコマに占める割合(1, 2/3, 1/2, 1/3)
     cancelled: false,  // 中止・未実施(時数・進度とも除外、表示は取り消し線)
+    cancelledText: '', // 中止時点の予定内容のスナップショット(提出書類に「何が中止か」を残す)
+    guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
   };
 }
 
@@ -368,8 +408,13 @@ function migrate(data) {
   if (!Array.isArray(data.settings.termEnds) || !data.settings.termEnds.length) {
     data.settings.termEnds = data.settings.termSystem === 2 ? ['09-30'] : ['07-31', '12-31'];
   }
-  if (!data.baseTimetable || typeof data.baseTimetable !== 'object' || typeof data.baseTimetable.cells !== 'object') {
-    data.baseTimetable = { cells: {} };
+  // 旧形式(単一baseTimetable)→ 名前付き配列へ移行
+  if (!Array.isArray(data.baseTimetables)) {
+    const old = data.baseTimetable;
+    data.baseTimetables = (old && typeof old.cells === 'object' && Object.keys(old.cells).length)
+      ? [{ id: uid(), name: '基本', cells: old.cells }]
+      : [];
+    delete data.baseTimetable;
   }
   data.updatedAt = Number(data.updatedAt) || Date.now();
   return data;
@@ -547,6 +592,7 @@ export function computeMonthlyHours(state, refWeekStart) {
 
   for (const wk of Object.keys(weeks).sort()) {
     if (wk < range.from || wk >= range.to) continue;
+    if (wk > refWeekStart) break; // 表示中の週まで(computeHoursと同じ基準に統一)
     const week = weeks[wk];
     const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {

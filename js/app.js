@@ -7,9 +7,10 @@ import { renderPlansView } from './views/plans.js';
 import { renderStatsView } from './views/stats.js';
 import { renderSettingsView } from './views/settings.js';
 import { renderDataView } from './views/data.js';
-import { openPrintDialog, buildPrintDOM } from './print.js';
+import { renderOnboarding, needsOnboarding } from './views/onboarding.js';
+import { openPrintDialog, buildPrintDOM, buildStatsPrintDOM } from './print.js';
 import { fmtDate, mondayOf, parseDate } from './utils.js';
-import { toast, closeAllModals } from './ui.js';
+import { toast, closeAllModals, wireInfoPopovers } from './ui.js';
 
 const VIEWS = {
   week: renderWeekView,
@@ -23,6 +24,8 @@ const ctx = {
   currentTab: 'week',
   weekStart: fmtDate(mondayOf(new Date())),
   swapSource: null,   // タップ入替モードの移動元 {day, period}
+  paint: { open: false, subject: null, scope: null }, // 連続入力モード
+  lastScope: null,    // 専科: 直前に選んだ学級(次のコマの既定値)
   gas: null,
   getWeekStart: () => ctx.weekStart,
   setWeekStart(dateStr) {
@@ -36,6 +39,13 @@ ctx.gas = new GasClient(() => store.settings.gas);
 
 function rerender() {
   const main = document.getElementById('main');
+  document.documentElement.classList.toggle('ui-large', store.settings.uiScale === 'large');
+  if (needsOnboarding()) {
+    document.querySelector('.topbar').style.display = 'none';
+    renderOnboarding(main, ctx);
+    return;
+  }
+  document.querySelector('.topbar').style.display = '';
   const view = VIEWS[ctx.currentTab] || renderWeekView;
   view(main, ctx);
 }
@@ -47,17 +57,57 @@ document.getElementById('tabs').addEventListener('click', (ev) => {
   if (!btn) return;
   ctx.currentTab = btn.dataset.tab;
   ctx.swapSource = null;
+  ctx.paint.subject = null; // タブ移動で連続入力モードを自動解除(誤配置防止)
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === btn));
   rerender();
 });
 
+// Escで連続入力・移動モードを解除
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Escape') return;
+  if (ctx.paint.subject || ctx.swapSource) {
+    ctx.paint.subject = null;
+    ctx.swapSource = null;
+    rerender();
+  }
+});
+
 // ---------------------------------------------------------------- 印刷
 
-document.getElementById('btn-print').addEventListener('click', () => openPrintDialog(ctx));
+// 分割ボタン: 主ボタン=前回設定で即印刷 / ⚙=オプション
+document.getElementById('btn-print').addEventListener('click', async () => {
+  const { printWeek } = await import('./print.js');
+  printWeek(ctx.weekStart);
+});
+document.getElementById('btn-print-opts').addEventListener('click', () => openPrintDialog(ctx));
 
-// Ctrl+P 直接印刷にも対応: 印刷直前に必ず最新の印刷DOMを組み立てる
+// Ctrl+P 直接印刷にも対応: 表示中のタブに応じた印刷DOMを組み立てる
 window.addEventListener('beforeprint', () => {
-  try { buildPrintDOM(ctx.weekStart); } catch (e) { console.error(e); }
+  try {
+    if (ctx.currentTab === 'stats') buildStatsPrintDOM(ctx.weekStart);
+    else buildPrintDOM(ctx.weekStart);
+  } catch (e) { console.error(e); }
+});
+
+// ---------------------------------------------------------------- グローバル操作
+
+// 「その他 ▾」メニューを外側クリックで閉じる(OS標準の挙動に揃える)
+document.addEventListener('click', (ev) => {
+  document.querySelectorAll('details.menu[open]').forEach(d => {
+    if (!d.contains(ev.target)) d.removeAttribute('open');
+  });
+});
+
+// Ctrl+Z / Cmd+Z で直前の破壊的操作を元に戻す(テキスト入力中はブラウザ標準に任せる)
+document.addEventListener('keydown', (ev) => {
+  if (!(ev.key === 'z' && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey)) return;
+  const t = document.activeElement;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  if (!store.canUndo) return;
+  ev.preventDefault();
+  closeAllModals(); // 開いているモーダルは旧stateを参照しているため先に閉じる
+  const label = store.undo();
+  if (label) { toast(`${label}を元に戻しました`); rerender(); }
 });
 
 // ---------------------------------------------------------------- 保存まわり
@@ -65,13 +115,18 @@ window.addEventListener('beforeprint', () => {
 const indicator = document.getElementById('save-indicator');
 let indicatorTimer = null;
 store.subscribe(() => {
+  indicator.textContent = '保存中…';
   indicator.classList.add('saving');
-  indicator.title = '保存中…';
   clearTimeout(indicatorTimer);
   indicatorTimer = setTimeout(() => {
     indicator.classList.remove('saving');
-    indicator.title = '保存済み ' + new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    indicator.textContent = '✓ 保存済み';
   }, 700);
+  // 初回入力時に一度だけ自動保存を知らせる(保存ボタンを探させない)
+  if (!localStorage.getItem('shuan-save-hinted')) {
+    localStorage.setItem('shuan-save-hinted', '1');
+    toast('入力は自動で保存されます');
+  }
 });
 
 // タブ非表示・ページ離脱時に即時保存(beforeunloadはモバイルで発火しないため使わない)
@@ -121,6 +176,7 @@ if ('serviceWorker' in navigator
 
 // ---------------------------------------------------------------- 初期描画
 
+wireInfoPopovers();
 rerender();
 
 // デバッグ・コンソール操作用フック(開発者ツールから状態を確認できる)

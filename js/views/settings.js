@@ -1,7 +1,7 @@
 /** 設定ビュー: 基本情報・担任形態・時程(校時)・教科・印刷・GAS連携 */
 
-import { store, defaultPeriods, defaultSubjects } from '../store.js';
-import { openModal, toast, confirmDialog, selectHTML } from '../ui.js';
+import { store, defaultPeriods, defaultSubjects, cellKey } from '../store.js';
+import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid } from '../utils.js';
 
 export function renderSettingsView(root, ctx) {
@@ -15,24 +15,36 @@ export function renderSettingsView(root, ctx) {
 
     <div class="panel">
       <h2>基本情報</h2>
-      <div class="field"><label>学校名(印刷時に表示)</label>
+      <div class="field"><label>学校名</label>
         <input type="text" data-set="schoolName" value="${esc(s.schoolName)}" placeholder="○○市立○○小学校"></div>
-      <div class="field"><label>氏名(印刷時に表示)</label>
-        <input type="text" data-set="teacherName" value="${esc(s.teacherName)}" placeholder=""></div>
+      <div class="field"><label>氏名</label>
+        <input type="text" data-set="teacherName" value="${esc(s.teacherName)}"></div>
+      ${s.mode === 'homeroom' ? `
+      <div class="field"><label>学年・組</label>
+        <div class="inline" style="align-items:center;">
+          ${selectHTML('grade', gradeOpts, s.grade, { attrs: 'data-structural="grade" style="max-width:110px;"' })}
+          <input type="text" data-set="className" value="${esc(s.className)}" placeholder="1" style="max-width:80px;">
+          <span class="hint" id="class-preview" style="white-space:nowrap;">→ 印刷: ${s.grade}年${esc(s.className || '')}</span>
+        </div>
+      </div>` : ''}
       <div class="field"><label>年度</label>
         <input type="number" data-set="fiscalYear" value="${esc(s.fiscalYear)}" min="2020" max="2099"></div>
-      <div class="field"><label>学校種</label>
+      <div class="field"><label>学校種${infoHTML('変更すると教科・時程が既定値にリセットされます')}</label>
         ${selectHTML('schoolType', [
           { value: 'elementary', label: '小学校(45分授業)' },
           { value: 'junior', label: '中学校(50分授業)' },
         ], s.schoolType, { attrs: 'data-structural="schoolType"' })}
-        <p class="hint">変更すると教科・時程が既定値にリセットされます。</p>
       </div>
       <div class="checkline"><input type="checkbox" id="set-sat" ${s.saturday ? 'checked' : ''}>
-        <label for="set-sat">土曜授業あり(週6日表示)</label></div>
-      <div class="field"><label>年間授業週数(時数の必要ペース計算に使用)</label>
-        <input type="number" data-set="hoursBase" value="${esc(s.hoursBase)}" min="30" max="45">
-        <p class="hint">小1は34週、その他は35週が標準。実際の運用(約40週)に合わせてもOK。</p></div>
+        <label for="set-sat">土曜授業あり</label></div>
+      <div class="field"><label>年間授業週数${infoHTML('時数の必要ペース計算に使用。小1=34週、その他35週が標準')}</label>
+        <input type="number" data-set="hoursBase" value="${esc(s.hoursBase)}" min="30" max="45"></div>
+      <div class="field"><label>画面の文字サイズ</label>
+        ${selectHTML('uiScale', [
+          { value: 'normal', label: '標準' },
+          { value: 'large', label: '大' },
+        ], s.uiScale)}
+      </div>
     </div>
 
     <div class="panel">
@@ -53,10 +65,8 @@ export function renderSettingsView(root, ctx) {
 
     <div class="panel">
       <h2>時程(校時)</h2>
-      <p class="hint">「モジュール」は朝学習などの短時間学習の枠です。係数は1コマを何単位時間として数えるか
-        (15分モジュール=1/3 → 0.333、教育課程外の朝活動なら 0)。</p>
       <table class="edit-table">
-        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数</th><th class="ops"></th></tr></thead>
+        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=0.333、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
         <tbody id="periods-body">
           ${s.periods.map((p, i) => `
             <tr data-p="${i}">
@@ -155,46 +165,46 @@ export function renderSettingsView(root, ctx) {
         </div>
       </div>
       <div class="checkline"><input type="checkbox" id="set-ptime" ${s.printShowTimes ? 'checked' : ''}>
-        <label for="set-ptime">校時の時刻を印刷する</label></div>
+        <label for="set-ptime">校時の時刻</label></div>
       <div class="checkline"><input type="checkbox" id="set-phours" ${s.printShowHours ? 'checked' : ''}>
-        <label for="set-phours">週の時数集計表を印刷する</label></div>
-      <div class="field"><label>押印欄(空欄にすると非表示。「、」区切りで複数)</label>
+        <label for="set-phours">週の時数表</label></div>
+      <div class="checkline"><input type="checkbox" id="set-pmanager" ${s.printManagerBox ? 'checked' : ''}>
+        <label for="set-pmanager">管理職の記入欄</label>${infoHTML('「指導・助言」の空欄を印刷します(押印・コメント運用の学校向け)')}</div>
+      <div class="field"><label>肩書の表記${infoHTML('印刷ヘッダーの「5年1組」の部分。空欄なら自動(学級担任=学年組/専科=担当教科/中学=教科担任)')}</label>
+        <input type="text" data-set="printRole" value="${esc(s.printRole || '')}" placeholder="自動"></div>
+      <div class="field"><label>押印欄${infoHTML('「、」区切りで複数。空欄にすると非表示')}</label>
         <input type="text" data-set="stampBoxesText" value="${esc((s.stampBoxes || []).join('、'))}" placeholder="校長、教頭、担任"></div>
-      <p class="hint">印刷プレビューは画面右上の「🖨 印刷 / PDF」から。PDF保存はブラウザの印刷ダイアログで「PDFに保存」を選びます。</p>
     </div>
 
     <div class="panel">
-      <h2>Google連携(GAS) <span class="hint" style="font-weight:normal;">任意</span></h2>
-      <p class="hint">
-        Google Apps Script(無料)をバックエンドにすると、<b>複数端末での同期</b>と<b>Googleカレンダーからの行事取り込み</b>が使えます。
-        セットアップ手順は配布物の <code>docs/gas-setup.md</code>(リポジトリ内)を参照してください。設定しなくても全機能オフラインで動作します。
-      </p>
-      <div class="field"><label>GAS WebアプリURL(/exec で終わるURL)</label>
-        <input type="text" data-gas="url" value="${esc(s.gas.url)}" placeholder="https://script.google.com/macros/s/XXXX/exec"></div>
-      <div class="field"><label>同期トークン(GAS側のスクリプトプロパティ TOKEN と同じ値)</label>
-        <input type="password" data-gas="token" value="${esc(s.gas.token)}"></div>
-      <div style="display:flex; gap:8px;">
+      <details ${s.gas.url ? 'open' : ''}>
+        <summary style="cursor:pointer;"><h2 style="display:inline;">Google連携</h2>
+          <span class="hint">任意・未設定でも全機能使えます</span></summary>
+        <p class="hint" style="margin-top:10px;">端末間の同期・カレンダー連携・メール提出が使えます。
+          <a href="https://github.com/" id="gas-doc-link" target="_blank" rel="noopener">設定手順(約10分)</a></p>
+        <div class="field"><label>WebアプリURL${infoHTML('手順書の通りにデプロイすると表示される /exec で終わるURL')}</label>
+          <input type="text" data-gas="url" value="${esc(s.gas.url)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
+        <div class="field"><label>同期トークン${infoHTML('手順書の手順2で自分で決めた合言葉')}</label>
+          <input type="password" data-gas="token" value="${esc(s.gas.token)}"></div>
         <button class="btn" id="gas-test">接続テスト</button>
-      </div>
 
-      <h3>行事の取り込み元カレンダー</h3>
-      <p class="hint">「📆 行事を取得」で読むカレンダーを選びます(未設定ならメインカレンダー)。学校行事用の共有カレンダーを追加するのがおすすめ。</p>
-      <div id="gas-cal-list">
-        ${(s.gas.calendarIds || []).length
-          ? (s.gas.calendarIds || []).map(id => `<span class="subj-chip" style="background:#5d8aa8; margin:2px 4px 2px 0;">${esc(s.gas.calendarNames?.[id] || id)}</span>`).join('')
-          : '<span class="hint">メインカレンダー(既定)</span>'}
-      </div>
-      <button class="btn small" id="gas-cal-pick" style="margin-top:6px;">カレンダーを選ぶ…</button>
+        <h3>行事の取り込み元</h3>
+        <div id="gas-cal-list">
+          ${(s.gas.calendarIds || []).length
+            ? (s.gas.calendarIds || []).map(id => `<span class="subj-chip" style="background:#5d8aa8; margin:2px 4px 2px 0;">${esc(s.gas.calendarNames?.[id] || id)}</span>`).join('')
+            : '<span class="hint">メインカレンダー</span>'}
+        </div>
+        <button class="btn small" id="gas-cal-pick" style="margin-top:6px;">カレンダーを選ぶ</button>
 
-      <h3>メール提出・バックアップ</h3>
-      <div class="field"><label>週案のメール提出先(管理職など)</label>
-        <input type="text" data-gas="mailTo" value="${esc(s.gas.mailTo || '')}" placeholder="kocho@example.jp"></div>
-      <div class="field"><label>メールの差出人表示名(任意)</label>
-        <input type="text" data-gas="senderName" value="${esc(s.gas.senderName || '')}" placeholder="${esc(s.teacherName || '○○')}"></div>
-      <div class="checkline"><input type="checkbox" id="gas-autobackup" ${s.gas.autoBackup ? 'checked' : ''}>
-        <label for="gas-autobackup">「サーバーへ送信」時にGoogleドライブへもバックアップする(最新20世代を保持)</label></div>
-
-      <p class="hint" style="margin-top:8px;">⚠ 児童生徒の個人名などの個人情報は同期データに含めない運用を推奨します(備考はイニシャル等で)。</p>
+        <h3>メール提出</h3>
+        <div class="field"><label>提出先</label>
+          <input type="text" data-gas="mailTo" value="${esc(s.gas.mailTo || '')}" placeholder="kocho@example.jp"></div>
+        <div class="field"><label>差出人名</label>
+          <input type="text" data-gas="senderName" value="${esc(s.gas.senderName || '')}" placeholder="${esc(s.teacherName || '')}"></div>
+        <div class="checkline"><input type="checkbox" id="gas-autobackup" ${s.gas.autoBackup ? 'checked' : ''}>
+          <label for="gas-autobackup">保存時にドライブへ自動バックアップ</label>${infoHTML('Googleドライブの「週案バックアップ」フォルダに最新20世代を保持します')}</div>
+        <p class="hint" style="margin-top:8px;">児童生徒の個人名は入力しない運用を推奨します。</p>
+      </details>
     </div>
   </div>
   `;
@@ -204,11 +214,7 @@ export function renderSettingsView(root, ctx) {
 
 function modeDetailHTML(s, gradeOpts) {
   if (s.mode === 'homeroom') {
-    return `
-      <div style="display:flex; gap:10px;">
-        <div class="field" style="flex:1;"><label>学年</label>${selectHTML('grade', gradeOpts, s.grade, { attrs: 'data-structural="grade"' })}</div>
-        <div class="field" style="flex:1;"><label>組(任意)</label><input type="text" data-set="className" value="${esc(s.className)}" placeholder="1組"></div>
-      </div>`;
+    return `<p class="hint">学年・組は「基本情報」で設定します。</p>`;
   }
   if (s.mode === 'fukushiki') {
     return `
@@ -221,16 +227,24 @@ function modeDetailHTML(s, gradeOpts) {
   }
   // senka
   const gradeMax = s.schoolType === 'junior' ? 3 : 6;
+  const clsPlaceholder = s.schoolType === 'junior' ? '2年1組' : '5年1組';
   return `
-    <p class="hint">担当する学級を登録すると、コマごとに学級を選べるようになり、<b>学級ごとに単元の進度を自動追跡</b>します(行事などで学級間の進度がずれてもOK)。</p>
+    <div class="field"><label>担当教科${infoHTML('新しいコマに自動でこの教科が入ります')}</label>
+      ${selectHTML('senkaSubject', s.subjects.map(x => ({ value: x.key, label: x.name })), s.senkaSubject || '', { allowEmpty: '(なし)' })}
+    </div>
+    <p class="hint">学級ごとに単元の進度を自動追跡します。</p>
     <table class="edit-table">
-      <thead><tr><th>学級名</th><th style="width:90px;">学年</th><th class="ops"></th></tr></thead>
+      <thead><tr><th>学級名</th><th style="width:90px;">学年</th><th class="ops" style="width:104px;"></th></tr></thead>
       <tbody id="senka-body">
         ${s.senkaClasses.map((c, i) => `
           <tr data-c="${i}">
-            <td><input type="text" name="label" value="${esc(c.label)}" placeholder="5年1組"></td>
+            <td><input type="text" name="label" value="${esc(c.label)}" placeholder="${clsPlaceholder}"></td>
             <td>${selectHTML('grade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), c.grade)}</td>
-            <td class="ops"><button class="btn small ghost danger" data-crm>×</button></td>
+            <td class="ops">
+              <button class="btn small ghost" data-cup>↑</button>
+              <button class="btn small ghost" data-cdown>↓</button>
+              <button class="btn small ghost danger" data-crm>×</button>
+            </td>
           </tr>`).join('')}
       </tbody>
     </table>
@@ -281,6 +295,23 @@ function wireSettings(root, ctx) {
   root.querySelector('#set-sat').addEventListener('change', (ev) => { s.saturday = ev.target.checked; store.commit(); ctx.rerender(); });
   root.querySelector('#set-ptime').addEventListener('change', (ev) => { s.printShowTimes = ev.target.checked; store.commit(); });
   root.querySelector('#set-phours').addEventListener('change', (ev) => { s.printShowHours = ev.target.checked; store.commit(); });
+  root.querySelector('#set-pmanager').addEventListener('change', (ev) => { s.printManagerBox = ev.target.checked; store.commit(); });
+  root.querySelector('[name="uiScale"]').addEventListener('change', (ev) => {
+    s.uiScale = ev.target.value;
+    document.documentElement.classList.toggle('ui-large', s.uiScale === 'large');
+    store.commit();
+  });
+  // 学級表記のライブプレビュー(「2年2年1組」の二重表記を構造的に防ぐ)
+  const classInput = root.querySelector('[data-set="className"]');
+  const classPreview = root.querySelector('#class-preview');
+  if (classInput && classPreview) {
+    classInput.addEventListener('input', () => {
+      classPreview.textContent = `→ 印刷: ${s.grade}年${classInput.value.trim()}`;
+    });
+  }
+  // 設定手順リンク(GitHub Pages配信時は同リポジトリのdocsへ)
+  const docLink = root.querySelector('#gas-doc-link');
+  if (docLink) docLink.href = new URL('docs/gas-setup.md', location.href.replace(/[^/]*$/, '')).href;
   root.querySelector('[name="printOrientation"]').addEventListener('change', (ev) => { s.printOrientation = ev.target.value; store.commit(); });
   root.querySelector('[name="printFontSize"]').addEventListener('change', (ev) => { s.printFontSize = ev.target.value; store.commit(); });
 
@@ -297,6 +328,10 @@ function wireSettings(root, ctx) {
     };
   });
 
+  // 専科: 担当教科
+  const senkaSubjSel = root.querySelector('[name="senkaSubject"]');
+  if (senkaSubjSel) senkaSubjSel.addEventListener('change', () => { s.senkaSubject = senkaSubjSel.value; store.commit(); });
+
   // 専科学級テーブル
   const senkaBody = root.querySelector('#senka-body');
   if (senkaBody) {
@@ -305,15 +340,35 @@ function wireSettings(root, ctx) {
       tr.querySelector('[name="label"]').addEventListener('change', (ev) => { s.senkaClasses[i].label = ev.target.value; store.commit(); });
       tr.querySelector('[name="grade"]').addEventListener('change', (ev) => { s.senkaClasses[i].grade = Number(ev.target.value); store.commit(); });
       tr.querySelector('[data-crm]').onclick = async () => {
-        const ok = await confirmDialog(`学級「${s.senkaClasses[i].label || '(無名)'}」を削除しますか?\n(入力済みの週案のコマは残ります)`, { okLabel: '削除', danger: true });
+        // 入力済みコマ数を数えて正確に伝える
+        const id = s.senkaClasses[i].id;
+        let count = 0;
+        for (const w of Object.values(store.state.weeks)) {
+          for (const cell of Object.values(w.cells || {})) {
+            count += (cell.entries || []).filter(e => e.scope === id).length;
+          }
+        }
+        const ok = await confirmDialog(
+          `学級「${s.senkaClasses[i].label || '(無名)'}」を削除しますか?` +
+          (count ? `\nこの学級の入力済み ${count}コマ は集計・表示されなくなります(データは残ります)` : ''),
+          { okLabel: '削除', danger: true });
         if (!ok) return;
         s.senkaClasses.splice(i, 1);
         store.commit(); ctx.rerender();
       };
+      tr.querySelector('[data-cup]').onclick = () => { if (i > 0) { swap(s.senkaClasses, i, i - 1); store.commit(); ctx.rerender(); } };
+      tr.querySelector('[data-cdown]').onclick = () => { if (i < s.senkaClasses.length - 1) { swap(s.senkaClasses, i, i + 1); store.commit(); ctx.rerender(); } };
     });
     root.querySelector('#senka-add').onclick = () => {
-      s.senkaClasses.push({ id: uid(), label: '', grade: s.grade || 1 });
+      // 直前の行の学年を引き継ぐ(12学級登録の手間を半減)
+      const last = s.senkaClasses[s.senkaClasses.length - 1];
+      s.senkaClasses.push({ id: uid(), label: '', grade: last?.grade ?? s.grade ?? 1 });
       store.commit(); ctx.rerender();
+      // 再描画後、新しい行のラベル欄へフォーカス
+      setTimeout(() => {
+        const rows = document.querySelectorAll('#senka-body tr');
+        rows[rows.length - 1]?.querySelector('[name="label"]')?.focus();
+      }, 0);
     };
   }
 

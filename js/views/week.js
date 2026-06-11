@@ -1,9 +1,9 @@
-/** 週案編集ビュー(グリッド・セル編集・前週コピー・行事・反省) */
+/** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
 import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, weekNumberInFiscalYear, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
-import { openModal, toast, confirmDialog, selectHTML, openResultLink } from '../ui.js';
+import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML } from '../ui.js';
 
 export function renderWeekView(root, ctx) {
   const state = store.state;
@@ -14,20 +14,27 @@ export function renderWeekView(root, ctx) {
   const dayCount = s.saturday ? 6 : 5;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
+  const todayStr = fmtDate(new Date());
+  const gas = ctx.gas.configured;
 
   const dayHeads = [];
   for (let d = 0; d < dayCount; d++) {
     const date = addDays(monday, d);
     const hol = s.showHolidays ? holidayName(date) : null;
+    const isToday = fmtDate(date) === todayStr;
     dayHeads.push(`
-      <th>
-        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''}">
+      <th class="day-th" data-day="${d}" title="クリックで一括操作">
+        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''}">
           <span class="dow">${DAY_NAMES[d]}</span>
           <span class="date">${fmtMD(date)}</span>
           ${hol ? `<span class="hol-name">${esc(hol)}</span>` : ''}
         </div>
       </th>`);
   }
+  const todayIdx = (() => {
+    for (let d = 0; d < dayCount; d++) if (fmtDate(addDays(monday, d)) === todayStr) return d;
+    return -1;
+  })();
 
   // 日課パターン行(パターンが定義されているときだけ表示)
   let patternRow = '';
@@ -38,7 +45,7 @@ export function renderWeekView(root, ctx) {
       cells.push(`<td style="padding:2px 4px;">${selectHTML('daypat', [
         { value: '', label: '通常' },
         ...s.periodPatterns.map(p => ({ value: p.id, label: p.name })),
-      ], cur, { attrs: `data-day="${d}" class="daypat-select" style="width:100%; border:none; background:transparent; font-size:11.5px; color:var(--muted);"` })}</td>`);
+      ], cur, { attrs: `data-day="${d}" class="daypat-select ${cur ? 'active' : ''}"` })}</td>`);
     }
     patternRow = `<tr class="pattern-row"><th class="period-head" style="font-size:11px;">日課</th>${cells.join('')}</tr>`;
   }
@@ -51,19 +58,19 @@ export function renderWeekView(root, ctx) {
       cells.push(`<td style="background:#f0fdf4;"><textarea class="event-input daynote-input" data-day="${d}" rows="1"
         style="color:#166534;" placeholder="">${esc(week.dayNotes?.[d] || '')}</textarea></td>`);
     }
-    dayNotesRow = `<tr><th class="period-head" style="font-size:11.5px; background:#dcfce7; color:#166534;" title="画面のみ(印刷されません)">メモ</th>${cells.join('')}</tr>`;
+    dayNotesRow = `<tr><th class="period-head" style="font-size:11.5px; background:#dcfce7; color:#166534;">メモ${infoHTML('自分用のメモ欄です。印刷されません')}</th>${cells.join('')}</tr>`;
   }
 
   const eventCells = [];
   for (let d = 0; d < dayCount; d++) {
-    eventCells.push(`<td><textarea class="event-input" data-day="${d}" rows="1"
+    eventCells.push(`<td ${d === todayIdx ? 'class="today-col"' : ''}><textarea class="event-input" data-day="${d}" rows="1"
       placeholder="">${esc(week.events?.[d] || '')}</textarea></td>`);
   }
 
   const bodyRows = s.periods.map(p => {
     const cells = [];
     for (let d = 0; d < dayCount; d++) {
-      cells.push(renderCell(state, week, d, p, ordinals, ctx));
+      cells.push(renderCell(state, week, d, p, ordinals, ctx, d === todayIdx));
     }
     const coefTxt = p.type === 'module'
       ? `<span class="p-coef">${fmtHours(p.coefficient)}時間</span>` : '';
@@ -78,37 +85,70 @@ export function renderWeekView(root, ctx) {
       </tr>`;
   }).join('') + dayNotesRow;
 
+  // 連続入力(ペイント)バー
+  const paint = ctx.paint;
+  let paintBar = '';
+  if (paint.open) {
+    const chips = s.subjects.map(x =>
+      `<button class="paint-chip ${paint.subject === x.key ? 'selected' : ''}" data-paint="${esc(x.key)}"
+        style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('');
+    let scopeChips = '';
+    if (s.mode === 'senka' && s.senkaClasses.length) {
+      scopeChips = `<span class="paint-sep"></span>` + s.senkaClasses.map(c =>
+        `<button class="paint-scope ${paint.scope === c.id ? 'selected' : ''}" data-paint-scope="${esc(c.id)}">${esc(c.label || '?')}</button>`).join('');
+    }
+    paintBar = `
+      <div class="paint-bar">
+        <span class="paint-hint">${paint.subject ? 'コマをクリックして配置(もう一度で消去・Escで終了)' : '教科を選んでください'}</span>
+        <div class="paint-chips">${chips}${scopeChips}</div>
+        <button class="btn small" id="paint-close">終了</button>
+      </div>`;
+  }
+
+  // 初回ガイドカード(コマ未入力かつ未消去のとき)
+  const totalEntries = Object.values(week.cells || {}).reduce((a, c) => a + (c.entries?.length || 0), 0);
+  const onboardCard = (totalEntries === 0 && !localStorage.getItem('shuan-card-done')) ? `
+    <div class="onboard-card" id="onboard-card">
+      <button class="oc-close" id="oc-close" aria-label="閉じる">×</button>
+      <div class="oc-step"><span class="oc-num">1</span>コマをクリックして教科を選ぶ</div>
+      <div class="oc-step"><span class="oc-num">2</span>1週間できたら <button class="btn small" id="oc-base">基本時間割に登録</button></div>
+      <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-print">🖨 印刷</button> して提出</div>
+    </div>` : '';
+
   root.innerHTML = `
     <div class="week-nav">
-      <button class="btn" id="wk-prev">◀ 前週</button>
+      <button class="btn" id="wk-prev" aria-label="前の週">◀</button>
       <button class="btn" id="wk-today">今週</button>
-      <button class="btn" id="wk-next">翌週 ▶</button>
-      <input type="date" id="wk-date" value="${weekStart}" title="日付を選ぶとその週へ移動">
-      <span class="week-title">${monday.getMonth() + 1}月${monday.getDate()}日 〜 ${fmtMD(addDays(monday, dayCount - 1))}
-        <span class="week-no">第${weekNo}週・${s.fiscalYear}年度</span>
+      <button class="btn" id="wk-next" aria-label="次の週">▶</button>
+      <input type="date" id="wk-date" value="${weekStart}">
+      <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, dayCount - 1))}
+        <span class="week-no">第${weekNo}週</span>
       </span>
       <span class="spacer"></span>
-      <button class="btn" id="wk-calendar" title="GAS連携でGoogleカレンダーの予定を行事欄に取り込む">📆 行事を取得</button>
-      <button class="btn" id="wk-copy" title="前の週の時間割をこの週へコピー">⬇ 前週をコピー</button>
-      <button class="btn" id="wk-apply-base" title="登録済みの基本時間割をこの週へ流し込む" ${store.hasBaseTimetable ? '' : 'disabled'}>📋 基本時間割を反映</button>
+      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" title="教科を選んでコマを連続入力">🖌 連続入力</button>
+      ${gas ? `<button class="btn" id="wk-calendar">📆 行事</button>` : ''}
+      <button class="btn" id="wk-copy">前週コピー</button>
+      <button class="btn" id="wk-apply-base" ${store.hasBaseTimetable ? '' : 'disabled'}>📋 基本時間割</button>
+      ${store.hasBaseTimetable ? '' : infoHTML('1週間分を入力して「⋯ → 基本時間割に登録」すると、毎週ワンタッチで呼び出せます')}
       <details class="menu">
-        <summary class="btn">その他 ▾</summary>
+        <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
-          <button class="btn ghost" id="wk-save-base">この週を基本時間割として登録</button>
-          <button class="btn ghost" id="wk-cal-push" title="専用カレンダー「週案」に授業予定を登録(再実行で置き換え)">📤 Googleカレンダーへ書き出し</button>
-          <button class="btn ghost" id="wk-sheet-push" title="スプレッドシートに週案を書き出し(共有・提出用)">📊 スプレッドシートへ書き出し</button>
-          <button class="btn ghost" id="wk-mail" title="設定した宛先(管理職など)へ週案をメール送信">📧 メールで提出</button>
+          <button class="btn ghost" id="wk-save-base">基本時間割に登録</button>
+          ${gas ? `
+          <button class="btn ghost" id="wk-cal-push">📤 カレンダーへ書き出し</button>
+          <button class="btn ghost" id="wk-sheet-push">📊 シートへ書き出し</button>
+          <button class="btn ghost" id="wk-mail">📧 メールで提出</button>` : ''}
           <button class="btn ghost danger" id="wk-clear">この週をクリア</button>
         </div>
       </details>
     </div>
-    ${ctx.swapSource ? `<div class="panel" style="padding:8px 16px; background:#fff7ed; border-color:#fdba74;">
-      ⇄ <b>移動モード:</b> 移動先のコマをクリックすると入れ替わります
-      <button class="btn small" id="wk-swap-cancel" style="margin-left:10px;">キャンセル</button></div>` : ''}
-
+    ${paintBar}
+    ${ctx.swapSource ? `<div class="mode-banner">⇄ 移動先のコマをクリック
+      <button class="btn small" id="wk-swap-cancel">キャンセル</button></div>` : ''}
+    ${onboardCard}
     <div class="panel">
       <div class="week-grid-wrap">
-        <table class="week-grid">
+        <table class="week-grid ${paint.subject ? 'painting' : ''}">
           <thead>
             <tr><th class="corner"></th>${dayHeads.join('')}</tr>
             ${patternRow}
@@ -119,12 +159,12 @@ export function renderWeekView(root, ctx) {
       </div>
       <div class="week-notes">
         <div>
-          <label>今週のめあて・重点</label>
-          <textarea id="wk-goals" placeholder="今週の目標、生徒指導の重点など">${esc(week.goals || '')}</textarea>
+          <label>今週のめあて</label>
+          <textarea id="wk-goals">${esc(week.goals || '')}</textarea>
         </div>
         <div>
-          <label>反省・次週への課題</label>
-          <textarea id="wk-reflection" placeholder="授業の振り返り、進度の調整メモなど">${esc(week.reflection || '')}</textarea>
+          <label>反省</label>
+          <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
         </div>
       </div>
     </div>
@@ -134,15 +174,17 @@ export function renderWeekView(root, ctx) {
   wireNav(root, ctx, monday);
   wireWeekInputs(root, weekStart, ctx);
   wireCells(root, weekStart, ctx);
+  wirePaint(root, ctx);
+  wireOnboardCard(root, ctx, monday);
+  wireDayMenu(root, ctx, monday, weekStart, dayCount);
 }
 
 // ---------------------------------------------------------------- セル描画
 
-function renderCell(state, week, dayIdx, period, ordinals, ctx) {
+function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
   const s = state.settings;
-  // 日課パターンでこの日が無効な校時は、グレーの操作不可セルにする
   if (!effectivePeriod(s, week, dayIdx, period)) {
-    return `<td class="cell off" data-day="${dayIdx}" data-period="${esc(period.id)}" title="この日の日課にはない校時です"></td>`;
+    return `<td class="cell off ${isToday ? 'today-col' : ''}" data-day="${dayIdx}" data-period="${esc(period.id)}"></td>`;
   }
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
@@ -153,29 +195,33 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx) {
   } else {
     inner = entries.map(e => {
       const subj = subjectOf(s, e.subjectKey);
-      const { text, auto } = resolveEntryText(state, e, ordinals);
+      const resolved = resolveEntryText(state, e, ordinals);
+      const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
       const scopeLabel = scopeLabelOf(s, e.scope);
       const frac = (e.fraction ?? 1) !== 1 ? `<span class="e-flag">${fracLabel(e.fraction)}</span>` : '';
+      const guide = s.mode === 'fukushiki' && e.guide ? `<span class="guide-chip g-${e.guide}">${guideLabel(e.guide)}</span>` : '';
+      const unsetClass = s.mode === 'senka' && e.subjectKey && (e.scope == null || e.scope === '')
+        ? `<span class="e-flag warn">⚠学級未設定</span>` : '';
       return `
         <div class="entry ${e.cancelled ? 'cancelled' : ''}">
           <div class="e-head">
             ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
             ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
-            ${frac}
+            ${guide}${frac}${unsetClass}
             ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           </div>
-          ${text ? `<div class="e-text ${auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
+          ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
           ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
         </div>`;
     }).join('');
   }
-  const draggable = entries.length > 0;
+  const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   return `
-    <td class="cell ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''}" data-day="${dayIdx}" data-period="${esc(period.id)}"
-        ${draggable ? 'draggable="true"' : ''}>
+    <td class="cell ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
+        data-day="${dayIdx}" data-period="${esc(period.id)}" ${draggable ? 'draggable="true"' : ''}>
       ${inner}
-      ${entries.length ? `<button class="cell-clear" title="このコマをクリア" data-clear>×</button>` : ''}
+      ${entries.length ? `<button class="cell-clear" aria-label="クリア" data-clear>×</button>` : ''}
     </td>`;
 }
 
@@ -184,6 +230,10 @@ export function fracLabel(f) {
   if (Math.abs(f - 2 / 3) < 0.01) return '2/3';
   if (Math.abs(f - 0.5) < 0.01) return '1/2';
   return String(f);
+}
+
+export function guideLabel(g) {
+  return g === 'direct' ? '直' : g === 'indirect' ? '間' : 'ガ';
 }
 
 export function subjectOf(settings, key) {
@@ -200,42 +250,89 @@ function scopeLabelOf(s, scope) {
   return '';
 }
 
-// ---------------------------------------------------------------- ナビ・週入力
+// ---------------------------------------------------------------- ナビ
 
 function wireNav(root, ctx, monday) {
   root.querySelector('#wk-prev').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, -7)));
   root.querySelector('#wk-next').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, 7)));
   root.querySelector('#wk-today').onclick = () => ctx.setWeekStart(null);
   root.querySelector('#wk-date').onchange = (ev) => {
-    if (ev.target.value) ctx.setWeekStart(ev.target.value, true);
+    if (ev.target.value) ctx.setWeekStart(ev.target.value);
   };
 
   root.querySelector('#wk-apply-base').onclick = async () => {
     const to = fmtDate(monday);
-    const cur = store.state.weeks[to];
-    if (cur && Object.keys(cur.cells).length) {
-      const ok = await confirmDialog('この週には既に入力があります。基本時間割で上書きしますか?', { okLabel: '上書き', danger: true });
-      if (!ok) return;
-    }
-    if (store.applyBaseTimetable(to)) {
-      toast('基本時間割を反映しました(内容は年間指導計画から自動反映)');
-      ctx.rerender();
-    }
+    const bases = store.state.baseTimetables;
+    const apply = async (id) => {
+      const cur = store.state.weeks[to];
+      if (cur && Object.keys(cur.cells).length) {
+        const ok = await confirmDialog('この週の時間割を上書きしますか?', { okLabel: '上書き', danger: true });
+        if (!ok) return;
+      }
+      store.snapshot('基本時間割の反映');
+      if (store.applyBaseTimetable(to, id)) {
+        toast('基本時間割を反映しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+        ctx.rerender();
+      }
+    };
+    if (bases.length <= 1) { apply(null); return; }
+    openModal(`
+      <h2>どの時間割を反映しますか?</h2>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">📋 ${esc(b.name)}</button>`).join('')}
+      </div>
+      <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-cancel]').onclick = close;
+      modal.querySelectorAll('[data-base]').forEach(b => {
+        b.onclick = () => { close(); apply(b.dataset.base); };
+      });
+    });
   };
 
   root.querySelector('#wk-save-base').onclick = async () => {
     const from = fmtDate(monday);
     if (!store.state.weeks[from] || !Object.keys(store.state.weeks[from].cells).length) {
-      toast('この週にはまだ時間割が入力されていません', 'error');
+      toast('まだ時間割が入力されていません', 'error');
       return;
     }
-    if (store.hasBaseTimetable) {
-      const ok = await confirmDialog('登録済みの基本時間割を、この週の時間割で置き換えますか?');
-      if (!ok) return;
+    const bases = store.state.baseTimetables;
+    if (!bases.length) {
+      store.saveAsBaseTimetable(from);
+      toast('基本時間割に登録しました');
+      ctx.rerender();
+      return;
     }
-    store.saveAsBaseTimetable(from);
-    toast('基本時間割として登録しました。「📋 基本時間割を反映」で毎週呼び出せます');
-    ctx.rerender();
+    // 2件目以降: 上書き or 名前を付けて追加(A週/B週など。最大3件)
+    openModal(`
+      <h2>基本時間割に登録</h2>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        ${bases.map(b => `<button class="btn" data-over="${esc(b.name)}">「${esc(b.name)}」を上書き</button>`).join('')}
+        ${bases.length < 3 ? `
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="base-name" placeholder="B週" style="flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 9px;">
+          <button class="btn primary" data-new>追加</button>
+        </div>` : ''}
+      </div>
+      <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-cancel]').onclick = close;
+      modal.querySelectorAll('[data-over]').forEach(b => {
+        b.onclick = () => {
+          store.saveAsBaseTimetable(from, b.dataset.over);
+          toast(`「${b.dataset.over}」を更新しました`);
+          close(); ctx.rerender();
+        };
+      });
+      const newBtn = modal.querySelector('[data-new]');
+      if (newBtn) newBtn.onclick = () => {
+        const name = modal.querySelector('#base-name').value.trim() || `${'ABC'[bases.length]}週`;
+        if (store.saveAsBaseTimetable(from, name)) {
+          toast(`「${name}」として登録しました`);
+          close(); ctx.rerender();
+        }
+      };
+    });
   };
 
   const swapCancel = root.querySelector('#wk-swap-cancel');
@@ -247,92 +344,91 @@ function wireNav(root, ctx, monday) {
     if (!store.state.weeks[from]) { toast('前週のデータがありません', 'error'); return; }
     const cur = store.state.weeks[to];
     if (cur && Object.keys(cur.cells).length) {
-      const ok = await confirmDialog('この週には既に入力があります。前週の時間割で上書きしますか?\n(授業内容は年間指導計画から自動で再計算されます)', { okLabel: '上書きコピー', danger: true });
+      const ok = await confirmDialog('この週の時間割を上書きしますか?', { okLabel: '上書き', danger: true });
       if (!ok) return;
     }
+    store.snapshot('前週コピー');
     store.copyWeek(from, to);
-    toast('前週の時間割をコピーしました(内容は自動反映)');
+    toast('前週をコピーしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     ctx.rerender();
   };
 
-  root.querySelector('#wk-clear').onclick = async () => {
+  // 「この週をクリア」: 確認ダイアログの代わりにUndoで守る
+  root.querySelector('#wk-clear').onclick = () => {
     const to = fmtDate(monday);
     if (!store.state.weeks[to]) return;
-    const ok = await confirmDialog('この週の入力をすべて削除しますか?', { okLabel: '削除', danger: true });
-    if (!ok) return;
+    store.snapshot('週のクリア');
     delete store.state.weeks[to];
     store.commit();
+    toast('この週をクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     ctx.rerender();
   };
 
-  // ---- Google Workspace連携(カレンダー書き出し・シート・メール)
-  const requireGas = () => {
-    if (ctx.gas.configured) return true;
-    toast('設定画面でGAS連携(URL・トークン)を設定すると使えます', 'error', 4000);
-    return false;
-  };
-
-  root.querySelector('#wk-cal-push').onclick = async () => {
-    if (!requireGas()) return;
+  // ---- Google連携(設定済みのときだけボタンが存在する)
+  const calPush = root.querySelector('#wk-cal-push');
+  if (calPush) calPush.onclick = async () => {
     const { buildCalendarEvents } = await import('../gws.js');
     const payload = buildCalendarEvents(fmtDate(monday));
-    if (!payload.events.length) { toast('書き出せる授業がありません(校時に開始・終了時刻が必要です)', 'error', 4500); return; }
+    if (!payload.events.length) { toast('書き出せる授業がありません(校時の時刻が未設定)', 'error', 4000); return; }
     const ok = await confirmDialog(
-      `この週の授業 ${payload.events.length}件 を、Googleカレンダーの専用カレンダー「週案」に登録します。\n` +
-      `(前回書き出した同期間の予定は自動で置き換えられます)` +
-      (payload.skipped ? `\n⚠ 時刻未設定の校時 ${payload.skipped}コマ はスキップされます` : ''),
+      `${payload.events.length}件をカレンダー「週案」に登録します(再実行で置き換え)` +
+      (payload.skipped ? `\n時刻未設定の${payload.skipped}コマはスキップ` : ''),
       { okLabel: '書き出す' });
     if (!ok) return;
     try {
-      toast('カレンダーへ書き出し中…(数秒かかります)');
+      toast('書き出し中…');
       const res = await ctx.gas.pushWeek(payload.events, payload.from, payload.to);
-      toast(`✅ カレンダー「${res.calendarName}」に ${res.created}件 登録しました${res.removed ? `(${res.removed}件を置き換え)` : ''}`, 'info', 4500);
+      toast(`カレンダーに${res.created}件登録しました`);
     } catch (e) {
       toast('書き出し失敗: ' + e.message, 'error', 6000);
     }
   };
 
-  root.querySelector('#wk-sheet-push').onclick = async () => {
-    if (!requireGas()) return;
+  const sheetPush = root.querySelector('#wk-sheet-push');
+  if (sheetPush) sheetPush.onclick = async () => {
     try {
-      toast('スプレッドシートへ書き出し中…');
+      toast('書き出し中…');
       const { buildWeekSheet } = await import('../gws.js');
       const res = await ctx.gas.sheetWeek(buildWeekSheet(fmtDate(monday)));
-      toast('✅ 書き出しました', 'info', 3000);
       openResultLink(res.url, 'スプレッドシートを開く');
     } catch (e) {
       toast('書き出し失敗: ' + e.message, 'error', 6000);
     }
   };
 
-  root.querySelector('#wk-mail').onclick = async () => {
-    if (!requireGas()) return;
+  const mailBtn = root.querySelector('#wk-mail');
+  if (mailBtn) mailBtn.onclick = async () => {
     const s = store.settings;
     if (!s.gas.mailTo) {
-      toast('設定画面の「Google連携」で提出先メールアドレスを設定してください', 'error', 5000);
+      toast('設定 → Google連携 で提出先を設定してください', 'error', 5000);
       return;
     }
-    const { buildWeekEmail } = await import('../gws.js');
+    if (!s.gas.senderName && !s.teacherName) {
+      toast('設定で氏名を入力してください(差出人になります)', 'error', 5000);
+      return;
+    }
+    const { buildWeekEmail, markMailed } = await import('../gws.js');
     const mail = buildWeekEmail(fmtDate(monday));
-    const ok = await confirmDialog(`この週の週案を ${s.gas.mailTo} へメール送信します。\n件名: ${mail.subject}`, { okLabel: '送信する' });
+    const ok = await confirmDialog(`${s.gas.mailTo} へ送信します\n件名: ${mail.subject}\n${mail.summary}`, { okLabel: '送信' });
     if (!ok) return;
     try {
       toast('送信中…');
       const res = await ctx.gas.mailWeek({ to: s.gas.mailTo, subject: mail.subject, html: mail.html, text: mail.text, senderName: s.gas.senderName || s.teacherName });
-      toast(`✅ 送信しました(本日の残り送信枠: ${res.remaining}通)`, 'info', 4000);
+      markMailed(fmtDate(monday));
+      toast(`送信しました(残り${res.remaining}通)`);
     } catch (e) {
       toast('送信失敗: ' + e.message, 'error', 6000);
     }
   };
 
-  root.querySelector('#wk-calendar').onclick = async () => {
-    if (!requireGas()) return;
+  const calBtn = root.querySelector('#wk-calendar');
+  if (calBtn) calBtn.onclick = async () => {
     try {
-      toast('カレンダーから取得中…');
+      toast('取得中…');
       const dayCount = store.settings.saturday ? 6 : 5;
       const res = await ctx.gas.events(fmtDate(monday), fmtDate(addDays(monday, dayCount - 1)), store.settings.gas.calendarIds || []);
       if (res.errors?.length) {
-        toast('⚠ 一部のカレンダーを読めませんでした: ' + res.errors.join(' / '), 'error', 6000);
+        toast('一部のカレンダーを読めません: ' + res.errors.join(' / '), 'error', 6000);
       }
       const week = store.getWeek(fmtDate(monday), true);
       let n = 0;
@@ -345,7 +441,7 @@ function wireNav(root, ctx, monday) {
         n++;
       }
       store.commit();
-      toast(`${n}件の予定を取り込みました`);
+      toast(`${n}件を取り込みました`);
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 5000);
@@ -353,9 +449,10 @@ function wireNav(root, ctx, monday) {
   };
 }
 
+// ---------------------------------------------------------------- 週入力
+
 function wireWeekInputs(root, weekStart, ctx) {
-  // inputイベントで即時保存(タブを閉じても・他タブ同期が走っても入力が消えないように)
-  root.querySelectorAll('.event-input').forEach(ta => {
+  root.querySelectorAll('.event-input:not(.daynote-input)').forEach(ta => {
     ta.addEventListener('input', () => {
       const w = store.getWeek(weekStart, true);
       w.events[Number(ta.dataset.day)] = ta.value;
@@ -372,19 +469,17 @@ function wireWeekInputs(root, weekStart, ctx) {
     w.reflection = ev.target.value;
     store.commit();
   });
-  // 日課パターンの切替
   root.querySelectorAll('.daypat-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const w = store.getWeek(weekStart, true);
       const d = Number(sel.dataset.day);
       if (sel.value) w.dayPatterns[d] = sel.value;
       else delete w.dayPatterns[d];
-      ctx.swapSource = null; // 移動モード中の切替で無効セルへ移動できてしまうのを防ぐ
+      ctx.swapSource = null;
       store.commit();
       ctx.rerender();
     });
   });
-  // 日ごとのメモ
   root.querySelectorAll('.daynote-input').forEach(ta => {
     ta.addEventListener('input', () => {
       const w = store.getWeek(weekStart, true);
@@ -395,35 +490,181 @@ function wireWeekInputs(root, weekStart, ctx) {
   });
 }
 
-// ---------------------------------------------------------------- セル操作(クリック編集・DnD)
+// ---------------------------------------------------------------- 連続入力(ペイント)
+
+function wirePaint(root, ctx) {
+  root.querySelector('#wk-paint').onclick = () => {
+    ctx.paint.open = !ctx.paint.open;
+    if (!ctx.paint.open) ctx.paint.subject = null;
+    ctx.swapSource = null;
+    ctx.rerender();
+  };
+  const closeBtn = root.querySelector('#paint-close');
+  if (closeBtn) closeBtn.onclick = () => {
+    ctx.paint.open = false;
+    ctx.paint.subject = null;
+    ctx.rerender();
+  };
+  root.querySelectorAll('[data-paint]').forEach(b => {
+    b.onclick = () => {
+      ctx.paint.subject = ctx.paint.subject === b.dataset.paint ? null : b.dataset.paint;
+      ctx.rerender();
+    };
+  });
+  root.querySelectorAll('[data-paint-scope]').forEach(b => {
+    b.onclick = () => {
+      ctx.paint.scope = ctx.paint.scope === b.dataset.paintScope ? null : b.dataset.paintScope;
+      ctx.rerender();
+    };
+  });
+}
+
+/** ペイント中のセルクリック処理。戻り値: 処理したか */
+function paintCell(weekStart, dayIdx, periodId, ctx) {
+  const s = store.settings;
+  const paint = ctx.paint;
+  if (!paint.subject) { toast('教科を選んでください', 'error'); return true; }
+  const w = store.getWeek(weekStart, true);
+  const key = cellKey(dayIdx, periodId);
+  const cell = w.cells[key];
+  const entries = cell?.entries || [];
+
+  // 同じ教科の「きれいな」単独エントリ → トグル消去(備考・手動内容入りは壊さない)
+  if (entries.length === 1 && entries[0].subjectKey === paint.subject
+    && entries[0].auto && !entries[0].note && !entries[0].cancelled
+    && (s.mode !== 'senka' || entries[0].scope === (paint.scope ?? entries[0].scope))) {
+    delete w.cells[key];
+    store.commit();
+    ctx.rerender();
+    return true;
+  }
+  // 既に何か入っているセルは通常の編集を開く(誤破壊防止)
+  if (entries.length) return false;
+
+  if (s.mode === 'fukushiki') {
+    // 複式: 両学年に同じ教科を配置
+    w.cells[key] = { entries: s.fukushikiGrades.map(g => Object.assign(newEntry(), { subjectKey: paint.subject, scope: g })) };
+  } else {
+    const e = Object.assign(newEntry(), { subjectKey: paint.subject });
+    if (s.mode === 'senka') e.scope = paint.scope ?? ctx.lastScope ?? s.senkaClasses[0]?.id ?? null;
+    w.cells[key] = { entries: [e] };
+  }
+  store.commit();
+  ctx.rerender();
+  return true;
+}
+
+// ---------------------------------------------------------------- 初回ガイド・日一括
+
+function wireOnboardCard(root, ctx, monday) {
+  const card = root.querySelector('#onboard-card');
+  if (!card) return;
+  root.querySelector('#oc-close').onclick = () => {
+    localStorage.setItem('shuan-card-done', '1');
+    card.remove();
+  };
+  root.querySelector('#oc-base').onclick = () => root.querySelector('#wk-save-base').click();
+  root.querySelector('#oc-print').onclick = async () => {
+    const { printWeek } = await import('../print.js');
+    printWeek(fmtDate(monday));
+  };
+}
+
+function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
+  root.querySelectorAll('.day-th').forEach(th => {
+    th.addEventListener('click', () => {
+      const d = Number(th.dataset.day);
+      const date = addDays(monday, d);
+      const label = `${fmtMD(date)}(${DAY_NAMES[d]})`;
+      openModal(`
+        <h2>${esc(label)} の一括操作</h2>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <button class="btn" data-act="cancel-all">すべて中止にする</button>
+          ${d > 0 ? `<button class="btn" data-act="copy-prev">前日をコピー</button>` : ''}
+          <button class="btn danger" data-act="clear">この日をクリア</button>
+        </div>
+        <div class="modal-foot"><button class="btn" data-close>閉じる</button></div>
+      `, (modal, close) => {
+        modal.querySelector('[data-close]').onclick = close;
+        modal.querySelectorAll('[data-act]').forEach(b => {
+          b.onclick = () => {
+            const act = b.dataset.act;
+            const w = store.getWeek(weekStart, true);
+            const state = store.state;
+            const ordinals = computeOrdinals(state, weekStart);
+            store.snapshot(`${label}の一括操作`);
+            let n = 0;
+            if (act === 'cancel-all') {
+              for (const p of store.settings.periods) {
+                const cell = w.cells[cellKey(d, p.id)];
+                if (!cell) continue;
+                for (const e of cell.entries) {
+                  if (e.cancelled || !e.subjectKey) continue;
+                  e.cancelledText = resolveEntryText(state, e, ordinals).text;
+                  e.cancelled = true;
+                  n++;
+                }
+              }
+            } else if (act === 'clear') {
+              for (const p of store.settings.periods) {
+                if (w.cells[cellKey(d, p.id)]) { delete w.cells[cellKey(d, p.id)]; n++; }
+              }
+            } else if (act === 'copy-prev') {
+              for (const p of store.settings.periods) {
+                const src = w.cells[cellKey(d - 1, p.id)];
+                if (!src) continue;
+                w.cells[cellKey(d, p.id)] = {
+                  entries: src.entries.map(e => ({ ...e, id: uid(), text: '', auto: true, note: '', cancelled: false, cancelledText: '' })),
+                };
+                n++;
+              }
+            }
+            store.commit();
+            close();
+            toast(`${label}: ${n}コマを処理しました`, 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+            ctx.rerender();
+          };
+        });
+      });
+    });
+  });
+}
+
+// ---------------------------------------------------------------- セル操作
 
 function wireCells(root, weekStart, ctx) {
   root.querySelectorAll('td.cell').forEach(td => {
     td.addEventListener('click', (ev) => {
-      if (td.classList.contains('off')) return; // 日課パターンで無効な校時
+      if (td.classList.contains('off')) return;
       if (ev.target.closest('[data-clear]')) return;
-      // 移動モード中: タップで入替(iPad等のタッチ環境向け)
+      const day = Number(td.dataset.day);
+      const period = td.dataset.period;
       if (ctx.swapSource) {
         const src = ctx.swapSource;
         ctx.swapSource = null;
-        swapCells(weekStart, src, { day: Number(td.dataset.day), period: td.dataset.period });
+        swapCells(weekStart, src, { day, period });
         ctx.rerender();
         return;
       }
-      openCellEditor(weekStart, Number(td.dataset.day), td.dataset.period, ctx);
+      // 連続入力モード
+      if (ctx.paint.open) {
+        if (paintCell(weekStart, day, period, ctx)) return;
+      }
+      openCellEditor(weekStart, day, period, ctx);
     });
     const clearBtn = td.querySelector('[data-clear]');
     if (clearBtn) {
       clearBtn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const w = store.getWeek(weekStart, true);
+        store.snapshot('コマのクリア');
         delete w.cells[cellKey(td.dataset.day, td.dataset.period)];
         store.commit();
+        toast('コマをクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
         ctx.rerender();
       });
     }
 
-    // ドラッグ&ドロップでコマを移動(入れ替え)
     td.addEventListener('dragstart', (ev) => {
       ev.dataTransfer.setData('text/plain', JSON.stringify({ day: td.dataset.day, period: td.dataset.period }));
       ev.dataTransfer.effectAllowed = 'move';
@@ -452,7 +693,7 @@ function swapCells(weekStart, from, to) {
   if (!fromP || !toP
     || !effectivePeriod(s, w, Number(from.day), fromP)
     || !effectivePeriod(s, w, Number(to.day), toP)) {
-    toast('この日の日課にない校時へは移動できません', 'error');
+    toast('この日の日課にない校時です', 'error');
     return;
   }
   const kFrom = cellKey(from.day, from.period);
@@ -471,7 +712,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   const period = s.periods.find(p => p.id === periodId);
   const monday = parseDate(weekStart);
   const date = addDays(monday, dayIdx);
-  const title = `${date.getMonth() + 1}/${date.getDate()}(${DAY_NAMES[dayIdx]}) ${period?.label || ''}${period?.type === 'module' ? '' : '校時'}`;
+  const title = `${fmtMD(date)}(${DAY_NAMES[dayIdx]}) ${period?.label || ''}${period?.type === 'module' ? '' : '校時'}`;
 
   const ensure = () => {
     const w = store.getWeek(weekStart, true);
@@ -479,7 +720,6 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     if (!w.cells[key]) w.cells[key] = { entries: [] };
     const cell = w.cells[key];
     if (s.mode === 'fukushiki') {
-      // 複式: 学年ごとに1エントリを常設
       for (const g of s.fukushikiGrades) {
         if (!cell.entries.some(e => e.scope === g)) {
           const e = newEntry();
@@ -490,27 +730,50 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       cell.entries.sort((a, b) => (a.scope || 0) - (b.scope || 0));
     } else if (!cell.entries.length) {
       const e = newEntry();
-      if (s.mode === 'senka') e.scope = s.senkaClasses[0]?.id ?? null;
+      if (s.mode === 'senka') {
+        e.scope = ctx.lastScope ?? s.senkaClasses[0]?.id ?? null;
+        e.subjectKey = s.senkaSubject || '';
+      }
       cell.entries.push(e);
     }
     return cell;
   };
 
-  const cell = ensure();
+  ensure();
 
   const render = (modal) => {
     const state = store.state;
     const ordinals = computeOrdinals(state, weekStart);
     const cellNow = store.getCell(weekStart, dayIdx, periodId) || { entries: [] };
+    // 複式: 両学年へまとめて教科をセットする共通パレット
+    const commonPalette = s.mode === 'fukushiki' ? `
+      <div class="field">
+        <label>教科(両学年)${infoHTML('両学年に同じ教科を入れます。学年ごとに変えるときは下の各学年で選び直してください')}</label>
+        <div class="subject-palette" data-common-palette>${s.subjects.map(x =>
+          `<button data-subj="${esc(x.key)}" style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('')}</div>
+      </div>` : '';
     const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
-    modal.querySelector('.cell-editor-body').innerHTML = body + `
-      ${s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 同じコマに授業を追加(複数学級・分割など)</button>` : ''}
+    modal.querySelector('.cell-editor-body').innerHTML = commonPalette + body + `
+      ${s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : ''}
     `;
     wireEditor(modal);
   };
 
   const wireEditor = (modal) => {
     const cellNow = store.getCell(weekStart, dayIdx, periodId);
+    const state = store.state;
+
+    // 複式の共通パレット
+    modal.querySelectorAll('[data-common-palette] button').forEach(b => {
+      b.onclick = () => {
+        for (const e of cellNow.entries) {
+          e.subjectKey = b.dataset.subj;
+          if (e.auto) e.text = '';
+        }
+        store.commit(); render(modal); ctx.rerender();
+      };
+    });
+
     modal.querySelectorAll('[data-entry]').forEach(box => {
       const idx = Number(box.dataset.entry);
       const entry = cellNow.entries[idx];
@@ -525,14 +788,23 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         };
       });
 
-      const scopeSel = box.querySelector('[name="scope"]');
-      if (scopeSel) scopeSel.onchange = () => {
-        entry.scope = s.mode === 'fukushiki' ? Number(scopeSel.value) : (scopeSel.value || null);
-        store.commit(); render(modal); ctx.rerender();
-      };
+      // 専科: 学級はボタンで1タップ選択。選んだ学級を次のコマの既定にする
+      box.querySelectorAll('[data-scope-btn]').forEach(b => {
+        b.onclick = () => {
+          entry.scope = b.dataset.scopeBtn || null;
+          ctx.lastScope = entry.scope;
+          store.commit(); render(modal); ctx.rerender();
+        };
+      });
 
-      // 入力は即時保存(Escで閉じても消えない)。背後のグリッドのみ更新し、
-      // モーダル自体はblur時にも再構築しない(直後のクリックが飲み込まれるのを防ぐ)
+      // 複式: 直接/間接/ガイドの3択チップ(同じものを押すと解除)
+      box.querySelectorAll('[data-guide]').forEach(b => {
+        b.onclick = () => {
+          entry.guide = entry.guide === b.dataset.guide ? null : b.dataset.guide;
+          store.commit(); render(modal); ctx.rerender();
+        };
+      });
+
       const textArea = box.querySelector('[name="text"]');
       textArea.addEventListener('input', () => {
         entry.text = textArea.value;
@@ -555,17 +827,28 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       advChk.onchange = () => {
         const def = period?.type !== 'module';
         entry.advance = advChk.checked === def ? null : advChk.checked;
-        store.commit(); render(modal); ctx.rerender();
+        store.commit(); ctx.rerender();
       };
 
       const ncChk = box.querySelector('[name="noCount"]');
-      ncChk.onchange = () => { entry.noCount = ncChk.checked; store.commit(); render(modal); ctx.rerender(); };
+      ncChk.onchange = () => { entry.noCount = ncChk.checked; store.commit(); ctx.rerender(); };
 
       const cancelChk = box.querySelector('[name="cancelled"]');
-      cancelChk.onchange = () => { entry.cancelled = cancelChk.checked; store.commit(); render(modal); ctx.rerender(); };
+      cancelChk.onchange = () => {
+        if (cancelChk.checked) {
+          // 中止前の予定内容を控えておく(印刷・画面に「何が中止か」を残す)
+          const ords = computeOrdinals(state, weekStart);
+          entry.cancelledText = resolveEntryText(state, entry, ords).text;
+          entry.cancelled = true;
+        } else {
+          entry.cancelled = false;
+          entry.cancelledText = '';
+        }
+        store.commit(); render(modal); ctx.rerender();
+      };
 
       const fracSel = box.querySelector('[name="fraction"]');
-      fracSel.onchange = () => { entry.fraction = Number(fracSel.value); store.commit(); render(modal); ctx.rerender(); };
+      fracSel.onchange = () => { entry.fraction = Number(fracSel.value); store.commit(); ctx.rerender(); };
 
       const delBtn = box.querySelector('[data-del-entry]');
       if (delBtn) delBtn.onclick = () => {
@@ -577,34 +860,39 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const addBtn = modal.querySelector('[data-add-entry]');
     if (addBtn) addBtn.onclick = () => {
       const e = newEntry();
-      if (s.mode === 'senka') e.scope = s.senkaClasses[0]?.id ?? null;
+      if (s.mode === 'senka') {
+        e.scope = ctx.lastScope ?? s.senkaClasses[0]?.id ?? null;
+        e.subjectKey = s.senkaSubject || '';
+      }
       cellNow.entries.push(e);
       store.commit(); render(modal); ctx.rerender();
     };
   };
 
   openModal(`
-    <h2>${esc(title)} の授業</h2>
+    <h2>${esc(title)}</h2>
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
-      <button class="btn danger left" data-clear-cell>コマをクリア</button>
-      <button class="btn" data-swap title="このコマを別の場所へ移動・入替(タッチ操作対応)">⇄ 移動・入替</button>
-      <button class="btn primary" data-close>閉じる</button>
+      <button class="btn danger left" data-clear-cell>クリア</button>
+      <button class="btn" data-swap>⇄ 移動</button>
+      <button class="btn primary" data-close>完了</button>
     </div>
   `, (modal, close) => {
     render(modal);
     modal.querySelector('[data-close]').onclick = () => close();
     modal.querySelector('[data-swap]').onclick = () => {
       ctx.swapSource = { day: dayIdx, period: periodId };
-      close(); // onClose(cleanup)が走った後にrerenderされる
+      close();
     };
     modal.querySelector('[data-clear-cell]').onclick = () => {
       const w = store.getWeek(weekStart, true);
+      store.snapshot('コマのクリア');
       delete w.cells[cellKey(dayIdx, periodId)];
       store.commit();
       close();
+      toast('コマをクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     };
-  }, cleanup); // ← Esc・背景クリックを含む全ての閉じ方で空エントリを掃除する
+  }, cleanup);
 
   // 空のままのエントリは閉じるときに掃除する(冪等)
   function cleanup() {
@@ -615,7 +903,6 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       c.entries = c.entries.filter(e => e.subjectKey || (e.text && !e.auto) || e.note);
       if (!c.entries.length) delete w.cells[key];
     }
-    // 週全体が空(コマ・行事・めあて・反省・日課割当・日メモすべて無し)ならゴースト週ごと消す
     if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
       && !(w.events || []).some(Boolean)
       && !Object.keys(w.dayPatterns || {}).length
@@ -629,7 +916,6 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
 function entryEditorHTML(state, entry, idx, period, ordinals) {
   const s = state.settings;
-  const subj = subjectOf(s, entry.subjectKey);
   const resolved = resolveEntryText(state, entry, ordinals);
   const isModule = period?.type === 'module';
   const effAdvance = entry.advance == null ? !isModule : !!entry.advance;
@@ -638,56 +924,73 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     `<button data-subj="${esc(x.key)}" class="${x.key === entry.subjectKey ? 'selected' : ''}"
        style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('');
 
+  // 専科: 学級ボタン列(1タップ選択)
   let scopeField = '';
-  if (s.mode === 'senka') {
+  if (s.mode === 'senka' && s.senkaClasses.length) {
     scopeField = `<div class="field"><label>学級</label>
-      ${selectHTML('scope', s.senkaClasses.map(c => ({ value: c.id, label: c.label })), entry.scope ?? '', { allowEmpty: '(学級なし)' })}
+      <div class="scope-palette">${s.senkaClasses.map(c =>
+        `<button data-scope-btn="${esc(c.id)}" class="${entry.scope === c.id ? 'selected' : ''}">${esc(c.label || '?')}</button>`).join('')}
+      </div></div>`;
+  }
+
+  const isKnownGrade = typeof entry.scope === 'number' && s.fukushikiGrades.includes(entry.scope);
+  let gradeHead = '';
+  if (s.mode === 'fukushiki') {
+    const guideChips = ['direct', 'indirect', 'guide'].map(g =>
+      `<button data-guide="${g}" class="guide-btn g-${g} ${entry.guide === g ? 'selected' : ''}">${guideLabel(g)}</button>`).join('');
+    gradeHead = `<div class="grade-head">
+      <span>📘 ${isKnownGrade ? `${entry.scope}年` : '学年未設定'}</span>
+      <span class="guide-chips">${guideChips}${infoHTML('直=直接指導 間=間接指導(自力学習) ガ=ガイド学習。印刷に◎○△で出ます')}</span>
     </div>`;
   }
-  const isKnownGrade = typeof entry.scope === 'number' && s.fukushikiGrades.includes(entry.scope);
-  const scopeTitle = s.mode === 'fukushiki'
-    ? `<div style="font-weight:700; font-size:13.5px; margin-bottom:6px;">📘 ${isKnownGrade ? `${entry.scope}年` : '(学年未設定: 形態切替前の入力)'}</div>`
-    : '';
 
-  const autoBlock = entry.auto
-    ? (resolved.info || resolved.text
-        ? `<div class="auto-preview"><span class="label">年間指導計画から自動反映</span>${esc(resolved.text || '(計画未登録)')}</div>`
-        : `<div class="auto-preview"><span class="label">自動反映</span>年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>`)
-    : '';
+  const autoBlock = entry.auto && resolved.text
+    ? `<div class="auto-preview"><span class="label">自動反映</span>${esc(resolved.text)}</div>`
+    : (entry.auto && !state.plans.length && idx === 0
+      ? `<div class="auto-preview muted">年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>` : '');
+
+  // 既定値から変わっている項目があるときだけ「詳細」を開いておく
+  const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled;
+
+  // 複式では学年別パレットを折りたたみ(共通パレットが主)
+  const paletteBlock = s.mode === 'fukushiki'
+    ? `<details ${entry.subjectKey ? '' : 'open'}><summary class="fold-label">この学年の教科を変える</summary>
+        <div class="subject-palette" style="margin-top:6px;">${palette}</div></details>`
+    : `<div class="field"><label>教科</label><div class="subject-palette">${palette}</div></div>`;
 
   return `
-    <div data-entry="${idx}" style="border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px;">
-      ${scopeTitle}
-      <div class="field">
-        <label>教科</label>
-        <div class="subject-palette">${palette}</div>
-      </div>
+    <div data-entry="${idx}" class="entry-editor">
+      ${gradeHead}
+      ${paletteBlock}
       ${scopeField}
       ${autoBlock}
       <div class="field">
-        <label>内容(空欄なら自動反映${subj ? '' : ''}) ${!entry.auto ? '<button class="btn small ghost" data-reset-auto>↺ 自動に戻す</button>' : ''}</label>
-        <textarea name="text" placeholder="${esc(resolved.auto && resolved.text ? resolved.text : '単元名・本時の内容(手動入力)')}">${entry.auto ? '' : esc(entry.text)}</textarea>
+        <label>内容 ${!entry.auto ? '<button class="btn small ghost" data-reset-auto>↺ 自動に戻す</button>' : ''}</label>
+        <textarea name="text" placeholder="${esc(resolved.auto && resolved.text ? resolved.text : '')}">${entry.auto ? '' : esc(entry.text)}</textarea>
       </div>
       <div class="field">
-        <label>備考(持ち物・場所・評価メモなど)</label>
+        <label>備考</label>
         <input type="text" name="note" value="${esc(entry.note || '')}">
       </div>
-      <div class="field" style="max-width:240px;">
-        <label>時数の割合(分数時数)</label>
-        <select name="fraction">
-          <option value="1" ${(entry.fraction ?? 1) === 1 ? 'selected' : ''}>1(コマ全部)</option>
-          <option value="0.6666666666666666" ${Math.abs((entry.fraction ?? 1) - 2 / 3) < 0.01 ? 'selected' : ''}>2/3</option>
-          <option value="0.5" ${Math.abs((entry.fraction ?? 1) - 0.5) < 0.01 ? 'selected' : ''}>1/2</option>
-          <option value="0.3333333333333333" ${Math.abs((entry.fraction ?? 1) - 1 / 3) < 0.01 ? 'selected' : ''}>1/3</option>
-        </select>
-      </div>
-      <div class="checkline"><input type="checkbox" name="advance" id="adv-${idx}" ${effAdvance ? 'checked' : ''}>
-        <label for="adv-${idx}">年間指導計画の進度を1コマ進める${isModule ? '(モジュールは既定でオフ)' : ''}</label></div>
-      <div class="checkline"><input type="checkbox" name="noCount" id="nc-${idx}" ${entry.noCount ? 'checked' : ''}>
-        <label for="nc-${idx}">時数集計に含めない(教育課程外の朝活動・テスト監督など)</label></div>
-      <div class="checkline"><input type="checkbox" name="cancelled" id="cl-${idx}" ${entry.cancelled ? 'checked' : ''}>
-        <label for="cl-${idx}">中止・未実施(学級閉鎖・行事変更など。時数・進度から除外)</label></div>
-      ${state.settings.mode !== 'fukushiki' || !isKnownGrade ? `<button class="btn small danger" data-del-entry>この授業を削除</button>` : ''}
+      <details class="adv" ${advOpen ? 'open' : ''}>
+        <summary class="fold-label">詳細</summary>
+        <div class="field" style="max-width:200px; margin-top:8px;">
+          <label>時数${infoHTML('1コマを複数の教科で分けるときの割合(例: 国語1/3+行事2/3)')}</label>
+          <select name="fraction">
+            <option value="1" ${(entry.fraction ?? 1) === 1 ? 'selected' : ''}>1</option>
+            <option value="0.6666666666666666" ${Math.abs((entry.fraction ?? 1) - 2 / 3) < 0.01 ? 'selected' : ''}>2/3</option>
+            <option value="0.5" ${Math.abs((entry.fraction ?? 1) - 0.5) < 0.01 ? 'selected' : ''}>1/2</option>
+            <option value="0.3333333333333333" ${Math.abs((entry.fraction ?? 1) - 1 / 3) < 0.01 ? 'selected' : ''}>1/3</option>
+          </select>
+        </div>
+        <div class="checkline"><input type="checkbox" name="advance" id="adv-${idx}" ${effAdvance ? 'checked' : ''}>
+          <label for="adv-${idx}">進度を進める</label>${infoHTML('年間指導計画の「何時間目か」を1つ進めます。ドリル等で単元を進めないときはオフに')}</div>
+        <div class="checkline"><input type="checkbox" name="noCount" id="nc-${idx}" ${entry.noCount ? 'checked' : ''}>
+          <label for="nc-${idx}">時数に数えない</label>${infoHTML('教育課程外の朝活動・テスト監督などに')}</div>
+        <div class="checkline"><input type="checkbox" name="cancelled" id="cl-${idx}" ${entry.cancelled ? 'checked' : ''}>
+          <label for="cl-${idx}">中止</label>${infoHTML('学級閉鎖・行事変更などで実施しなかったコマ。以降の授業内容は自動で繰り下がります')}</div>
+        ${s.mode !== 'fukushiki' || !isKnownGrade ? `<button class="btn small danger" data-del-entry>この授業を削除</button>` : ''}
+      </details>
     </div>`;
 }
 
@@ -716,6 +1019,5 @@ function renderMiniStats(state, weekStart) {
     }).join('');
   return `<div class="panel" style="padding:10px 16px;">
     <span style="font-size:12.5px; font-weight:700; color:#374151; margin-right:10px;">今週の時数</span>${chips}
-    <span class="hint" style="margin-left:8px;">詳細は「時数集計」タブへ</span>
   </div>`;
 }
