@@ -10,7 +10,7 @@ import { renderDataView } from './views/data.js';
 import { renderOnboarding, needsOnboarding, maybeYearRollover } from './views/onboarding.js';
 import { openPrintDialog, buildPrintDOM, buildStatsPrintDOM, printState } from './print.js';
 import { fmtDate, mondayOf, parseDate, addDays, fiscalYearOf } from './utils.js';
-import { toast, closeAllModals, wireInfoPopovers, openModal } from './ui.js';
+import { toast, closeAllModals, wireInfoPopovers, openModal, associateLabels } from './ui.js';
 
 const VIEWS = {
   week: renderWeekView,
@@ -48,6 +48,7 @@ function rerender() {
   document.querySelector('.topbar').style.display = '';
   const view = VIEWS[ctx.currentTab] || renderWeekView;
   view(main, ctx);
+  associateLabels(main); // ラベルと入力欄のプログラム関連付け(WCAG 1.3.1)
 }
 
 // ---------------------------------------------------------------- タブ
@@ -58,7 +59,12 @@ document.getElementById('tabs').addEventListener('click', (ev) => {
   ctx.currentTab = btn.dataset.tab;
   ctx.swapSource = null;
   ctx.paint.subject = null; // タブ移動で連続入力モードを自動解除(誤配置防止)
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === btn));
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t === btn);
+    // 現在のタブを支援技術にも伝える(WCAG 4.1.2)
+    if (t === btn) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
   rerender();
 });
 
@@ -87,7 +93,7 @@ document.getElementById('btn-print').addEventListener('click', async () => {
   printWeek(ctx.weekStart);
 });
 document.getElementById('btn-print-opts').addEventListener('click', () => {
-  if (ctx.currentTab === 'stats') { toast('集計表はこのまま印刷できます(書式設定は週案用)'); return; }
+  if (ctx.currentTab === 'stats') { toast('時数集計はこのまま印刷できます'); return; }
   openPrintDialog(ctx);
 });
 
@@ -203,7 +209,7 @@ if (store.loadError) {
         念のためファイルにも保存してから続行してください。</p>
       <div class="modal-foot">
         <button class="btn" data-dump>退避データを保存</button>
-        <button class="btn primary" data-go>新しいデータで続行</button>
+        <button class="btn primary" data-go>続行</button>
       </div>
     `, (modal, close) => {
       modal.querySelector('[data-dump]').onclick = () => {
@@ -247,6 +253,7 @@ if (bootOldFY !== nowFY) {
 
 // 自動同期(設定でONのとき): 起動時にサーバーの新しいデータを取得し、
 // 編集後はアイドル15秒で自動送信する。競合時は上書きせず手動同期を案内。
+const gotoDataTab = () => document.querySelector('.tab[data-tab="data"]')?.click();
 let autoPushTimer = null;
 let autoPushing = false;
 let syncing = false;            // pull適用中のnotifyでautoPushを予約しない
@@ -261,7 +268,7 @@ async function autoPull() {
     if (!res.exists || (res.updatedAt || 0) <= baseAt) return;
     // pull中にユーザーが編集を始めていたら適用しない(入力消失・サイレント上書き防止)
     if ((store.state.updatedAt || 0) !== baseAt) {
-      toast('他の端末に新しいデータがあります。データタブで同期を確認してください', 'error', 6000);
+      toast('他の端末に新しいデータがあります', 'error', 6000, { label: 'データを開く', onClick: gotoDataTab });
       return;
     }
     syncing = true;
@@ -298,7 +305,7 @@ async function autoPush() {
   try {
     const res = await ctx.gas.push(store.state);
     if (res.conflict) {
-      toast('他の端末に新しいデータがあります。データタブで同期を確認してください', 'error', 6000);
+      toast('他の端末に新しいデータがあります', 'error', 6000, { label: 'データを開く', onClick: gotoDataTab });
     } else {
       if (res.updatedAt) store.state.updatedAt = res.updatedAt;
       store.settings.gas.lastSync = Date.now();

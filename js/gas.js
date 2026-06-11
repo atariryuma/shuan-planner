@@ -39,13 +39,13 @@ export class GasClient {
     // 返ることがあるため、先頭文字で防御的に判定する。
     const text = await res.text();
     if (text.trim().startsWith('<')) {
-      throw new Error('GASがHTMLを返しました。デプロイ設定(アクセスできるユーザー: 全員)と承認を確認してください');
+      throw new Error('Google連携の応答が正しくありません。設定手順の「アクセスできるユーザー: 全員」と承認を確認してください');
     }
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error('GASからの応答を解釈できません。/exec のURLか確認してください');
+      throw new Error('Google連携の応答を解釈できません。接続先URL(/exec で終わる)を確認してください');
     }
     if (!data.ok && !data.conflict) throw new Error(data.error || '不明なエラー');
     return data;

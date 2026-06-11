@@ -1,7 +1,7 @@
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-import { store, computeHours, computeMonthlyHours, computeOrdinals, lessonFromPlan, fmtHours, standardHoursFor, scopeKey, cellKey, teachingWeeksLeft, doneRefWeek } from '../store.js';
-import { weekNumberInFiscalYear, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
+import { store, computeHours, computeMonthlyHours, computeOrdinals, lessonFromPlan, fmtHours, standardHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
+import { weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
 
 const MONTH_ORDER = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
@@ -18,6 +18,9 @@ export function renderStatsView(root, ctx) {
   // 実施済は表示中の週ではなく今日現在で数える(過去週を見ていても報告値が欠けない)
   const hoursDone = computeHours(state, doneRefWeek(weekStart));
   const detail = localStorage.getItem(DETAIL_KEY) === '1';
+  // 年度表示は閲覧中の週から導出する(settings.fiscalYearは常に現在年度のため、
+  // 4月以降に前年度の週を見るとデータと年度ラベルが食い違う)
+  const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
 
   const scopes = scopesOf(s, hours);
   const sections = scopes.map(sc => renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail)).filter(Boolean).join('');
@@ -27,12 +30,12 @@ export function renderStatsView(root, ctx) {
     <div class="panel">
       <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
         <h2 style="margin:0;">時数集計</h2>
-        <span class="hint">第${weekNo}週(${fmtMD(parseDate(weekStart))})まで・${s.fiscalYear}年度</span>
+        <span class="hint">第${weekNo}週(${fmtMD(parseDate(weekStart))})まで・${fy}年度</span>
         <span class="spacer" style="flex:1;"></span>
         <label class="hint" style="display:flex; align-items:center; gap:4px; cursor:pointer;">
           <input type="checkbox" id="stats-detail" ${detail ? 'checked' : ''}> 詳細列</label>
-        <button class="btn small" id="stats-csv">CSV</button>
-        <button class="btn small" id="stats-print">🖨 印刷</button>
+        <button class="btn small" id="stats-csv">CSV保存</button>
+        <button class="btn small" id="stats-print">印刷</button>
       </div>
       ${progress}
       ${sections || '<p class="hint">まだ授業の入力がありません。週案タブでコマをクリックして始めてください。</p>'}
@@ -181,6 +184,9 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
   const activeRows = [];
   const zeroRows = [];
   let any = false;
+  // 長期休業を設定していれば残り・経過の「授業週数」でペースと見込みを計算
+  const weeksLeft = teachingWeeksLeft(s, weekStart);
+  const weeksElapsed = teachingWeeksElapsed(s, weekStart);
   for (const subj of s.subjects) {
     if (subj.parent && keys.has(subj.parent)) continue;
     const own = get(subj.key);
@@ -194,13 +200,12 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
     let done = getDone(subj.key);
     for (const ck of childrenOf[subj.key] || []) done += getDone(ck);
     const std = standardHoursFor(s, subj.key, sc.grade);
-    if (total === 0 && week === 0 && std == null) continue;
+    if (total === 0 && week === 0 && done === 0 && std == null) continue;
     any = true;
     const remain = std != null ? std - total : null;
-    // 長期休業を設定していれば残りの「授業週数」で必要ペースを計算
-    const weeksLeft = teachingWeeksLeft(s, weekStart);
     const pace = remain != null && remain > 0 && weeksLeft > 0 ? remain / weeksLeft : null;
-    const projected = weekNo >= 1 && total > 0 ? (total / weekNo) * (s.hoursBase || 35) : null;
+    // 分母は経過「授業」週数(暦週数で割ると夏休み以降の着地を恒常的に過小評価する)
+    const projected = total > 0 ? (total / weeksElapsed) * (s.hoursBase || 35) : null;
     const pct = std ? Math.min(100, Math.round((total / std) * 100)) : 0;
     const over = std != null && total > std;
     const row = `
@@ -211,14 +216,15 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
         <td>${fmtHours(done)}</td>
         ${detail ? `<td><b>${fmtHours(total)}</b></td>` : ''}
         <td><input data-std="${esc(subj.key)}@${sc.grade}" value="${std ?? ''}" placeholder="—"
-              style="width:56px; border:none; background:transparent; text-align:right; font-family:inherit; font-size:13.5px;"></td>
+              aria-label="${esc(subj.name)}の標準時数"
+              style="width:56px; border:none; background:transparent; text-align:right; font-family:inherit;"></td>
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
         ${detail ? `<td>${pace != null ? fmtHours(pace) + ' /週' : '—'}</td>
         <td>${projected != null ? Math.round(projected) : '—'}</td>` : ''}
         <td style="text-align:left;"><div class="bar-wrap"><div class="bar" style="width:${pct}%; background:${over ? '#dc2626' : esc(subj.color)}"></div></div></td>
       </tr>`;
     // 専科・複式では「時数0で標準だけある行」を畳む(自分の教科1行を探させない)
-    if (s.mode !== 'homeroom' && total === 0 && week === 0) zeroRows.push(row);
+    if (s.mode !== 'homeroom' && total === 0 && week === 0 && done === 0) zeroRows.push(row);
     else activeRows.push(row);
   }
   if (!any) return '';
@@ -358,11 +364,13 @@ function downloadCSV(state, weekStart) {
     }
   }
   if (lines.length === 1) { toast('まだ出力できる時数がありません', 'error'); return; }
+  // ファイル名の年度は閲覧中の週から導出する(前年度の集計を新年度ラベルで出さない)
+  const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `時数集計_${s.fiscalYear}年度_${weekStart}まで.csv`;
+  a.download = `時数集計_${fy}年度_${weekStart}まで.csv`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
   toast('CSVを保存しました');

@@ -18,14 +18,14 @@
       <h1>週案プランナー</h1>
     </div>
     <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="week">週案</button>
+      <button class="tab active" data-tab="week" aria-current="page">週案</button>
       <button class="tab" data-tab="plans">年間指導計画</button>
       <button class="tab" data-tab="stats">時数集計</button>
       <button class="tab" data-tab="settings">設定</button>
       <button class="tab" data-tab="data">データ</button>
     </nav>
     <div class="topbar-actions">
-      <span id="save-indicator" class="save-indicator">✓ 保存済み</span>
+      <span id="save-indicator" class="save-indicator" role="status">✓ 保存済み</span>
       <span class="split-btn">
         <button id="btn-print" class="btn primary">🖨 印刷</button>
         <button id="btn-print-opts" class="btn primary opts" aria-label="印刷の設定">⚙</button>
@@ -36,7 +36,7 @@
   <main id="main" class="main screen-only"></main>
 
   <div id="modal-layer"></div>
-  <div id="toast-layer"></div>
+  <div id="toast-layer" role="status" aria-live="polite"></div>
 </div>
 
 <!-- 印刷専用DOM(印刷時のみ表示。画面とは独立に組み立てる) -->

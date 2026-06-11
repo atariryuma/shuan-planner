@@ -5,7 +5,7 @@
  */
 
 import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, scopeKey, fmtHours, standardHoursFor } from './store.js';
-import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, DAY_NAMES, esc } from './utils.js';
+import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, fiscalYearOf, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { subjectOf, fracLabel } from './views/week.js';
 
@@ -137,12 +137,15 @@ export function buildWeekEmail(weekStart) {
     ? s.fukushikiGrades.map(g => ({ label: `${g}年`, scopes: [g] }))
     : [{ label: '', scopes: s.mode === 'senka' ? [...s.senkaClasses.map(c => c.id), null] : [null] }];
 
+  // 合算先(parent)の実在チェック(他の集計箇所と同じ規則)。
+  // 親教科を削除済みの子教科は独立行として出す(行スキップすると時数が無言で欠落する)
+  const subjKeys = new Set(s.subjects.map(x => x.key));
   const hoursRowsHTML = [];
   let hourNames = null;
   for (const grp of hourScopeGroups) {
     const items = [];
     for (const subj of s.subjects) {
-      if (subj.parent) continue;
+      if (subj.parent && subjKeys.has(subj.parent)) continue;
       let wk = 0, tt = 0;
       for (const k of [subj.key, ...s.subjects.filter(x => x.parent === subj.key).map(x => x.key)]) {
         for (const sc of grp.scopes) {
@@ -316,8 +319,11 @@ export function buildHoursReport(weekStart) {
       });
     }
   }
+  // シート名の年度は閲覧中の週から導出する(settings.fiscalYearは常に現在年度のため、
+  // 4月以降に前年度の週を出力するとデータと年度ラベルが食い違う)
+  const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
   return {
-    sheetName: `時数 ${s.fiscalYear}年度`,
+    sheetName: `時数 ${fy}年度`,
     monthLabels: MONTH_ORDER.map(m => `${m}月`),
     termLabels: monthly.terms.map(t => t.name),
     rows,

@@ -20,7 +20,8 @@ export const SCHEMA_VERSION = 1;
 export function defaultPeriods(schoolType) {
   const base = schoolType === 'junior' ? 50 : 45;
   const p = [];
-  p.push({ id: 'mod', label: '朝学習', type: 'module', minutes: 15, coefficient: round3(15 / base), start: '08:15', end: '08:30' });
+  // 係数は丸めずに保存する(0.333に丸めると105コマで34.965になり、累計が35時間に揃わない)
+  p.push({ id: 'mod', label: '朝学習', type: 'module', minutes: 15, coefficient: 15 / base, start: '08:15', end: '08:30' });
   const times = schoolType === 'junior'
     ? [['08:50', '09:40'], ['09:50', '10:40'], ['10:50', '11:40'], ['11:50', '12:40'], ['13:30', '14:20'], ['14:30', '15:20']]
     : [['08:50', '09:35'], ['09:40', '10:25'], ['10:45', '11:30'], ['11:35', '12:20'], ['13:40', '14:25'], ['14:30', '15:15']];
@@ -106,35 +107,45 @@ export function defaultState() {
   };
 }
 
-function round3(x) { return Math.round(x * 1000) / 1000; }
-
 // ---------------------------------------------------------------- store
+
+// Undoスナップショットの有効期限。古い/遠いスナップショットへ巻き戻すと
+// それ以降の編集を無警告で消してしまうため、時間と編集回数で失効させる。
+const UNDO_TTL_MS = 5 * 60 * 1000; // 5分
+const UNDO_MAX_COMMITS = 30;       // スナップショット後の編集(commit)回数
 
 class Store {
   constructor() {
     this.state = this.load();
     this.listeners = new Set();
     this._saveTimer = null;
-    this._undo = null; // 直前の破壊的操作のスナップショット {json, label}
+    this._undo = null; // 直前の破壊的操作のスナップショット {json, label, at, commits}
   }
 
-  /** 破壊的操作の直前に呼ぶ。undo()で1回だけ巻き戻せる */
+  /** 破壊的操作の直前に呼ぶ。undo()で巻き戻せる(再度のundoでやり直し) */
   snapshot(label) {
-    this._undo = { json: JSON.stringify(this.state), label };
+    this._undo = { json: JSON.stringify(this.state), label, at: Date.now(), commits: 0 };
   }
 
-  /** 直前のスナップショットへ巻き戻す。戻り値は操作ラベル(なければnull) */
+  /**
+   * 直前のスナップショットへ巻き戻す。戻り値は操作ラベル(なければnull)。
+   * 復元前の状態を退避するため、もう一度undo()すると元に戻せる(交互トグル)。
+   */
   undo() {
-    if (!this._undo) return null;
+    if (!this.canUndo) return null;
     const { json, label } = this._undo;
-    this._undo = null;
+    this._undo = { json: JSON.stringify(this.state), label, at: Date.now(), commits: 0 };
     this.state = migrate(JSON.parse(json));
     this.persist();
     this.notify();
     return label;
   }
 
-  get canUndo() { return !!this._undo; }
+  get canUndo() {
+    return !!this._undo
+      && (Date.now() - this._undo.at) <= UNDO_TTL_MS
+      && this._undo.commits <= UNDO_MAX_COMMITS;
+  }
 
   load() {
     try {
@@ -163,6 +174,7 @@ class Store {
   /** 変更通知 + 遅延保存 */
   commit() {
     this.state.updatedAt = Date.now();
+    if (this._undo) this._undo.commits++; // 編集が重なったスナップショットは失効へ近づく
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => this.persist(), 400);
     this.listeners.forEach(fn => fn(this.state));
@@ -401,6 +413,18 @@ function migrate(data) {
   if (!Array.isArray(data.settings.fukushikiGrades) || data.settings.fukushikiGrades.length < 2) data.settings.fukushikiGrades = def.fukushikiGrades;
   if (!Array.isArray(data.settings.senkaClasses)) data.settings.senkaClasses = [];
 
+  // モジュール係数の丸め誤差を救済(0.333→1/3等)。丸めた係数のまま累積すると
+  // 105コマで34.965になり、表示・CSVが標準の整数時数(35)と一致しなくなる。
+  // ユーザーが意図的に別値へ上書きしている場合(誤差0.002超)は触らない。
+  {
+    const base = data.settings.schoolType === 'junior' ? 50 : 45;
+    for (const p of data.settings.periods) {
+      if (p.type !== 'module' || !(p.minutes > 0)) continue;
+      const exact = p.minutes / base;
+      if (p.coefficient !== exact && Math.abs(p.coefficient - exact) < 0.002) p.coefficient = exact;
+    }
+  }
+
   // 週・セル・エントリ・計画を深く正規化する。
   // 欠損フィールドのある外部JSON(手編集のバックアップ等)を取り込んでも描画が落ちないようにする。
   data.plans = (Array.isArray(data.plans) ? data.plans : []).filter(p => p && typeof p === 'object').map(p => ({
@@ -591,7 +615,10 @@ export function doneRefWeek(weekStart) {
   const todayMon = mondayOf(new Date());
   const tfy = fiscalYearOf(addDays(todayMon, 3));
   if (tfy < fy) return weekStart;                                  // 未来年度の閲覧 → 実施は0で正しい
-  if (tfy > fy) return fmtDate(mondayOf(new Date(fy + 1, 2, 31))); // 過年度の閲覧 → 年度末まで実施扱い
+  // 過年度の閲覧 → 年度内に属する最終週まで実施扱い。
+  // 3/31を含む週の月曜を返すと、その週の木曜が4月の年(3/31が月〜水曜)は
+  // 木曜判定で翌年度に分類され、fiscalRangeOfが翌年度の範囲を返して実施が全て0になる。
+  if (tfy > fy) return fmtDate(addDays(fiscalYearFirstMonday(fy + 1), -7));
   const t = fmtDate(todayMon);
   return t > weekStart ? t : weekStart;
 }
@@ -655,7 +682,13 @@ export function teachingWeeksLeft(settings, refWeekStart) {
   // 対象年度と重なる休業だけを使う(前年度の休業設定を引きずらない)
   const breaks = (settings.breaks || []).filter(b => b.from && b.to && b.from <= fyEnd && b.to >= fyStart);
   if (!breaks.length) {
-    return Math.max(0, (settings.hoursBase || 35) - weekNo);
+    // 休業未設定: 残り暦週数を年間授業週数(hoursBase)へ比例配分する近似。
+    // 「hoursBase − 経過暦週数」だと夏休み以降に残り週数を過小評価し、
+    // 経過暦週数がhoursBaseを超える12月頃には0へ張り付いてしまうため。
+    const totalWeeks = Math.max(1, Math.round(
+      (fiscalYearFirstMonday(fy + 1) - fiscalYearFirstMonday(fy)) / (7 * 24 * 3600 * 1000)));
+    const calendarLeft = Math.max(0, totalWeeks - weekNo);
+    return Math.round((settings.hoursBase || 35) * calendarLeft / totalWeeks);
   }
   const end = new Date(fy + 1, 2, 31);
   let count = 0;
@@ -668,6 +701,34 @@ export function teachingWeeksLeft(settings, refWeekStart) {
     monday = addDays(monday, 7);
   }
   return count;
+}
+
+/**
+ * 経過授業週数(年度初週〜基準週、基準週を含む)。「見込み」の分母に使う。
+ * 長期休業が設定されていれば「平日が全て休業の週」を除いて数える。
+ * 未設定なら経過暦週数を年間授業週数で打ち切る近似(暦週数をそのまま使うと
+ * 夏休み以降の見込みが実績を下回る矛盾が出るため)。
+ */
+export function teachingWeeksElapsed(settings, refWeekStart) {
+  const refMonday = parseDate(refWeekStart);
+  const fy = fiscalYearOf(addDays(refMonday, 3));
+  const fyStart = `${fy}-04-01`;
+  const fyEnd = `${fy + 1}-03-31`;
+  const breaks = (settings.breaks || []).filter(b => b.from && b.to && b.from <= fyEnd && b.to >= fyStart);
+  if (!breaks.length) {
+    const weekNo = weekNumberInFiscalYear(refMonday);
+    return Math.max(1, Math.min(weekNo, settings.hoursBase || 35));
+  }
+  let count = 0;
+  let monday = fiscalYearFirstMonday(fy);
+  while (monday <= refMonday) {
+    const ws = fmtDate(monday);
+    const we = fmtDate(addDays(monday, 4)); // 金曜まで
+    const fullyInBreak = breaks.some(b => b.from <= ws && we <= b.to);
+    if (!fullyInBreak) count++;
+    monday = addDays(monday, 7);
+  }
+  return Math.max(1, count);
 }
 
 /** その日付が長期休業中なら休業名を返す */

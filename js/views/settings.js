@@ -50,14 +50,14 @@ export function renderSettingsView(root, ctx) {
     <div class="panel" id="sp-mode">
       <h2>担任形態</h2>
       <div class="mode-cards">
-        <button class="mode-card ${s.mode === 'homeroom' ? 'selected' : ''}" data-mode="homeroom">
-          <span class="m-title">🏫 学級担任</span><span class="m-desc">1つの学級の全教科の週案を作る(小学校の基本形)</span>
+        <button class="mode-card ${s.mode === 'homeroom' ? 'selected' : ''}" data-mode="homeroom" aria-pressed="${s.mode === 'homeroom'}">
+          <span class="m-title">学級担任</span><span class="m-desc">1つの学級の全教科の週案を作る(小学校の基本形)</span>
         </button>
-        <button class="mode-card ${s.mode === 'senka' ? 'selected' : ''}" data-mode="senka">
-          <span class="m-title">🎵 専科・教科担任</span><span class="m-desc">複数の学級に同じ教科を教える(音楽・理科・英語専科、中学校)。学級ごとに進度を自動管理</span>
+        <button class="mode-card ${s.mode === 'senka' ? 'selected' : ''}" data-mode="senka" aria-pressed="${s.mode === 'senka'}">
+          <span class="m-title">専科・教科担任</span><span class="m-desc">複数の学級に同じ教科を教える(音楽・理科・英語専科、中学校)。学級ごとに進度を自動管理</span>
         </button>
-        <button class="mode-card ${s.mode === 'fukushiki' ? 'selected' : ''}" data-mode="fukushiki">
-          <span class="m-title">👥 複式学級</span><span class="m-desc">2つの学年を1枚の週案に上下併記。時数は学年別に集計</span>
+        <button class="mode-card ${s.mode === 'fukushiki' ? 'selected' : ''}" data-mode="fukushiki" aria-pressed="${s.mode === 'fukushiki'}">
+          <span class="m-title">複式学級</span><span class="m-desc">2つの学年を1枚の週案に上下併記。時数は学年別に集計</span>
         </button>
       </div>
       <div id="mode-detail" style="margin-top:14px;">${modeDetailHTML(s, gradeOpts)}</div>
@@ -66,7 +66,7 @@ export function renderSettingsView(root, ctx) {
     <div class="panel" id="sp-schedule">
       <h2>時程${infoHTML('1校時〜の時間割の枠。係数は時数の数え方です')}</h2>
       <table class="edit-table">
-        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=0.333、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
+        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=1/3(0.333…)、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
         <tbody id="periods-body">
           ${s.periods.map((p, i) => `
             <tr data-p="${i}">
@@ -77,9 +77,9 @@ export function renderSettingsView(root, ctx) {
               <td><input type="number" name="minutes" value="${esc(p.minutes)}" min="5" max="120"></td>
               <td><input type="number" name="coefficient" value="${esc(p.coefficient)}" min="0" max="2" step="0.001"></td>
               <td class="ops">
-                <button class="btn small ghost" data-pup>↑</button>
-                <button class="btn small ghost" data-pdown>↓</button>
-                <button class="btn small ghost danger" data-prm>×</button>
+                <button class="btn small ghost" data-pup aria-label="上へ" title="上へ">↑</button>
+                <button class="btn small ghost" data-pdown aria-label="下へ" title="下へ">↓</button>
+                <button class="btn small ghost danger" data-prm aria-label="削除" title="削除">×</button>
               </td>
             </tr>`).join('')}
         </tbody>
@@ -141,7 +141,7 @@ export function renderSettingsView(root, ctx) {
               <td><input type="text" name="bname" value="${esc(b.name)}" placeholder="夏季休業"></td>
               <td><input type="date" name="bfrom" value="${esc(b.from || '')}"></td>
               <td><input type="date" name="bto" value="${esc(b.to || '')}"></td>
-              <td class="ops"><button class="btn small ghost danger" data-brm>×</button></td>
+              <td class="ops"><button class="btn small ghost danger" data-brm aria-label="削除" title="削除">×</button></td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -183,8 +183,8 @@ export function renderSettingsView(root, ctx) {
               <td><input type="color" name="color" value="${esc(x.color)}"></td>
               <td>${selectHTML('parent', parentOpts, x.parent || '', { allowEmpty: '—' })}</td>
               <td class="ops">
-                <button class="btn small ghost" data-sup>↑</button>
-                <button class="btn small ghost danger" data-srm>×</button>
+                <button class="btn small ghost" data-sup aria-label="上へ" title="上へ">↑</button>
+                <button class="btn small ghost danger" data-srm aria-label="削除" title="削除">×</button>
               </td>
             </tr>`;
           }).join('')}
@@ -299,9 +299,9 @@ function modeDetailHTML(s, gradeOpts) {
             <td><input type="text" name="label" value="${esc(c.label)}" placeholder="${clsPlaceholder}"></td>
             <td>${selectHTML('grade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), c.grade)}</td>
             <td class="ops">
-              <button class="btn small ghost" data-cup>↑</button>
-              <button class="btn small ghost" data-cdown>↓</button>
-              <button class="btn small ghost danger" data-crm>×</button>
+              <button class="btn small ghost" data-cup aria-label="上へ" title="上へ">↑</button>
+              <button class="btn small ghost" data-cdown aria-label="下へ" title="下へ">↓</button>
+              <button class="btn small ghost danger" data-crm aria-label="削除" title="削除">×</button>
             </td>
           </tr>`).join('')}
       </tbody>
@@ -433,7 +433,14 @@ function wireSettings(root, ctx) {
           (count ? `\nこの学級の入力済み ${count}コマ は集計・表示されなくなります(データは残ります)` : ''),
           { okLabel: '削除', danger: true });
         if (!ok) return;
+        store.snapshot('学級の削除');
         s.senkaClasses.splice(i, 1);
+        // 削除した学級が「直前に選んだ学級」(新規コマの既定)なら無効化する
+        // (残したままだと以後の新規コマが存在しない学級に割り当てられ、集計から消える)
+        if (ctx.lastScope === id) {
+          ctx.lastScope = null;
+          try { localStorage.removeItem('shuan-last-scope'); } catch {}
+        }
         store.commit(); ctx.rerender();
       };
       tr.querySelector('[data-cup]').onclick = () => { if (i > 0) { swap(s.senkaClasses, i, i - 1); store.commit(); ctx.rerender(); } };
@@ -485,9 +492,10 @@ function wireSettings(root, ctx) {
     tr.querySelector('[name="minutes"]').addEventListener('change', (ev) => {
       p.minutes = Number(ev.target.value);
       // 授業種別なら係数は1のまま。モジュールなら分数から自動提案
+      // (丸めずに保存する。0.333に丸めると累計が35時間に揃わない)
       if (p.type === 'module') {
         const base = s.schoolType === 'junior' ? 50 : 45;
-        p.coefficient = Math.round((p.minutes / base) * 1000) / 1000;
+        p.coefficient = p.minutes / base;
       }
       store.commit(); ctx.rerender();
     });
@@ -495,6 +503,7 @@ function wireSettings(root, ctx) {
     tr.querySelector('[data-prm]').onclick = async () => {
       const ok = await confirmDialog(`校時「${p.label}」を削除しますか?(この校時に入力済みのコマは表示されなくなります)`, { okLabel: '削除', danger: true });
       if (!ok) return;
+      store.snapshot('校時の削除');
       s.periods.splice(i, 1); store.commit(); ctx.rerender();
     };
     tr.querySelector('[data-pup]').onclick = () => { if (i > 0) { swap(s.periods, i, i - 1); store.commit(); ctx.rerender(); } };
@@ -508,12 +517,13 @@ function wireSettings(root, ctx) {
   };
   root.querySelector('#period-add-mod').onclick = () => {
     const base = s.schoolType === 'junior' ? 50 : 45;
-    s.periods.push({ id: uid(), label: 'モ', type: 'module', minutes: 15, coefficient: Math.round((15 / base) * 1000) / 1000, start: '', end: '' });
+    s.periods.push({ id: uid(), label: 'モ', type: 'module', minutes: 15, coefficient: 15 / base, start: '', end: '' });
     store.commit(); ctx.rerender();
   };
   root.querySelector('#period-reset').onclick = async () => {
     const ok = await confirmDialog('時程を既定値に戻しますか?', { okLabel: '戻す' });
     if (!ok) return;
+    store.snapshot('時程のリセット');
     s.periods = defaultPeriods(s.schoolType);
     store.commit(); ctx.rerender();
   };
@@ -529,6 +539,7 @@ function wireSettings(root, ctx) {
     el.querySelector('[data-pat-del]').onclick = async () => {
       const ok = await confirmDialog(`日課表パターン「${pat.name}」を削除しますか?\n(このパターンを割り当てていた曜日は通常日課に戻ります)`, { okLabel: '削除', danger: true });
       if (!ok) return;
+      store.snapshot('日課表パターンの削除');
       s.periodPatterns = s.periodPatterns.filter(p => p.id !== pat.id);
       store.commit(); ctx.rerender();
     };
@@ -564,7 +575,14 @@ function wireSettings(root, ctx) {
     tr.querySelector('[name="bname"]').addEventListener('change', (ev) => { b.name = ev.target.value; store.commit(); });
     tr.querySelector('[name="bfrom"]').addEventListener('change', (ev) => { b.from = ev.target.value; store.commit(); });
     tr.querySelector('[name="bto"]').addEventListener('change', (ev) => { b.to = ev.target.value; store.commit(); });
-    tr.querySelector('[data-brm]').onclick = () => { s.breaks.splice(i, 1); store.commit(); ctx.rerender(); };
+    tr.querySelector('[data-brm]').onclick = () => {
+      store.snapshot('休業の削除');
+      s.breaks.splice(i, 1);
+      store.commit();
+      ctx.rerender();
+      // 他の行削除(確認ダイアログ)と違い1行の再追加が容易なため、Undoトーストで守る(規約9)
+      toast('休業を削除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    };
   });
   root.querySelector('#break-add').onclick = () => {
     s.breaks = s.breaks || [];
@@ -600,6 +618,7 @@ function wireSettings(root, ctx) {
     tr.querySelector('[data-srm]').onclick = async () => {
       const ok = await confirmDialog(`教科「${x.name}」を削除しますか?(入力済みのコマの教科表示が消えます)`, { okLabel: '削除', danger: true });
       if (!ok) return;
+      store.snapshot('教科の削除');
       s.subjects.splice(i, 1); store.commit(); ctx.rerender();
     };
     tr.querySelector('[data-sup]').onclick = () => { if (i > 0) { swap(s.subjects, i, i - 1); store.commit(); ctx.rerender(); } };
@@ -611,6 +630,7 @@ function wireSettings(root, ctx) {
   root.querySelector('#subject-reset').onclick = async () => {
     const ok = await confirmDialog('教科リストを既定値に戻しますか?(独自に追加した教科は消えます)', { okLabel: '戻す', danger: true });
     if (!ok) return;
+    store.snapshot('教科のリセット');
     s.subjects = defaultSubjects(s.schoolType);
     store.commit(); ctx.rerender();
   };
@@ -651,7 +671,7 @@ function wireSettings(root, ctx) {
 
   // カレンダー選択(一覧を取得してチェックボックスで選ぶ)
   root.querySelector('#gas-cal-pick').onclick = async () => {
-    if (!ctx.gas.configured) { toast('先にGASのURLとトークンを設定してください', 'error', 4000); return; }
+    if (!ctx.gas.configured) { toast('先に設定 → Google連携 で接続先URLと合言葉を入力してください', 'error', 4000); return; }
     try {
       toast('カレンダー一覧を取得中…');
       const res = await ctx.gas.calendars();

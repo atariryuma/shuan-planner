@@ -35,7 +35,7 @@ function isIOS() {
 export function openPrintDialog(ctx) {
   const s = store.settings;
   openModal(`
-    <h2>🖨 印刷 / PDF保存</h2>
+    <h2>印刷 / PDF保存</h2>
     <div class="field"><label>期間${infoHTML('「今月」以降は入力済みの週をまとめて1つの印刷/PDFにします(学期末の綴り提出用)')}</label>
       <select name="range">
         <option value="week">この週</option>
@@ -142,7 +142,9 @@ export function printWeek(weekStart, range = 'week') {
   if (result.shrunk) {
     toast('内容が多いため文字サイズを自動で縮小しました', 'info', 3500);
   } else if (result.overflow) {
-    toast('内容が多く一部が入りきらない可能性があります(文字サイズ「小」をお試しください)', 'error', 6000);
+    // 文字サイズ「小」への変更は印刷設定から(教育文をトーストに書かずボタンで誘導)
+    toast('内容が入りきらない可能性があります', 'error', 6000,
+      { label: '印刷設定', onClick: () => openPrintDialog({ getWeekStart: () => weekStart }) });
   }
   printState.prepared = true;
   // DOM反映後に印刷(Chromeはstyle注入直後でも問題ないが、念のため次フレームで)
@@ -623,12 +625,15 @@ export function buildStatsPrintDOM(weekStart) {
       </table>`;
   }).filter(Boolean).join('');
 
+  // 見出しの年度は閲覧中の週から導出する(settings.fiscalYearは常に現在年度のため、
+  // 4月以降に前年度の集計を印刷するとデータと年度ラベルが食い違う)
+  const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
   const root = document.getElementById('print-root');
   root.innerHTML = `
     <div class="print-page">
       <div class="pp-header" style="margin-bottom:4mm;">
         <span class="pp-title">授業時数集計</span>
-        <span class="pp-range">${fmtFiscalYear(s.fiscalYear, s.printEra)} 第${weekNo}週(${fmtMD(parseDate(weekStart))})まで
+        <span class="pp-range">${fmtFiscalYear(fy, s.printEra)} 第${weekNo}週(${fmtMD(parseDate(weekStart))})まで
           <span style="font-size:8pt;">/ 実施は${fmtMD(new Date())}現在</span></span>
         <div class="pp-school">${esc(s.schoolName || '')} ${esc(s.teacherName || '')}</div>
       </div>

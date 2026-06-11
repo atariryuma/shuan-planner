@@ -1,9 +1,9 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
 import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours, breakNameOf } from '../store.js';
-import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, DAY_NAMES, esc, uid } from '../utils.js';
+import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
-import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML } from '../ui.js';
+import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
 
 export function renderWeekView(root, ctx) {
   const state = store.state;
@@ -27,7 +27,8 @@ export function renderWeekView(root, ctx) {
     if (brk) { breakDays++; breakLabel = brk; }
     const isToday = fmtDate(date) === todayStr;
     dayHeads.push(`
-      <th class="day-th" data-day="${d}" title="クリックで一括操作">
+      <th class="day-th" data-day="${d}" title="クリックで一括操作" tabindex="0" role="button"
+          aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作">
         <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk ? 'in-break' : ''}">
           <span class="dow">${DAY_NAMES[d]}<span class="day-caret">▾</span></span>
           <span class="date">${fmtMD(date)}</span>
@@ -51,7 +52,7 @@ export function renderWeekView(root, ctx) {
       cells.push(`<td style="padding:2px 4px;">${selectHTML('daypat', [
         { value: '', label: '通常' },
         ...s.periodPatterns.map(p => ({ value: p.id, label: p.name })),
-      ], cur, { attrs: `data-day="${d}" class="daypat-select ${cur ? 'active' : ''}"` })}</td>`);
+      ], cur, { attrs: `data-day="${d}" class="daypat-select ${cur ? 'active' : ''}" aria-label="${DAY_NAMES[d]}曜の日課"` })}</td>`);
     }
     patternRow = `<tr class="pattern-row"><th class="period-head" style="font-size:11px;">日課</th>${cells.join('')}</tr>`;
   }
@@ -62,7 +63,7 @@ export function renderWeekView(root, ctx) {
     const cells = [];
     for (let d = 0; d < dayCount; d++) {
       cells.push(`<td style="background:#f0fdf4;"><textarea class="event-input daynote-input" data-day="${d}" rows="1"
-        style="color:#166534;" placeholder="">${esc(week.dayNotes?.[d] || '')}</textarea></td>`);
+        style="color:#166534;" placeholder="" aria-label="${DAY_NAMES[d]}曜のメモ">${esc(week.dayNotes?.[d] || '')}</textarea></td>`);
     }
     dayNotesRow = `<tr><th class="period-head" style="font-size:11.5px; background:#dcfce7; color:#166534;">メモ${infoHTML('自分用のメモ欄です。印刷されません')}</th>${cells.join('')}</tr>`;
   }
@@ -70,7 +71,7 @@ export function renderWeekView(root, ctx) {
   const eventCells = [];
   for (let d = 0; d < dayCount; d++) {
     eventCells.push(`<td ${d === todayIdx ? 'class="today-col"' : ''}><textarea class="event-input" data-day="${d}" rows="1"
-      placeholder="">${esc(week.events?.[d] || '')}</textarea></td>`);
+      placeholder="" aria-label="${DAY_NAMES[d]}曜の行事">${esc(week.events?.[d] || '')}</textarea></td>`);
   }
 
   // 出欠メモ行(設定でON時のみ。印刷にも出る)
@@ -79,7 +80,7 @@ export function renderWeekView(root, ctx) {
     const cells = [];
     for (let d = 0; d < dayCount; d++) {
       cells.push(`<td style="background:#fdf4ff;"><textarea class="event-input attendance-input" data-day="${d}" rows="1"
-        style="color:#86198f;" placeholder="">${esc(week.attendance?.[d] || '')}</textarea></td>`);
+        style="color:#86198f;" placeholder="" aria-label="${DAY_NAMES[d]}曜の出欠">${esc(week.attendance?.[d] || '')}</textarea></td>`);
     }
     attendanceRow = `<tr><th class="period-head" style="font-size:11.5px; background:#fae8ff; color:#86198f;">出欠${infoHTML('欠席・遅刻・早退のメモ(例: 欠1 遅1)。個人名は書かない運用を推奨。印刷にも出ます')}</th>${cells.join('')}</tr>`;
   }
@@ -108,11 +109,12 @@ export function renderWeekView(root, ctx) {
   if (paint.open) {
     const chips = s.subjects.map(x =>
       `<button class="paint-chip ${paint.subject === x.key ? 'selected' : ''}" data-paint="${esc(x.key)}"
-        style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('');
+        aria-pressed="${paint.subject === x.key}" style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('');
     let scopeChips = '';
     if (s.mode === 'senka' && s.senkaClasses.length) {
       scopeChips = `<span class="paint-sep"></span>` + s.senkaClasses.map(c =>
-        `<button class="paint-scope ${paint.scope === c.id ? 'selected' : ''}" data-paint-scope="${esc(c.id)}">${esc(c.label || '学級未設定')}</button>`).join('');
+        `<button class="paint-scope ${paint.scope === c.id ? 'selected' : ''}" data-paint-scope="${esc(c.id)}"
+          aria-pressed="${paint.scope === c.id}">${esc(c.label || '学級未設定')}</button>`).join('');
     }
     paintBar = `
       <div class="paint-bar">
@@ -130,7 +132,7 @@ export function renderWeekView(root, ctx) {
       <button class="oc-close" id="oc-close" aria-label="閉じる">×</button>
       <div class="oc-step ${step1done ? 'done' : ''}"><span class="oc-num">${step1done ? '✓' : '1'}</span>コマをクリックして教科を選ぶ</div>
       <div class="oc-step"><span class="oc-num">2</span>1週間できたら <button class="btn small" id="oc-base">基本時間割に登録</button></div>
-      <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-print">🖨 印刷</button> して提出</div>
+      <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-print">印刷</button> して提出</div>
     </div>` : '';
 
   root.innerHTML = `
@@ -183,13 +185,13 @@ export function renderWeekView(root, ctx) {
       </div>
       <div class="week-notes">
         <div>
-          <label>今週のめあて</label>
+          <label for="wk-goals">今週のめあて</label>
           <textarea id="wk-goals">${esc(week.goals || '')}</textarea>
         </div>
         <div>
           <div style="display:flex; align-items:baseline; justify-content:space-between;">
-            <label>反省</label>
-            <button class="btn small ghost" id="wk-review" style="font-size:11.5px; padding:2px 8px;">過去の一覧</button>
+            <label for="wk-reflection">反省</label>
+            <button class="btn small ghost" id="wk-review">過去の一覧</button>
           </div>
           <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
         </div>
@@ -211,7 +213,10 @@ export function renderWeekView(root, ctx) {
 function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
   const s = state.settings;
   if (!effectivePeriod(s, week, dayIdx, period)) {
-    return `<td class="cell off ${isToday ? 'today-col' : ''}" data-day="${dayIdx}" data-period="${esc(period.id)}"></td>`;
+    // 日課で無効化された校時に入力済みのコマがあれば知らせる(無言で時数・印刷から消えるため)
+    const hiddenCount = week.cells?.[cellKey(dayIdx, period.id)]?.entries?.length || 0;
+    return `<td class="cell off ${isToday ? 'today-col' : ''}" data-day="${dayIdx}" data-period="${esc(period.id)}">${
+      hiddenCount ? '<span class="off-hidden">非表示の授業あり</span>' : ''}</td>`;
   }
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
@@ -227,7 +232,10 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
       const scopeLabel = scopeLabelOf(s, e.scope);
       const frac = (e.fraction ?? 1) !== 1 ? `<span class="e-flag">${fracLabel(e.fraction)}</span>` : '';
       const guide = s.mode === 'fukushiki' && e.guide ? `<span class="guide-chip g-${e.guide}">${guideLabel(e.guide)}</span>` : '';
-      const unsetClass = s.mode === 'senka' && e.subjectKey && (e.scope == null || e.scope === '')
+      // 空scopeに加えて「設定から削除済みの学級ID」も学級未設定として警告する
+      // (集計のどのスコープにも入らず時数が無言で消えるため)
+      const unsetClass = s.mode === 'senka' && e.subjectKey
+        && (e.scope == null || e.scope === '' || !s.senkaClasses.some(c => c.id === e.scope))
         ? `<span class="e-flag warn">学級未設定</span>` : '';
       return `
         <div class="entry ${e.cancelled ? 'cancelled' : ''}">
@@ -244,9 +252,13 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
   }
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
+  // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)
+  const subjNames = entries.map(e => subjectOf(s, e.subjectKey)?.name).filter(Boolean).join('・');
+  const ariaLabel = `${DAY_NAMES[dayIdx]}曜${period.label}${isModule ? '' : '校時'} ${subjNames || '空き'}`;
   return `
     <td class="cell ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
-        data-day="${dayIdx}" data-period="${esc(period.id)}" ${draggable ? 'draggable="true"' : ''}>
+        data-day="${dayIdx}" data-period="${esc(period.id)}" ${draggable ? 'draggable="true"' : ''}
+        tabindex="0" role="button" aria-label="${esc(ariaLabel)}">
       ${inner}
       ${entries.length ? `<button class="cell-clear" aria-label="クリア" data-clear>×</button>` : ''}
     </td>`;
@@ -275,6 +287,15 @@ function scopeLabelOf(s, scope) {
     return c ? c.label : '';
   }
   return '';
+}
+
+/**
+ * 専科: 学級IDが現在の設定に実在する場合のみ返す(なければundefined)。
+ * 設定で削除済みの学級ID(古いlastScope等)を新規コマの既定にすると、
+ * そのコマの時数がどのスコープにも入らず集計・印刷から無言で消えるため。
+ */
+function validScope(s, scope) {
+  return s.senkaClasses.some(c => c.id === scope) ? scope : undefined;
 }
 
 // ---------------------------------------------------------------- ナビ
@@ -306,7 +327,7 @@ function wireNav(root, ctx, monday) {
     openModal(`
       <h2>どの時間割を反映しますか?</h2>
       <div style="display:flex; flex-direction:column; gap:8px;">
-        ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">📋 ${esc(b.name)}</button>`).join('')}
+        ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
       </div>
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
     `, (modal, close) => {
@@ -428,7 +449,7 @@ function wireNav(root, ctx, monday) {
       toast('書き出し中…');
       const { buildWeekSheet } = await import('../gws.js');
       const res = await ctx.gas.sheetWeek(buildWeekSheet(fmtDate(monday)));
-      openResultLink(res.url, 'スプレッドシートを開く');
+      openResultLink(res.url, 'シートを開く'); // ボタン「シートへ書き出し」と表記を揃える(規約6)
     } catch (e) {
       toast('書き出し失敗: ' + e.message, 'error', 6000);
     }
@@ -437,12 +458,23 @@ function wireNav(root, ctx, monday) {
   const mailBtn = root.querySelector('#wk-mail');
   if (mailBtn) mailBtn.onclick = async () => {
     const s = store.settings;
+    // 設定タブのGoogle連携欄(または基本情報)へ誘導する(規約3: 教育文でなくactionボタン)
+    const gotoSettings = (panelId) => {
+      document.querySelector('.tab[data-tab="settings"]')?.click();
+      setTimeout(() => {
+        const target = document.getElementById(panelId);
+        if (!target) return;
+        const det = target.querySelector('details');
+        if (det) det.open = true;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 0);
+    };
     if (!s.gas.mailTo) {
-      toast('設定 → Google連携 で提出先を設定してください', 'error', 5000);
+      toast('提出先が未設定です', 'error', 5000, { label: '設定を開く', onClick: () => gotoSettings('sp-google') });
       return;
     }
     if (!s.gas.senderName && !s.teacherName) {
-      toast('設定で氏名を入力してください(差出人になります)', 'error', 5000);
+      toast('差出人の氏名が未設定です', 'error', 5000, { label: '設定を開く', onClick: () => gotoSettings('sp-basic') });
       return;
     }
     const { buildWeekEmail, markMailed } = await import('../gws.js');
@@ -471,16 +503,18 @@ function wireNav(root, ctx, monday) {
       store.snapshot('行事の取得');
       const week = store.getWeek(fmtDate(monday), true);
       let n = 0;
+      let dup = 0; // 既に行事欄にある予定(再取り込み)は件数に数えない
       for (const ev of res.events || []) {
         const idx = Math.round((parseDate(ev.date) - monday) / 86400000);
         if (idx < 0 || idx >= dayCount) continue;
         const line = (ev.time ? ev.time + ' ' : '') + ev.title;
-        if (!week.events[idx]) week.events[idx] = line;
-        else if (!week.events[idx].includes(ev.title)) week.events[idx] += '\n' + line;
-        n++;
+        if (!week.events[idx]) { week.events[idx] = line; n++; }
+        else if (!week.events[idx].includes(ev.title)) { week.events[idx] += '\n' + line; n++; }
+        else dup++;
       }
       store.commit();
-      toast(`${n}件を取り込みました`, 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      const msg = dup ? `${n}件を取り込みました(${dup}件は登録済み)` : `${n}件を取り込みました`;
+      toast(msg, 'info', 3000, n ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 5000);
@@ -548,18 +582,20 @@ function openEventsImport(ctx) {
       store.snapshot('年間行事の取り込み');
       const dayCount = store.settings.saturday ? 6 : 5;
       let applied = 0;
+      let dup = 0; // 既に行事欄にある行事(再取り込み)は件数に数えない
       for (const ev of events) {
         const d = parseDate(ev.date);
         const idx = (d.getDay() + 6) % 7;
         if (idx >= dayCount) continue; // 日曜・(土曜OFF時の土曜)はスキップ
         const w = store.getWeek(fmtDate(mondayOf(d)), true);
-        if (!w.events[idx]) w.events[idx] = ev.title;
-        else if (!w.events[idx].includes(ev.title)) w.events[idx] += '\n' + ev.title;
-        applied++;
+        if (!w.events[idx]) { w.events[idx] = ev.title; applied++; }
+        else if (!w.events[idx].includes(ev.title)) { w.events[idx] += '\n' + ev.title; applied++; }
+        else dup++;
       }
       store.commit();
       close();
-      toast(`${applied}件を取り込みました`, 'info', 3500, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      const msg = dup ? `${applied}件を取り込みました(${dup}件は登録済み)` : `${applied}件を取り込みました`;
+      toast(msg, 'info', 3500, applied ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     };
   });
@@ -593,8 +629,12 @@ function validDate(y, mo, d) {
 /** 年度内の入力済み週のめあて・反省・行事を一覧表示(学期末の振り返り用) */
 function openReviewList(ctx) {
   const state = store.state;
-  const fy = state.settings.fiscalYear;
+  // 表示中の週の年度で絞り込む(全年度を混ぜると「第1週」等が二重に並ぶ)
+  const fy = fiscalYearOf(addDays(parseDate(ctx.getWeekStart()), 3));
+  const from = fmtDate(fiscalYearFirstMonday(fy));
+  const to = fmtDate(fiscalYearFirstMonday(fy + 1));
   const weeks = Object.keys(state.weeks).sort().filter(wk => {
+    if (wk < from || wk >= to) return false;
     const w = state.weeks[wk];
     return (w.goals || w.reflection || (w.events || []).some(Boolean));
   });
@@ -633,6 +673,13 @@ function openReviewList(ctx) {
 // ---------------------------------------------------------------- 週入力
 
 function wireWeekInputs(root, weekStart, ctx) {
+  // 行事・メモ・出欠欄は内容に合わせて自動伸長する(2行目以降が枠外に隠れて
+  // 取り込んだ予定を見落とさないように。印刷には全行出るため画面と揃える)
+  const autoGrow = (ta) => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  root.querySelectorAll('.event-input').forEach(ta => {
+    autoGrow(ta);
+    ta.addEventListener('input', () => autoGrow(ta));
+  });
   root.querySelectorAll('.event-input:not(.daynote-input):not(.attendance-input)').forEach(ta => {
     ta.addEventListener('input', () => {
       const w = store.getWeek(weekStart, true);
@@ -652,12 +699,24 @@ function wireWeekInputs(root, weekStart, ctx) {
   });
   root.querySelectorAll('.daypat-select').forEach(sel => {
     sel.addEventListener('change', () => {
+      const s = store.settings;
       const w = store.getWeek(weekStart, true);
       const d = Number(sel.dataset.day);
+      store.snapshot('日課の変更');
       if (sel.value) w.dayPatterns[d] = sel.value;
       else delete w.dayPatterns[d];
       ctx.swapSource = null;
       store.commit();
+      // 無効化された校時に入力済みのコマがあれば知らせる(無言で非表示・時数除外になるため)
+      let hidden = 0;
+      for (const p of s.periods) {
+        if (effectivePeriod(s, w, d, p)) continue;
+        hidden += w.cells[cellKey(d, p.id)]?.entries?.length || 0;
+      }
+      if (hidden) {
+        toast(`非表示の授業が${hidden}コマあります`, 'info', 4000,
+          { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      }
       ctx.rerender();
     });
   });
@@ -736,7 +795,7 @@ function paintCell(weekStart, dayIdx, periodId, ctx) {
     w.cells[key] = { entries: s.fukushikiGrades.map(g => Object.assign(newEntry(), { subjectKey: paint.subject, scope: g })) };
   } else {
     const e = Object.assign(newEntry(), { subjectKey: paint.subject });
-    if (s.mode === 'senka') e.scope = paint.scope ?? ctx.lastScope ?? s.senkaClasses[0]?.id ?? null;
+    if (s.mode === 'senka') e.scope = validScope(s, paint.scope) ?? validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
     w.cells[key] = { entries: [e] };
   }
   store.commit();
@@ -762,7 +821,7 @@ function wireOnboardCard(root, ctx, monday) {
 
 function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
   root.querySelectorAll('.day-th').forEach(th => {
-    th.addEventListener('click', () => {
+    const open = () => {
       const d = Number(th.dataset.day);
       const date = addDays(monday, d);
       const label = `${fmtMD(date)}(${DAY_NAMES[d]})`;
@@ -773,9 +832,9 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
           ${d > 0 ? `<button class="btn" data-act="copy-prev">前日をコピー</button>` : ''}
           <button class="btn danger" data-act="clear">この日をクリア</button>
         </div>
-        <div class="modal-foot"><button class="btn" data-close>閉じる</button></div>
+        <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
       `, (modal, close) => {
-        modal.querySelector('[data-close]').onclick = close;
+        modal.querySelector('[data-cancel]').onclick = close;
         modal.querySelectorAll('[data-act]').forEach(b => {
           b.onclick = () => {
             const act = b.dataset.act;
@@ -816,6 +875,13 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
           };
         });
       });
+    };
+    th.addEventListener('click', open);
+    // キーボード操作(Enter/Space)でも一括操作メニューを開けるように
+    th.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      ev.preventDefault();
+      open();
     });
   });
 }
@@ -841,6 +907,13 @@ function wireCells(root, weekStart, ctx) {
         if (paintCell(weekStart, day, period, ctx)) return;
       }
       openCellEditor(weekStart, day, period, ctx);
+    });
+    // キーボード操作(Enter/Space)でもコマ編集を開けるように(WCAG 2.1.1)
+    td.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      if (ev.target !== td) return; // セル内のボタン(×)のキー操作はそのまま
+      ev.preventDefault();
+      td.click();
     });
     const clearBtn = td.querySelector('[data-clear]');
     if (clearBtn) {
@@ -904,6 +977,10 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   const date = addDays(monday, dayIdx);
   const title = `${fmtMD(date)}(${DAY_NAMES[dayIdx]}) ${period?.label || ''}${period?.type === 'module' ? '' : '校時'}`;
 
+  // 専科で事前充填(担当教科入り)したエントリのid。ユーザー操作がないまま
+  // 閉じた場合はcleanupで除去する(開いて閉じるだけで授業が登録されないように)
+  const prefilled = new Set();
+
   const ensure = () => {
     const w = store.getWeek(weekStart, true);
     const key = cellKey(dayIdx, periodId);
@@ -921,8 +998,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     } else if (!cell.entries.length) {
       const e = newEntry();
       if (s.mode === 'senka') {
-        e.scope = ctx.lastScope ?? s.senkaClasses[0]?.id ?? null;
+        e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
         e.subjectKey = s.senkaSubject || '';
+        if (e.subjectKey) prefilled.add(e.id);
       }
       cell.entries.push(e);
     }
@@ -947,6 +1025,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       ${s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : ''}
     `;
     wireEditor(modal);
+    associateLabels(modal); // 内部再描画でラベル関連付けが消えないように
   };
 
   const wireEditor = (modal) => {
@@ -967,9 +1046,12 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     modal.querySelectorAll('[data-entry]').forEach(box => {
       const idx = Number(box.dataset.entry);
       const entry = cellNow.entries[idx];
+      // 何らかのユーザー操作があったエントリは事前充填扱いを解除する(閉じても残す)
+      const touch = () => prefilled.delete(entry.id);
 
       box.querySelectorAll('.subject-palette button').forEach(b => {
         b.onclick = () => {
+          touch();
           entry.subjectKey = b.dataset.subj === entry.subjectKey ? '' : b.dataset.subj;
           if (entry.auto) entry.text = '';
           store.commit();
@@ -981,6 +1063,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       // 専科: 学級はボタンで1タップ選択。選んだ学級を次のコマの既定にする(再起動後も)
       box.querySelectorAll('[data-scope-btn]').forEach(b => {
         b.onclick = () => {
+          touch();
           entry.scope = b.dataset.scopeBtn || null;
           ctx.lastScope = entry.scope;
           try { localStorage.setItem('shuan-last-scope', entry.scope || ''); } catch {}
@@ -1003,6 +1086,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
       const textArea = box.querySelector('[name="text"]');
       textArea.addEventListener('input', () => {
+        touch();
         entry.text = textArea.value;
         entry.auto = textArea.value.trim() === '';
         store.commit();
@@ -1010,7 +1094,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       textArea.addEventListener('change', () => ctx.rerender());
 
       const noteInput = box.querySelector('[name="note"]');
-      noteInput.addEventListener('input', () => { entry.note = noteInput.value; store.commit(); });
+      noteInput.addEventListener('input', () => { touch(); entry.note = noteInput.value; store.commit(); });
       noteInput.addEventListener('change', () => ctx.rerender());
 
       const resetBtn = box.querySelector('[data-reset-auto]');
@@ -1021,16 +1105,18 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
       const advChk = box.querySelector('[name="advance"]');
       advChk.onchange = () => {
+        touch();
         const def = period?.type !== 'module';
         entry.advance = advChk.checked === def ? null : advChk.checked;
         store.commit(); ctx.rerender();
       };
 
       const ncChk = box.querySelector('[name="noCount"]');
-      ncChk.onchange = () => { entry.noCount = ncChk.checked; store.commit(); ctx.rerender(); };
+      ncChk.onchange = () => { touch(); entry.noCount = ncChk.checked; store.commit(); ctx.rerender(); };
 
       const cancelChk = box.querySelector('[name="cancelled"]');
       cancelChk.onchange = () => {
+        touch();
         if (cancelChk.checked) {
           // 中止前の予定内容を控えておく(印刷・画面に「何が中止か」を残す)
           const ords = computeOrdinals(state, weekStart);
@@ -1044,7 +1130,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       };
 
       const fracSel = box.querySelector('[name="fraction"]');
-      fracSel.onchange = () => { entry.fraction = Number(fracSel.value); store.commit(); ctx.rerender(); };
+      fracSel.onchange = () => { touch(); entry.fraction = Number(fracSel.value); store.commit(); ctx.rerender(); };
 
       const delBtn = box.querySelector('[data-del-entry]');
       if (delBtn) delBtn.onclick = () => {
@@ -1057,8 +1143,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     if (addBtn) addBtn.onclick = () => {
       const e = newEntry();
       if (s.mode === 'senka') {
-        e.scope = ctx.lastScope ?? s.senkaClasses[0]?.id ?? null;
+        e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
         e.subjectKey = s.senkaSubject || '';
+        if (e.subjectKey) prefilled.add(e.id); // 追加後に何も触らず閉じたら掃除する
       }
       cellNow.entries.push(e);
       store.commit(); render(modal); ctx.rerender();
@@ -1090,13 +1177,16 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     };
   }, cleanup);
 
-  // 空のままのエントリは閉じるときに掃除する(冪等)
+  // 空のままのエントリは閉じるときに掃除する(冪等)。
+  // 専科の事前充填エントリ(担当教科入り)も、ユーザー操作がなければ除去する
+  // (空セルを開いて閉じるだけで授業が時数・進度に計上されないように)
   function cleanup() {
     const w = store.state.weeks[weekStart];
     const key = cellKey(dayIdx, periodId);
     const c = w?.cells?.[key];
     if (c) {
-      c.entries = c.entries.filter(e => e.subjectKey || (e.text && !e.auto) || e.note);
+      c.entries = c.entries.filter(e =>
+        (e.subjectKey && !prefilled.has(e.id)) || (e.text && !e.auto) || e.note);
       if (!c.entries.length) delete w.cells[key];
     }
     if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
@@ -1108,6 +1198,8 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     }
     store.commit();
     ctx.rerender();
+    // 再描画でDOMが入れ替わるため、編集していたセルへフォーカスを戻す(キーボード操作の連続性)
+    document.querySelector(`td.cell[data-day="${dayIdx}"][data-period="${CSS.escape(periodId)}"]`)?.focus();
   }
 }
 
@@ -1119,6 +1211,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
 
   const palette = s.subjects.map(x =>
     `<button data-subj="${esc(x.key)}" class="${x.key === entry.subjectKey ? 'selected' : ''}"
+       aria-pressed="${x.key === entry.subjectKey}"
        style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('');
 
   // 専科: 学級ボタン列(1タップ選択)
@@ -1126,7 +1219,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
   if (s.mode === 'senka' && s.senkaClasses.length) {
     scopeField = `<div class="field"><label>学級</label>
       <div class="scope-palette">${s.senkaClasses.map(c =>
-        `<button data-scope-btn="${esc(c.id)}" class="${entry.scope === c.id ? 'selected' : ''}">${esc(c.label || '学級未設定')}</button>`).join('')}
+        `<button data-scope-btn="${esc(c.id)}" class="${entry.scope === c.id ? 'selected' : ''}"
+          aria-pressed="${entry.scope === c.id}">${esc(c.label || '学級未設定')}</button>`).join('')}
       </div></div>`;
   }
 
@@ -1134,7 +1228,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
   let gradeHead = '';
   if (s.mode === 'fukushiki') {
     const guideChips = ['direct', 'indirect', 'guide'].map(g =>
-      `<button data-guide="${g}" class="guide-btn g-${g} ${entry.guide === g ? 'selected' : ''}">${guideLabel(g)}</button>`).join('');
+      `<button data-guide="${g}" class="guide-btn g-${g} ${entry.guide === g ? 'selected' : ''}"
+        aria-pressed="${entry.guide === g}">${guideLabel(g)}</button>`).join('');
     gradeHead = `<div class="grade-head">
       <span>${isKnownGrade ? `${entry.scope}年` : '学年未設定'}</span>
       <span class="guide-chips">${guideChips}${infoHTML('直=直接指導 間=間接指導(自力学習) ガ=ガイド学習。印刷に◎○△で出ます')}</span>
@@ -1214,6 +1309,7 @@ function renderMiniStats(state, weekStart) {
         <span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>
         <span style="font-size:12.5px;">${scopeLabel ? esc(scopeLabel) + ' ' : ''}${fmtHours(v.week)}</span></span>`;
     }).join('');
+  if (!chips) return ''; // 当週が未入力なら見出しだけの空パネルを出さない
   return `<div class="panel" style="padding:10px 16px;">
     <span style="font-size:12.5px; font-weight:700; color:#374151; margin-right:10px;">今週の時数</span>${chips}
   </div>`;

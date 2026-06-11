@@ -85,15 +85,15 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
       <td class="num"><input type="number" name="hours" value="${esc(u.hours)}" min="1" step="1"></td>
       <td><textarea name="lessons" rows="1" placeholder="各時の内容(1行=1時間。空欄可)">${esc((u.lessons || []).map(l => l.text).join('\n'))}</textarea></td>
       <td class="ops">
-        <button class="btn small ghost" data-up title="上へ">↑</button>
-        <button class="btn small ghost" data-down title="下へ">↓</button>
-        <button class="btn small ghost danger" data-rm title="削除">×</button>
+        <button class="btn small ghost" data-up aria-label="上へ" title="上へ">↑</button>
+        <button class="btn small ghost" data-down aria-label="下へ" title="下へ">↓</button>
+        <button class="btn small ghost danger" data-rm aria-label="削除" title="削除">×</button>
       </td>
     </tr>`).join('');
 
   openModal(`
     <h2>${isNew ? '計画の新規作成' : '計画の編集'}</h2>
-    <div style="display:grid; grid-template-columns: 1fr 110px 1fr 130px; gap:10px;">
+    <div class="plan-form-grid">
       <div class="field"><label>教科</label>
         ${selectHTML('subjectKey', s.subjects.map(x => ({ value: x.key, label: x.name })), plan.subjectKey)}
       </div>
@@ -116,7 +116,7 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
     </div>
     <button class="btn small" id="unit-add" style="margin-top:8px;">＋ 単元を追加</button>
     <div class="modal-foot">
-      <button class="btn left" data-export>CSVエクスポート</button>
+      <button class="btn left" data-export>CSV保存</button>
       <button class="btn" data-cancel>キャンセル</button>
       <button class="btn primary" data-save>保存</button>
     </div>
@@ -168,6 +168,7 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
     modal.querySelector('[data-export]').onclick = () => {
       readForm();
       downloadText(unitsToCSV(plan.units), `年間指導計画_${plan.subjectKey}.csv`);
+      toast('CSVを保存しました');
     };
     modal.querySelector('[data-save]').onclick = () => {
       readForm();

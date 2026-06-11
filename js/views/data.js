@@ -35,7 +35,7 @@ export function renderDataView(root, ctx) {
           <button class="btn primary" id="gas-push">Googleへ保存</button>
           <button class="btn" id="gas-pull">Googleから取得</button>
           <button class="btn" id="gas-drive">ドライブへバックアップ</button>
-          <button class="btn" id="gas-report">時数レポート出力</button>
+          <button class="btn" id="gas-report">時数レポート書き出し</button>
         </div>
       </div>` : ''}
 
@@ -67,7 +67,7 @@ export function renderDataView(root, ctx) {
       const pc = (data.plans || []).length;
       const ok = await confirmDialog(
         `このファイルには ${wc}週分の週案 と ${pc}件の年間指導計画 が含まれています。\n\n現在のデータ(${Object.keys(store.state.weeks).length}週分)をすべて置き換えます。よろしいですか?`,
-        { okLabel: '置き換えて復元', danger: true });
+        { okLabel: '置き換え', danger: true });
       if (!ok) return;
       store.snapshot('インポート');
       store.importJSON(text);
@@ -125,7 +125,7 @@ export function renderDataView(root, ctx) {
   const gasReport = root.querySelector('#gas-report');
   if (gasReport) gasReport.onclick = async () => {
     try {
-      toast('時数レポートを作成中…');
+      toast('書き出し中…');
       const { buildHoursReport } = await import('../gws.js');
       const report = buildHoursReport(ctx.getWeekStart());
       if (!report.rows.length) { toast('まだ集計できる授業がありません', 'error'); return; }
@@ -133,7 +133,7 @@ export function renderDataView(root, ctx) {
       toast('書き出しました', 'info', 3000);
       openResultLink(res.url, '時数レポートを開く');
     } catch (e) {
-      toast('出力失敗: ' + e.message, 'error', 6000);
+      toast('書き出し失敗: ' + e.message, 'error', 6000);
     }
   };
 
@@ -167,10 +167,11 @@ export function renderDataView(root, ctx) {
     const wc = Object.keys(store.state.weeks).length;
     openModal(`
       <h2>全データを消去</h2>
-      <p style="font-size:14px; line-height:1.7;">${wc}週分の週案・計画・設定をすべて削除します。<br>この操作は取り消せません。</p>
+      <p style="font-size:14px; line-height:1.7;">${wc}週分の週案・計画・設定をすべて削除します。この操作は取り消せません。<br>
+        「保存して消去」はバックアップファイルを保存してから消します。</p>
       <div style="display:flex; flex-direction:column; gap:8px;">
-        <button class="btn" data-act="save">バックアップを保存してから消去</button>
-        <button class="btn danger" data-act="wipe">保存せずに消去</button>
+        <button class="btn" data-act="save">保存して消去</button>
+        <button class="btn danger" data-act="wipe">保存せず消去</button>
         <button class="btn primary" data-act="cancel">キャンセル</button>
       </div>
     `, (modal, close) => {
@@ -179,6 +180,7 @@ export function renderDataView(root, ctx) {
         localStorage.removeItem('shuan-planner-data');
         localStorage.removeItem('shuan-onboarded');
         localStorage.removeItem('shuan-card-done');
+        localStorage.removeItem('shuan-last-scope'); // 旧データの学級IDを既定値に引きずらない
         location.reload();
       };
       modal.querySelector('[data-act="save"]').onclick = () => { exportJSON(); setTimeout(wipe, 600); };

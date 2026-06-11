@@ -37,7 +37,8 @@ function handle_(e, req) {
   try {
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
     if (!token) return json_({ ok: false, error: 'サーバー側にTOKENが未設定です(スクリプト プロパティを確認)' });
-    if (!req.token || req.token !== token) return json_({ ok: false, error: '認証エラー: トークンが一致しません' });
+    // 画面にそのまま表示されるため、アプリ側の用語「合言葉」を使う(docs/ui-text-rules.md 用語対訳表)
+    if (!req.token || req.token !== token) return json_({ ok: false, error: '認証エラー: 合言葉が一致しません(設定 → Google連携 を確認)' });
 
     var action = req.action || 'ping';
     if (action === 'ping') return json_({ ok: true, message: 'pong', time: new Date().toISOString() });
