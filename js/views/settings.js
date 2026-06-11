@@ -65,6 +65,7 @@ export function renderSettingsView(root, ctx) {
 
     <div class="panel" id="sp-schedule">
       <h2>時程${infoHTML('1校時〜の時間割の枠。係数は時数の数え方です')}</h2>
+      <div class="table-scroll">
       <table class="edit-table">
         <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=1/3(0.333…)、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
         <tbody id="periods-body">
@@ -84,6 +85,7 @@ export function renderSettingsView(root, ctx) {
             </tr>`).join('')}
         </tbody>
       </table>
+      </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="btn small" id="period-add">＋ 校時を追加</button>
         <button class="btn small" id="period-add-mod">＋ モジュール枠を追加</button>
@@ -134,6 +136,7 @@ export function renderSettingsView(root, ctx) {
       </div>
 
       <h3>長期休業${infoHTML('夏休みなどを登録すると、時数の「必要ペース」が残りの授業週数で正しく計算され、休業中の週に表示が出ます')}</h3>
+      <div class="table-scroll">
       <table class="edit-table">
         <thead><tr><th>名前</th><th style="width:128px;">開始</th><th style="width:128px;">終了</th><th class="ops"></th></tr></thead>
         <tbody id="breaks-body">
@@ -146,6 +149,7 @@ export function renderSettingsView(root, ctx) {
             </tr>`).join('')}
         </tbody>
       </table>
+      </div>
       <button class="btn small" id="break-add" style="margin-top:8px;">＋ 休業を追加</button>
     </div>
 
@@ -168,6 +172,7 @@ export function renderSettingsView(root, ctx) {
     <div class="panel" id="sp-subjects">
       <h2>教科</h2>
       <p class="hint">色は画面・印刷の両方で使われます。学校独自の活動(「朝の会」「クラブ」等)も追加できます。</p>
+      <div class="table-scroll">
       <table class="edit-table">
         <thead><tr><th>教科名</th><th style="width:64px;">略称</th><th style="width:56px;">色</th><th style="width:104px;">合算先${infoHTML('時数をこの教科に合算します(例: 書写→国語、読書タイム→国語)。集計・印刷・CSVすべてに反映')}</th><th class="ops"></th></tr></thead>
         <tbody id="subjects-body">
@@ -192,6 +197,7 @@ export function renderSettingsView(root, ctx) {
           }).join('')}
         </tbody>
       </table>
+      </div>
       <div style="display:flex; gap:8px; margin-top:8px;">
         <button class="btn small" id="subject-add">＋ 教科を追加</button>
         <button class="btn small ghost" id="subject-reset">既定に戻す</button>
@@ -293,6 +299,7 @@ function modeDetailHTML(s, gradeOpts) {
       <span style="font-size:13px;">組</span>
       <button class="btn small" id="senka-bulk">一括生成</button>
     </div>
+    <div class="table-scroll">
     <table class="edit-table">
       <thead><tr><th>学級名</th><th style="width:90px;">学年</th><th class="ops" style="width:104px;"></th></tr></thead>
       <tbody id="senka-body">
@@ -308,6 +315,7 @@ function modeDetailHTML(s, gradeOpts) {
           </tr>`).join('')}
       </tbody>
     </table>
+    </div>
     <button class="btn small" id="senka-add" style="margin-top:8px;">＋ 学級を追加</button>`;
 }
 
@@ -364,10 +372,12 @@ function wireSettings(root, ctx) {
   });
 
   // 学年・複式学年(再描画して標準時数等を更新)。
-  // 年間週数の既定(小1=34週/その他35週)は、ユーザーが独自値にしていなければ学年に追従する
+  // 年間週数の既定(小1=34週/その他35週)は、ユーザーが独自値にしていなければ学年に追従する。
+  // 複式は下学年で判定(オンボーディング・年度更新ウィザードと同じ規則)。
   const followHoursBase = () => {
     if (s.hoursBase === 34 || s.hoursBase === 35) {
-      s.hoursBase = (s.schoolType === 'elementary' && s.grade === 1) ? 34 : 35;
+      const baseGrade = s.mode === 'fukushiki' ? s.fukushikiGrades[0] : s.grade;
+      s.hoursBase = (s.schoolType === 'elementary' && baseGrade === 1) ? 34 : 35;
     }
   };
   const gradeSel = root.querySelector('[name="grade"][data-structural]');
@@ -377,9 +387,9 @@ function wireSettings(root, ctx) {
     store.commit(); ctx.rerender();
   });
   const fg0 = root.querySelector('[name="fg0"]');
-  if (fg0) fg0.addEventListener('change', () => { s.fukushikiGrades[0] = Number(fg0.value); store.commit(); ctx.rerender(); });
+  if (fg0) fg0.addEventListener('change', () => { s.fukushikiGrades[0] = Number(fg0.value); followHoursBase(); store.commit(); ctx.rerender(); });
   const fg1 = root.querySelector('[name="fg1"]');
-  if (fg1) fg1.addEventListener('change', () => { s.fukushikiGrades[1] = Number(fg1.value); store.commit(); ctx.rerender(); });
+  if (fg1) fg1.addEventListener('change', () => { s.fukushikiGrades[1] = Number(fg1.value); followHoursBase(); store.commit(); ctx.rerender(); });
 
   // 土曜・印刷チェック
   root.querySelector('#set-sat').addEventListener('change', (ev) => { s.saturday = ev.target.checked; store.commit(); ctx.rerender(); });
@@ -414,6 +424,7 @@ function wireSettings(root, ctx) {
       if (s.mode === 'senka' && !s.senkaClasses.length) {
         s.senkaClasses = [{ id: uid(), label: '', grade: s.grade || 1 }];
       }
+      followHoursBase(); // 複式↔他形態で基準学年が変わると週数の既定も追従させる
       store.commit();
       ctx.rerender();
     };

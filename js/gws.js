@@ -25,7 +25,10 @@ function cellText(state, week, dayIdx, period, ordinals, { withNote = true } = {
   if (!cell?.entries?.length) return '';
   return cell.entries.map(e => {
     const subj = subjectOf(s, e.subjectKey);
-    const { text } = resolveEntryText(state, e, ordinals);
+    // 中止コマは進度カウント外でordinalsに無く自動反映が空になるため、中止時点の予定内容を使う
+    // (画面・印刷と同じ規則。提出物に「何が中止か」を残す)
+    const resolved = resolveEntryText(state, e, ordinals);
+    const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
     const parts = [];
     const scopeLabel = scopeLabelOf(s, e.scope);
     if (scopeLabel) parts.push(`[${scopeLabel}]`);

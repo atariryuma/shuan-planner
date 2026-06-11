@@ -16,7 +16,7 @@ export function renderPlansView(root, ctx) {
       <div class="plan-item" data-id="${esc(p.id)}">
         <span class="subj-chip" style="background:${esc(subj?.color || '#767676')}">${esc(subj?.short || '?')}</span>
         <span class="p-subj">${esc(subj?.name || p.subjectKey)}${p.grade ? ` (${p.grade}年)` : ''}</span>
-        <span class="p-meta">${esc(p.textbook || '')} / ${p.units.length}単元・計${total}時間${p.startOffset ? ` / 既習${p.startOffset}コマ` : ''}</span>
+        <span class="p-meta">${p.textbook ? esc(p.textbook) + ' / ' : ''}${p.units.length}単元・計${total}時間${p.startOffset ? ` / 既習${p.startOffset}コマ` : ''}</span>
         <span class="spacer"></span>
         <button class="btn small" data-edit>編集</button>
         <button class="btn small danger" data-del>削除</button>
@@ -221,7 +221,7 @@ function openImportDialog(ctx) {
       ExcelやWebページの表は、範囲選択してコピー → 下の欄に貼り付けでOKです。
     </p>
     <div class="field import-area">
-      <label>Excel/スプレッドシートから貼り付け(タブ区切り) または CSVテキスト</label>
+      <label>Excelやスプレッドシートから貼り付け${infoHTML('Excel・スプレッドシートのセルを範囲コピーして貼り付け(タブ区切り)。CSVテキストも可')}</label>
       <textarea name="paste" placeholder="単元名	時数	内容&#10;たし算とひき算	8	筆算のしかた|くり上がり…"></textarea>
     </div>
     <div class="field">

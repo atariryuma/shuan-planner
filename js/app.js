@@ -37,6 +37,45 @@ const ctx = {
 };
 ctx.gas = new GasClient(() => store.settings.gas);
 
+/**
+ * 再描画前のフォーカス位置を表す安定キーを作る。#main内の入力/選択要素が対象。
+ * innerHTML差し替えでDOMが破棄されてもフォーカスを同じ欄へ戻すために使う(キーボード操作の連続性)。
+ * 行の同定には親の data-* 行マーカー(data-p/data-s/data-c/data-b/data-day/data-term-m など)を用いる。
+ */
+function focusKeyOf(el) {
+  if (!el || !document.getElementById('main')?.contains(el)) return null;
+  const tag = el.tagName;
+  if (!['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(tag)) return null;
+  const parts = [];
+  if (el.id) parts.push(`#${el.id}`);
+  const name = el.getAttribute('name');
+  if (name) parts.push(`name=${name}`);
+  // 行・列を一意にする祖先のdata-*属性を集める
+  const rowAttrs = ['data-p', 'data-s', 'data-c', 'data-b', 'data-day', 'data-term-m', 'data-term-d', 'data-unit', 'data-pat', 'data-entry'];
+  let node = el;
+  while (node && node !== document.body) {
+    for (const a of rowAttrs) {
+      if (node.hasAttribute && node.hasAttribute(a)) parts.push(`${a}=${node.getAttribute(a)}`);
+    }
+    node = node.parentElement;
+  }
+  // data属性で直接同定する要素(set-chip以外のチェックボックス等)
+  for (const a of ['data-set', 'data-gas', 'data-std', 'data-term']) {
+    if (el.hasAttribute(a)) parts.push(`${a}=${el.getAttribute(a)}`);
+  }
+  return parts.length ? parts.join('|') : null;
+}
+
+/** focusKeyに一致する要素を#main内から探す(再描画後に呼ぶ) */
+function findByFocusKey(key) {
+  if (!key) return null;
+  const main = document.getElementById('main');
+  if (!main) return null;
+  const cands = main.querySelectorAll('input, select, textarea, button');
+  for (const el of cands) { if (focusKeyOf(el) === key) return el; }
+  return null;
+}
+
 function rerender() {
   const main = document.getElementById('main');
   document.documentElement.classList.toggle('ui-large', store.settings.uiScale === 'large');
@@ -45,10 +84,27 @@ function rerender() {
     renderOnboarding(main, ctx);
     return;
   }
+  // 再描画でDOMが入れ替わってもフォーカスを同じ欄へ戻す(変更→再描画のたびに先頭へ飛ぶのを防ぐ)
+  const prevKey = focusKeyOf(document.activeElement);
+  const prevSel = (document.activeElement && 'selectionStart' in document.activeElement)
+    ? document.activeElement.selectionStart : null;
+
   document.querySelector('.topbar').style.display = '';
   const view = VIEWS[ctx.currentTab] || renderWeekView;
   view(main, ctx);
   associateLabels(main); // ラベルと入力欄のプログラム関連付け(WCAG 1.3.1)
+
+  if (prevKey) {
+    const target = findByFocusKey(prevKey);
+    if (target) {
+      try {
+        target.focus({ preventScroll: false });
+        if (prevSel != null && 'setSelectionRange' in target && target.type !== 'number') {
+          target.setSelectionRange(prevSel, prevSel);
+        }
+      } catch { /* フォーカス不能でも支障なし */ }
+    }
+  }
 }
 
 // ---------------------------------------------------------------- タブ

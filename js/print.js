@@ -398,26 +398,27 @@ function renderFooter(state, week, weekStart) {
     };
 
     if (s.mode === 'fukushiki') {
-      // 学年ごとに別の行で出す(合算すると提出書類として誤りになる)
+      // 学年ごとに別の行で出す(合算すると提出書類として誤りになる)。
+      // 週案は週単位の提出物なので、他形態・メールと同じく学年ごとに「週」「計」の両方を出す。
       const perGrade = s.fukushikiGrades.map(g => ({ g, items: itemsFor([g]) }));
       const names = [];
       for (const pg of perGrade) for (const i of pg.items) if (!names.includes(i.name)) names.push(i.name);
-      const cols = capCols(names.map(n => ({
+      // 14列超過の「ほか」判定は全学年合算の週・累計で行う(列の取捨は両学年で揃える)
+      const merged = names.map(n => ({
         name: n,
-        wk: perGrade.reduce((a, pg) => a + (pg.items.find(i => i.name === n)?.tt || 0), 0),
+        wk: perGrade.reduce((a, pg) => a + (pg.items.find(i => i.name === n)?.wk || 0), 0),
         tt: perGrade.reduce((a, pg) => a + (pg.items.find(i => i.name === n)?.tt || 0), 0),
-      }))).map(i => i.name);
+      }));
+      const cols = capCols(merged).map(i => i.name);
       if (cols.length) {
         const headRow = cols.map(n => `<th>${esc(n)}</th>`).join('');
         const gradeRows = perGrade.map(pg => {
           const find = (n) => pg.items.find(i => i.name === n);
           const others = pg.items.filter(i => !cols.includes(i.name));
-          const cell = (n) => {
-            if (n === 'ほか') return fmtHours(others.reduce((a, i) => a + i.tt, 0));
-            const it = find(n);
-            return it ? fmtHours(it.tt) : '';
-          };
-          return `<tr><th>${pg.g}年計</th>${cols.map(n => `<td>${cell(n)}</td>`).join('')}</tr>`;
+          const cellWk = (n) => n === 'ほか' ? fmtHours(others.reduce((a, i) => a + i.wk, 0)) : (find(n) ? fmtHours(find(n).wk) : '');
+          const cellTt = (n) => n === 'ほか' ? fmtHours(others.reduce((a, i) => a + i.tt, 0)) : (find(n) ? fmtHours(find(n).tt) : '');
+          return `<tr><th>${pg.g}年週</th>${cols.map(n => `<td>${cellWk(n)}</td>`).join('')}</tr>`
+            + `<tr><th>${pg.g}年計</th>${cols.map(n => `<td>${cellTt(n)}</td>`).join('')}</tr>`;
         }).join('');
         boxes.push(`<div class="pp-box pp-hours">
           <table class="pp-hours-table">

@@ -229,10 +229,12 @@ td.cell:hover .cell-clear { display: block; }
 
 .subject-palette { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 8px; }
 .subject-palette button {
+  /* opacityで白へ薄めると白文字のコントラスト(各色4.5:1設計)が崩れるため不透明のまま。
+     ホバーは背景を明るくしない brightness(.92)+持ち上げで示す(WCAG 1.4.3保持) */
   border: 1.5px solid transparent; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 700;
-  padding: 4px 9px; cursor: pointer; opacity: .92;
+  padding: 4px 9px; cursor: pointer;
 }
-.subject-palette button:hover { opacity: 1; transform: translateY(-1px); }
+.subject-palette button:hover { filter: brightness(.92); transform: translateY(-1px); }
 .subject-palette button.selected { outline: 2.5px solid #1f2937; outline-offset: 1px; }
 
 .auto-preview {
@@ -377,11 +379,12 @@ button.info:hover { color: var(--accent); }
 .paint-hint { font-size: 12.5px; color: var(--accent); font-weight: 600; white-space: nowrap; }
 .paint-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; flex: 1; }
 .paint-chip, .subject-palette button {
+  /* opacityで白へ薄めない(白文字4.5:1設計を保持)。ホバーは brightness(.92) で示す */
   border: 2px solid transparent; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 700;
-  padding: 4px 9px; cursor: pointer; opacity: .92;
+  padding: 4px 9px; cursor: pointer;
 }
-.paint-chip:hover { opacity: 1; transform: translateY(-1px); }
-.paint-chip.selected { outline: 2.5px solid #1f2937; outline-offset: 1px; opacity: 1; }
+.paint-chip:hover { filter: brightness(.92); transform: translateY(-1px); }
+.paint-chip.selected { outline: 2.5px solid #1f2937; outline-offset: 1px; }
 .paint-scope {
   border: 1.5px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
   font-size: 12px; font-weight: 600; padding: 4px 9px; cursor: pointer;
@@ -524,6 +527,8 @@ table.week-grid:has(thead tr:first-child th:nth-child(7)) { min-width: 732px; } 
 
 /* 横スクロールが必要な表の包み */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* スマホ幅で時刻・数値入力が潰れて読めなくならないよう、最小幅を与えて容器内で横スクロールさせる */
+.table-scroll .edit-table { min-width: 520px; }
 
 /* ⋯メニューの区切り線(グループ: この週/出力/危険) */
 details.menu .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }

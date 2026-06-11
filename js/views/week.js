@@ -521,7 +521,7 @@ function wireNav(root, ctx, monday) {
         else dup++;
       }
       store.commit();
-      const msg = dup ? `${n}件を取り込みました(${dup}件は登録済み)` : `${n}件を取り込みました`;
+      const msg = dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`;
       toast(msg, 'info', 3000, n ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     } catch (e) {
@@ -548,7 +548,7 @@ function openEventsImport(ctx) {
         <option value="${curFY + 1}">${curFY + 1}年度(次年度の予定)</option>
       </select></div>
     <div class="field import-area">
-      <label>Excel/スプレッドシートから貼り付け(タブ区切り) または CSVテキスト</label>
+      <label>Excelやスプレッドシートから貼り付け${infoHTML('Excel・スプレッドシートのセルを範囲コピーして貼り付け(タブ区切り)。CSVテキストも可')}</label>
       <textarea name="paste" placeholder="4/8	入学式&#10;4/9	始業式&#10;5/20	運動会"></textarea>
     </div>
     <div class="field"><label>またはCSVファイル</label>
@@ -610,7 +610,7 @@ function openEventsImport(ctx) {
       }
       store.commit();
       close();
-      const msg = dup ? `${applied}件を取り込みました(${dup}件は登録済み)` : `${applied}件を取り込みました`;
+      const msg = dup ? `取り込み${applied}件・登録済み${dup}件` : `${applied}件を取り込みました`;
       toast(msg, 'info', 3500, applied ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     };

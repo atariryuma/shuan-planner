@@ -36,10 +36,9 @@ function doPost(e) {
 function handle_(e, req) {
   try {
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
-    // 画面にそのまま表示されるため、実装用語(TOKEN・スクリプト プロパティ)を出さない(docs/ui-text-rules.md 用語対訳表)
-    if (!token) return json_({ ok: false, error: 'サーバーに合言葉が未設定です(設定手順の手順2を確認)' });
-    // 画面にそのまま表示されるため、アプリ側の用語「合言葉」を使う(docs/ui-text-rules.md 用語対訳表)
-    if (!req.token || req.token !== token) return json_({ ok: false, error: '認証エラー: 合言葉が一致しません(設定 → Google連携 を確認)' });
+    // 画面にそのまま表示される。実装用語(TOKEN等)を出さず、括弧の誘導も付けない(規約3=結果報告のみ)
+    if (!token) return json_({ ok: false, error: 'サーバーに合言葉が未設定です' });
+    if (!req.token || req.token !== token) return json_({ ok: false, error: '認証エラー: 合言葉が一致しません' });
 
     var action = req.action || 'ping';
     if (action === 'ping') return json_({ ok: true, message: 'pong', time: new Date().toISOString() });
@@ -137,7 +136,7 @@ function pull_(req) {
   var docKey = String(req.key || 'default');
   // push中の中間状態(書き換え途中)を読まないようロックを取る
   var lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) return json_({ ok: false, error: '他の同期処理が実行中です。少し待って再試行してください' });
+  if (!lock.tryLock(20000)) return json_({ ok: false, error: '他の同期処理が実行中です' });
   try {
     var doc = readDoc_(docKey);
     if (!doc) return json_({ ok: true, exists: false });
@@ -151,7 +150,7 @@ function push_(req) {
   if (!req.data) return json_({ ok: false, error: 'dataがありません' });
   var docKey = String(req.key || 'default');
   var lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) return json_({ ok: false, error: '他の同期処理が実行中です。少し待って再試行してください' });
+  if (!lock.tryLock(20000)) return json_({ ok: false, error: '他の同期処理が実行中です' });
   try {
     var incomingAt = Number(req.updatedAt || 0);
     var existing = readDoc_(docKey);
@@ -384,7 +383,7 @@ function mailWeek_(req) {
   if (!req.to) return json_({ ok: false, error: '送信先メールアドレスを指定してください' });
   if (!req.subject || !req.html) return json_({ ok: false, error: '件名・本文がありません' });
   var remaining = MailApp.getRemainingDailyQuota();
-  if (remaining < 1) return json_({ ok: false, error: '本日のメール送信枠を使い切りました(明日再試行してください)' });
+  if (remaining < 1) return json_({ ok: false, error: '本日のメール送信枠を使い切りました' });
   MailApp.sendEmail(String(req.to), String(req.subject), String(req.text || '週案を送付します。HTML対応メーラーでご覧ください。'), {
     htmlBody: String(req.html),
     name: req.senderName ? String(req.senderName) : '週案プランナー',

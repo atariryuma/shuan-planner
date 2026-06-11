@@ -86,12 +86,12 @@ export function renderDataView(root, ctx) {
   const gasPush = root.querySelector('#gas-push');
   if (gasPush) gasPush.onclick = async () => {
     try {
-      toast('送信中…');
+      toast('保存中…');
       let res = await ctx.gas.push(store.state);
       if (res.conflict) {
         const ok = await confirmDialog(
           `Googleには別の端末から保存された新しいデータがあります。\nGoogle側の保存: ${fmtMDHM(res.serverUpdatedAt)}\n\nこの端末の内容で上書きしますか?`,
-          { okLabel: '上書き送信', danger: true });
+          { okLabel: '上書き保存', danger: true });
         if (!ok) return;
         res = await ctx.gas.push(store.state, { force: true });
       }
@@ -110,7 +110,7 @@ export function renderDataView(root, ctx) {
           .catch(e => toast('ドライブバックアップ失敗: ' + e.message, 'error', 5000));
       }
     } catch (e) {
-      toast('送信失敗: ' + e.message, 'error', 6000);
+      toast('保存失敗: ' + e.message, 'error', 6000);
     }
   };
 
@@ -154,11 +154,13 @@ export function renderDataView(root, ctx) {
         '\nこの端末のデータをGoogleの内容で置き換えますか?',
         { okLabel: '置き換え', danger: !newer });
       if (!ok) return;
+      // インポートと同型に、置き換え前をUndoで戻せるようにする(古いサーバーデータでの誤上書き救済)
+      store.snapshot('Googleから取得');
       store.replaceState(res.data); // GAS設定はローカルを維持、updatedAtはサーバー値を尊重
       if (res.updatedAt) store.state.updatedAt = res.updatedAt;
       store.settings.gas.lastSync = Date.now();
       store.persist();
-      toast('Googleから取得しました');
+      toast('Googleから取得しました', 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 6000);

@@ -67,7 +67,7 @@ export function tableToUnits(rows) {
     const numeric = second.length > 0 && second.every(v => !isNaN(parseFloat(v)));
     hoursCol = numeric ? 1 : -1;
     contentCol = numeric ? 2 : 1;
-    warnings.push('ヘッダー行が見つからないため、1列目=単元名として読み込みました。');
+    warnings.push('1列目を単元名として読み取りました');
   }
 
   const units = [];
