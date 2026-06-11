@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours, breakNameOf } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, fmtHours, breakNameOf } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
