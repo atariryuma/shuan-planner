@@ -63,7 +63,8 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
   if (isNew) {
     plan = {
       id: uid(),
-      subjectKey: s.subjects[0]?.key || '',
+      // 専科は担当教科を既定に(週案の新規コマと同じ規則)
+      subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
       grade: defaultGrade(s),
       textbook: '',
       startOffset: 0,

@@ -5,6 +5,7 @@
 
 import { store, defaultSubjects, defaultPeriods } from '../store.js';
 import { esc, uid } from '../utils.js';
+import { openModal, toast } from '../ui.js';
 
 export function renderOnboarding(root, ctx) {
   root.innerHTML = `
@@ -86,4 +87,72 @@ export function needsOnboarding() {
   return !localStorage.getItem('shuan-onboarded')
     && Object.keys(store.state.weeks).length === 0
     && store.state.plans.length === 0;
+}
+
+/**
+ * 年度更新ウィザード。年度が進んだ最初の起動で、学年の繰り上げ・
+ * 旧計画の整理・基本時間割のクリアをまとめて案内する(全項目スキップ可)。
+ */
+export function maybeYearRollover(ctx, oldFY, newFY) {
+  const flagKey = `shuan-rollover-${newFY}`;
+  if (localStorage.getItem(flagKey)) return;
+  const s = store.settings;
+  const gradeMax = s.schoolType === 'junior' ? 3 : 6;
+  const nextGrade = Math.min(s.grade + 1, gradeMax);
+  const planCount = store.state.plans.length;
+  const baseCount = store.state.baseTimetables.length;
+  let handled = false;
+
+  openModal(`
+    <h2>${newFY}年度を始めますか?</h2>
+    <p class="hint">昨年度(${oldFY}年度)のデータはそのまま残り、集計は年度ごとに自動で分かれます。</p>
+    <div class="field"><label>今年度の学年</label>
+      <select id="ro-grade">
+        ${Array.from({ length: gradeMax }, (_, i) => `<option value="${i + 1}" ${i + 1 === nextGrade ? 'selected' : ''}>${i + 1}年</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>組</label>
+      <input type="text" id="ro-class" value="${esc(s.className || '')}" placeholder="1" style="max-width:90px;">
+    </div>
+    ${planCount ? `<div class="checkline"><input type="checkbox" id="ro-plans">
+      <label for="ro-plans">年間指導計画 ${planCount}件を削除する(新学年の計画を取り込み直す場合)</label></div>` : ''}
+    ${baseCount ? `<div class="checkline"><input type="checkbox" id="ro-base">
+      <label for="ro-base">基本時間割 ${baseCount}件をクリアする(新しい時間割で作り直す場合)</label></div>` : ''}
+    ${(s.breaks || []).length ? `<div class="checkline"><input type="checkbox" id="ro-breaks" checked>
+      <label for="ro-breaks">長期休業の日付を1年進めて引き継ぐ</label></div>` : ''}
+    <div class="modal-foot">
+      <button class="btn" data-skip>あとで(設定タブから変更できます)</button>
+      <button class="btn primary" data-apply>この内容で始める</button>
+    </div>
+  `, (modal, close) => {
+    modal.querySelector('[data-skip]').onclick = () => {
+      handled = true;
+      localStorage.setItem(flagKey, '1');
+      close();
+    };
+    modal.querySelector('[data-apply]').onclick = () => {
+      handled = true;
+      s.grade = Number(modal.querySelector('#ro-grade').value) || s.grade;
+      s.className = modal.querySelector('#ro-class').value.trim();
+      // 小1=34週/その他35週の既定を学年に追従(ユーザーが独自値にしている場合は触らない)
+      if (s.hoursBase === 34 || s.hoursBase === 35) {
+        s.hoursBase = (s.schoolType === 'elementary' && s.grade === 1) ? 34 : 35;
+      }
+      if (modal.querySelector('#ro-plans')?.checked) store.state.plans = [];
+      if (modal.querySelector('#ro-base')?.checked) store.state.baseTimetables = [];
+      if (modal.querySelector('#ro-breaks')?.checked) {
+        const bump = (d) => d && /^\d{4}-/.test(d) ? `${Number(d.slice(0, 4)) + 1}${d.slice(4)}` : d;
+        for (const b of s.breaks || []) { b.from = bump(b.from); b.to = bump(b.to); }
+      }
+      localStorage.setItem(flagKey, '1');
+      store.commit();
+      close();
+      toast(`${newFY}年度の設定にしました`);
+      ctx.rerender();
+    };
+  }, () => {
+    // Esc・背景クリック・他処理によるクローズでも案内を残す(永久に消えないように)
+    localStorage.setItem(flagKey, '1');
+    if (!handled) toast('学年などの年度設定は「設定」タブから変更できます', 'info', 5000);
+  });
 }

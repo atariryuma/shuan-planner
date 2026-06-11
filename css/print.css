@@ -185,6 +185,29 @@ table.ps-table {
 }
 .pp-hours-table th { background: #efefef; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 
+/* ---------- 児童向け時間割おたより ---------- */
+.kp-header { display: flex; align-items: baseline; gap: 8mm; margin-bottom: 3mm; }
+.kp-title { font-size: 18pt; font-weight: 700; letter-spacing: .12em; }
+.kp-range { font-size: 12pt; }
+.kp-grid .kp-dow { font-size: 12pt; font-weight: 700; }
+.kp-grid .kp-date { font-size: 9pt; }
+.kp-grid .kp-hol { font-size: 8pt; color: #c00; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.kp-ph {
+  background: #efefef; print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  text-align: center; vertical-align: middle; font-size: 12pt; font-weight: 700;
+}
+.kp-event { font-size: 9pt; height: 9mm; vertical-align: top; padding: 1mm; }
+.kp-cell { text-align: center; vertical-align: middle; padding: 1mm; }
+.kp-subj { font-size: 13pt; font-weight: 700; }
+.kp-note { font-size: 8pt; color: #333; }
+.kp-sep { border-top: 0.2mm dashed #999; margin: 0.6mm 0; }
+.kp-off { background: repeating-linear-gradient(45deg, #fff, #fff 1.2mm, #eee 1.2mm, #eee 1.6mm); print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.kp-bring {
+  flex: 0 0 auto; border: 0.4mm solid #000; border-radius: 2mm;
+  height: 26mm; margin-top: 3mm; padding: 1.5mm 2.5mm;
+}
+.kp-bring-label { font-size: 10pt; font-weight: 700; }
+
 /* ---------- 画面でのプレビュー表示(印刷プレビューモーダル内) ---------- */
 .print-preview-host .print-page {
   background: #fff;

@@ -121,6 +121,11 @@ table.week-grid {
 .week-grid thead .day-head .hol-name {
   display: block; font-size: 10px; color: #dc2626; font-weight: 600; line-height: 1.1;
 }
+.week-grid thead .day-head .brk-name {
+  display: block; font-size: 10px; color: #0369a1; font-weight: 600; line-height: 1.1;
+}
+.week-grid thead .day-head.in-break .dow,
+.week-grid thead .day-head.in-break .date { color: #64748b; }
 .week-grid .pattern-row td { background: #fafafa; }
 
 td.cell.off {

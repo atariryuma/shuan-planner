@@ -1,6 +1,6 @@
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-import { store, computeHours, computeMonthlyHours, computeOrdinals, lessonFromPlan, fmtHours, standardHoursFor, scopeKey, cellKey, effectivePeriod } from '../store.js';
+import { store, computeHours, computeMonthlyHours, computeOrdinals, lessonFromPlan, fmtHours, standardHoursFor, scopeKey, cellKey, teachingWeeksLeft } from '../store.js';
 import { weekNumberInFiscalYear, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
 
@@ -15,7 +15,7 @@ export function renderStatsView(root, ctx) {
   const weekNo = weekNumberInFiscalYear(parseDate(weekStart));
 
   const scopes = scopesOf(s, hours);
-  const sections = scopes.map(sc => renderScopeTable(state, hours, monthly, sc, weekNo)).filter(Boolean).join('');
+  const sections = scopes.map(sc => renderScopeTable(state, hours, monthly, sc, weekNo, weekStart)).filter(Boolean).join('');
   const progress = renderProgress(state, weekStart);
 
   root.innerHTML = `
@@ -48,8 +48,9 @@ export function renderStatsView(root, ctx) {
 
   root.querySelector('#stats-csv').onclick = () => downloadCSV(state, weekStart);
   root.querySelector('#stats-print').onclick = async () => {
-    const { buildStatsPrintDOM } = await import('../print.js');
+    const { buildStatsPrintDOM, printState } = await import('../print.js');
     buildStatsPrintDOM(weekStart);
+    printState.prepared = true;
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   };
 }
@@ -76,13 +77,14 @@ function scopesOf(s, hours) {
  */
 function renderProgress(state, weekStart) {
   const s = state.settings;
-  if (s.mode === 'homeroom') return '';
   const prog = progressByScope(state, weekStart);
   if (!prog.size) return '';
 
   const scopes = s.mode === 'fukushiki'
     ? s.fukushikiGrades.map(g => ({ scope: g, label: `${g}年`, grade: g }))
-    : s.senkaClasses.map(c => ({ scope: c.id, label: c.label || '?', grade: c.grade }));
+    : s.mode === 'senka'
+      ? s.senkaClasses.map(c => ({ scope: c.id, label: c.label || '?', grade: c.grade }))
+      : [{ scope: null, label: `${s.grade}年${s.className || ''}`, grade: s.grade }];
 
   // 進度データのある教科を収集
   const subjKeys = new Set();
@@ -152,7 +154,7 @@ function progressByScope(state, refWeekStart) {
 
 // ---------------------------------------------------------------- 教科別テーブル
 
-function renderScopeTable(state, hours, monthly, sc, weekNo) {
+function renderScopeTable(state, hours, monthly, sc, weekNo, weekStart) {
   const s = state.settings;
   const scopeVal = sc.scope === '' ? null : sc.scope;
   const get = (subjKey) => hours.get(scopeKey(subjKey, scopeVal)) || { week: 0, total: 0 };
@@ -176,11 +178,14 @@ function renderScopeTable(state, hours, monthly, sc, weekNo) {
       if (c.total > 0 || c.week > 0) mergedFrom.push(s.subjects.find(x => x.key === ck)?.name || ck);
       week += c.week; total += c.total;
     }
+    let done = own.done || 0;
+    for (const ck of childrenOf[subj.key] || []) done += get(ck).done || 0;
     const std = standardHoursFor(s, subj.key, sc.grade);
     if (total === 0 && week === 0 && std == null) continue;
     any = true;
     const remain = std != null ? std - total : null;
-    const weeksLeft = Math.max(0, (s.hoursBase || 35) - weekNo);
+    // 長期休業を設定していれば残りの「授業週数」で必要ペースを計算
+    const weeksLeft = teachingWeeksLeft(s, weekStart);
     const pace = remain != null && remain > 0 && weeksLeft > 0 ? remain / weeksLeft : null;
     const projected = weekNo >= 1 && total > 0 ? (total / weekNo) * (s.hoursBase || 35) : null;
     const pct = std ? Math.min(100, Math.round((total / std) * 100)) : 0;
@@ -190,6 +195,7 @@ function renderScopeTable(state, hours, monthly, sc, weekNo) {
         <td class="subj"><span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>
           ${esc(subj.name)}${mergedFrom.length ? `<span class="hint">(+${mergedFrom.map(esc).join('・')})</span>` : ''}</td>
         <td>${fmtHours(week)}</td>
+        <td>${fmtHours(done)}</td>
         <td><b>${fmtHours(total)}</b></td>
         <td><input data-std="${esc(subj.key)}@${sc.grade}" value="${std ?? ''}" placeholder="—"
               style="width:56px; border:none; background:transparent; text-align:right; font-family:inherit; font-size:13.5px;"></td>
@@ -205,10 +211,10 @@ function renderScopeTable(state, hours, monthly, sc, weekNo) {
   if (!any) return '';
   if (!activeRows.length && s.mode !== 'homeroom') return ''; // この学級は未入力
 
-  let sumWeek = 0, sumTotal = 0;
+  let sumWeek = 0, sumTotal = 0, sumDone = 0;
   for (const subj of s.subjects) {
     const v = get(subj.key);
-    sumWeek += v.week; sumTotal += v.total;
+    sumWeek += v.week; sumTotal += v.total; sumDone += v.done || 0;
   }
 
   // 月別・学期別テーブル
@@ -259,14 +265,16 @@ function renderScopeTable(state, hours, monthly, sc, weekNo) {
     ${sc.label ? `<h3>${esc(sc.label)}</h3>` : ''}
     <table class="stats-table" style="margin-bottom:10px;">
       <thead><tr>
-        <th style="width:220px;">教科</th><th style="width:70px;">今週</th><th style="width:80px;">累計</th>
-        <th style="width:80px;">標準${infoHTML('学校教育法施行規則の年間標準授業時数。クリックで上書きできます(標準は下限でも上限でもありません)')}</th>
-        <th style="width:70px;">残り</th><th style="width:90px;">必要ペース</th><th style="width:80px;">見込み${infoHTML('現在のペースが続いた場合の年度末の着地')}</th><th>進捗</th>
+        <th style="width:200px;">教科</th><th style="width:64px;">今週</th>
+        <th style="width:74px;">実施済${infoHTML('今日までの日付のコマ(中止を除く)。教育委員会への実施時数報告はこちらを使います')}</th>
+        <th style="width:74px;">予定計${infoHTML('表示中の週までに入力したコマの合計(未来日を含む)')}</th>
+        <th style="width:74px;">標準${infoHTML('学校教育法施行規則の年間標準授業時数。クリックで上書きできます(標準は下限でも上限でもありません)')}</th>
+        <th style="width:64px;">残り</th><th style="width:84px;">必要ペース${infoHTML('残り時数÷残り授業週数。長期休業を設定すると休業週を除いて計算します')}</th><th style="width:70px;">見込み${infoHTML('現在のペースが続いた場合の年度末の着地')}</th><th>進捗</th>
       </tr></thead>
       <tbody>
         ${activeRows.join('')}
         <tr style="background:#f8fafc;">
-          <td class="subj">合計</td><td>${fmtHours(sumWeek)}</td><td><b>${fmtHours(sumTotal)}</b></td>
+          <td class="subj">合計</td><td>${fmtHours(sumWeek)}</td><td>${fmtHours(sumDone)}</td><td><b>${fmtHours(sumTotal)}</b></td>
           <td colspan="5"></td>
         </tr>
       </tbody>
@@ -289,7 +297,7 @@ function downloadCSV(state, weekStart) {
   }
   const num = (x) => Math.round(x * 1000) / 1000;
 
-  const head = ['学級・学年', '教科', ...MONTH_ORDER.map(m => `${m}月`), ...MONTH_ORDER.map(m => `${m}月末累計`), '年度計', '標準', '残り'];
+  const head = ['学級・学年', '教科', ...MONTH_ORDER.map(m => `${m}月`), ...MONTH_ORDER.map(m => `${m}月末累計`), '年度計', '実施済(本日まで)', '標準', '残り'];
   const lines = [head.join(',')];
   for (const sc of scopes) {
     const scopeVal = sc.scope === '' ? null : sc.scope;
@@ -306,12 +314,17 @@ function downloadCSV(state, weekStart) {
       if (!total) continue;
       let cum = 0;
       const cums = months.map(v => { cum += v; return cum; });
+      let done = 0;
+      for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
+        done += hours.get(scopeKey(k, scopeVal))?.done || 0;
+      }
       const std = standardHoursFor(s, subj.key, sc.grade);
       lines.push([
         sc.label || `${s.grade}年${s.className || ''}`,
         subj.name,
         ...months.map(num), ...cums.map(num),
         num(total),
+        num(done),
         std ?? '',
         std != null ? num(std - total) : '',
       ].join(','));

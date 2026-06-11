@@ -28,7 +28,7 @@ export function renderSettingsView(root, ctx) {
         </div>
       </div>` : ''}
       <div class="field"><label>年度</label>
-        <input type="number" data-set="fiscalYear" value="${esc(s.fiscalYear)}" min="2020" max="2099"></div>
+        <div style="padding:7px 2px; font-size:14px;">${esc(s.fiscalYear)}年度 <span class="hint">(日付から自動。新年度は4月に自動で切り替わります)</span></div></div>
       <div class="field"><label>学校種${infoHTML('変更すると教科・時程が既定値にリセットされます')}</label>
         ${selectHTML('schoolType', [
           { value: 'elementary', label: '小学校(45分授業)' },
@@ -120,27 +120,52 @@ export function renderSettingsView(root, ctx) {
         <p class="hint">${s.termSystem === 2 ? '前期の最終日' : '1学期・2学期の最終日'}を「月-日」で入力(時数集計の学期別集計に使用)。</p>
       </div>
       <div class="checkline"><input type="checkbox" id="set-holidays" ${s.showHolidays ? 'checked' : ''}>
-        <label for="set-holidays">祝日を表示する(自動計算)</label></div>
+        <label for="set-holidays">祝日を表示</label></div>
       <div class="checkline"><input type="checkbox" id="set-daynotes" ${s.showDayNotes ? 'checked' : ''}>
-        <label for="set-daynotes">日ごとのメモ欄を表示する(画面のみ・印刷されません)</label></div>
+        <label for="set-daynotes">日ごとのメモ欄</label>${infoHTML('自分用メモ。画面のみで印刷されません')}</div>
+      <div class="checkline"><input type="checkbox" id="set-attendance" ${s.showAttendance ? 'checked' : ''}>
+        <label for="set-attendance">出欠メモ欄</label>${infoHTML('欠席・遅刻などの記録欄。印刷にも出ます(週案簿の出欠欄)')}</div>
+
+      <h3>長期休業${infoHTML('夏休みなどを登録すると、時数の「必要ペース」が残りの授業週数で正しく計算され、休業中の週に表示が出ます')}</h3>
+      <table class="edit-table">
+        <thead><tr><th>名前</th><th style="width:128px;">開始</th><th style="width:128px;">終了</th><th class="ops"></th></tr></thead>
+        <tbody id="breaks-body">
+          ${(s.breaks || []).map((b, i) => `
+            <tr data-b="${i}">
+              <td><input type="text" name="bname" value="${esc(b.name)}" placeholder="夏季休業"></td>
+              <td><input type="date" name="bfrom" value="${esc(b.from || '')}"></td>
+              <td><input type="date" name="bto" value="${esc(b.to || '')}"></td>
+              <td class="ops"><button class="btn small ghost danger" data-brm>×</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <button class="btn small" id="break-add" style="margin-top:8px;">＋ 休業を追加</button>
     </div>
 
     <div class="panel">
       <h2>教科</h2>
       <p class="hint">色は画面・印刷の両方で使われます。学校独自の活動(「朝の会」「クラブ」等)も追加できます。</p>
       <table class="edit-table">
-        <thead><tr><th>教科名</th><th style="width:64px;">略称</th><th style="width:56px;">色</th><th class="ops"></th></tr></thead>
+        <thead><tr><th>教科名</th><th style="width:64px;">略称</th><th style="width:56px;">色</th><th style="width:104px;">合算先${infoHTML('時数をこの教科に合算します(例: 書写→国語、読書タイム→国語)。集計・印刷・CSVすべてに反映')}</th><th class="ops"></th></tr></thead>
         <tbody id="subjects-body">
-          ${s.subjects.map((x, i) => `
+          ${s.subjects.map((x, i) => {
+            // 合算先の候補: 自分以外で、それ自身が合算先を持たない教科。
+            // さらに「自分が誰かの合算先になっている教科」には親を付けさせない(連鎖を双方向で防ぐ)
+            const hasChildren = s.subjects.some(c => c.parent === x.key);
+            const parentOpts = hasChildren ? [] : s.subjects.filter(p => p.key !== x.key && !p.parent)
+              .map(p => ({ value: p.key, label: p.name }));
+            return `
             <tr data-s="${i}">
               <td><input type="text" name="name" value="${esc(x.name)}"></td>
               <td><input type="text" name="short" value="${esc(x.short || '')}" maxlength="3"></td>
               <td><input type="color" name="color" value="${esc(x.color)}"></td>
+              <td>${selectHTML('parent', parentOpts, x.parent || '', { allowEmpty: '—' })}</td>
               <td class="ops">
                 <button class="btn small ghost" data-sup>↑</button>
                 <button class="btn small ghost danger" data-srm>×</button>
               </td>
-            </tr>`).join('')}
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
       <div style="display:flex; gap:8px; margin-top:8px;">
@@ -201,6 +226,8 @@ export function renderSettingsView(root, ctx) {
           <input type="text" data-gas="mailTo" value="${esc(s.gas.mailTo || '')}" placeholder="kocho@example.jp"></div>
         <div class="field"><label>差出人名</label>
           <input type="text" data-gas="senderName" value="${esc(s.gas.senderName || '')}" placeholder="${esc(s.teacherName || '')}"></div>
+        <div class="checkline"><input type="checkbox" id="gas-auto" ${s.gas.auto ? 'checked' : ''}>
+          <label for="gas-auto">自動で同期</label>${infoHTML('起動時に他端末の変更を取得し、編集後は15秒で自動保存します。複数端末で使う場合にON')}</div>
         <div class="checkline"><input type="checkbox" id="gas-autobackup" ${s.gas.autoBackup ? 'checked' : ''}>
           <label for="gas-autobackup">保存時にドライブへ自動バックアップ</label>${infoHTML('Googleドライブの「週案バックアップ」フォルダに最新20世代を保持します')}</div>
         <p class="hint" style="margin-top:8px;">児童生徒の個人名は入力しない運用を推奨します。</p>
@@ -233,6 +260,13 @@ function modeDetailHTML(s, gradeOpts) {
       ${selectHTML('senkaSubject', s.subjects.map(x => ({ value: x.key, label: x.name })), s.senkaSubject || '', { allowEmpty: '(なし)' })}
     </div>
     <p class="hint">学級ごとに単元の進度を自動追跡します。</p>
+    <div class="inline" style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+      ${selectHTML('bulkGrade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), s.grade || 1, { attrs: 'style="max-width:90px;"' })}
+      <span style="font-size:13px;">×</span>
+      <input type="number" id="bulk-count" value="2" min="1" max="8" style="max-width:64px; border:1px solid var(--line); border-radius:8px; padding:6px;">
+      <span style="font-size:13px;">組</span>
+      <button class="btn small" id="senka-bulk">一括生成</button>
+    </div>
     <table class="edit-table">
       <thead><tr><th>学級名</th><th style="width:90px;">学年</th><th class="ops" style="width:104px;"></th></tr></thead>
       <tbody id="senka-body">
@@ -283,9 +317,19 @@ function wireSettings(root, ctx) {
     ctx.rerender();
   });
 
-  // 学年・複式学年(再描画して標準時数等を更新)
+  // 学年・複式学年(再描画して標準時数等を更新)。
+  // 年間週数の既定(小1=34週/その他35週)は、ユーザーが独自値にしていなければ学年に追従する
+  const followHoursBase = () => {
+    if (s.hoursBase === 34 || s.hoursBase === 35) {
+      s.hoursBase = (s.schoolType === 'elementary' && s.grade === 1) ? 34 : 35;
+    }
+  };
   const gradeSel = root.querySelector('[name="grade"][data-structural]');
-  if (gradeSel) gradeSel.addEventListener('change', () => { s.grade = Number(gradeSel.value); store.commit(); ctx.rerender(); });
+  if (gradeSel) gradeSel.addEventListener('change', () => {
+    s.grade = Number(gradeSel.value);
+    followHoursBase();
+    store.commit(); ctx.rerender();
+  });
   const fg0 = root.querySelector('[name="fg0"]');
   if (fg0) fg0.addEventListener('change', () => { s.fukushikiGrades[0] = Number(fg0.value); store.commit(); ctx.rerender(); });
   const fg1 = root.querySelector('[name="fg1"]');
@@ -370,6 +414,18 @@ function wireSettings(root, ctx) {
         rows[rows.length - 1]?.querySelector('[name="label"]')?.focus();
       }, 0);
     };
+    // 「5年×3組」のような一括生成(12学級登録を数タップに)
+    root.querySelector('#senka-bulk').onclick = () => {
+      const g = Number(root.querySelector('[name="bulkGrade"]').value) || 1;
+      const n = Math.min(8, Math.max(1, Number(root.querySelector('#bulk-count').value) || 1));
+      for (let i = 1; i <= n; i++) {
+        const label = `${g}年${i}組`;
+        if (!s.senkaClasses.some(c => c.label === label)) {
+          s.senkaClasses.push({ id: uid(), label, grade: g });
+        }
+      }
+      store.commit(); ctx.rerender();
+    };
   }
 
   // 時程テーブル
@@ -378,7 +434,17 @@ function wireSettings(root, ctx) {
     const p = s.periods[i];
     tr.querySelector('[name="label"]').addEventListener('change', (ev) => { p.label = ev.target.value; store.commit(); });
     tr.querySelector('[name="type"]').addEventListener('change', (ev) => { p.type = ev.target.value; store.commit(); ctx.rerender(); });
-    tr.querySelector('[name="start"]').addEventListener('change', (ev) => { p.start = ev.target.value; store.commit(); });
+    tr.querySelector('[name="start"]').addEventListener('change', (ev) => {
+      p.start = ev.target.value;
+      // 終了時刻が空なら「開始+分」を自動補完
+      if (p.start && !p.end && p.minutes) {
+        const [h, m] = p.start.split(':').map(Number);
+        const t = h * 60 + m + p.minutes;
+        p.end = `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+        tr.querySelector('[name="end"]').value = p.end;
+      }
+      store.commit();
+    });
     tr.querySelector('[name="end"]').addEventListener('change', (ev) => { p.end = ev.target.value; store.commit(); });
     tr.querySelector('[name="minutes"]').addEventListener('change', (ev) => {
       p.minutes = Number(ev.target.value);
@@ -455,6 +521,29 @@ function wireSettings(root, ctx) {
   });
   root.querySelector('#set-holidays').addEventListener('change', (ev) => { s.showHolidays = ev.target.checked; store.commit(); });
   root.querySelector('#set-daynotes').addEventListener('change', (ev) => { s.showDayNotes = ev.target.checked; store.commit(); });
+  root.querySelector('#set-attendance').addEventListener('change', (ev) => { s.showAttendance = ev.target.checked; store.commit(); });
+
+  // 長期休業
+  root.querySelectorAll('#breaks-body tr').forEach(tr => {
+    const i = Number(tr.dataset.b);
+    const b = s.breaks[i];
+    tr.querySelector('[name="bname"]').addEventListener('change', (ev) => { b.name = ev.target.value; store.commit(); });
+    tr.querySelector('[name="bfrom"]').addEventListener('change', (ev) => { b.from = ev.target.value; store.commit(); });
+    tr.querySelector('[name="bto"]').addEventListener('change', (ev) => { b.to = ev.target.value; store.commit(); });
+    tr.querySelector('[data-brm]').onclick = () => { s.breaks.splice(i, 1); store.commit(); ctx.rerender(); };
+  });
+  root.querySelector('#break-add').onclick = () => {
+    s.breaks = s.breaks || [];
+    const fy = s.fiscalYear;
+    // 最初の追加は夏休みの典型期間を既定値に
+    const preset = s.breaks.length === 0
+      ? { name: '夏季休業', from: `${fy}-07-21`, to: `${fy}-08-31` }
+      : s.breaks.length === 1
+        ? { name: '冬季休業', from: `${fy}-12-26`, to: `${fy + 1}-01-07` }
+        : { name: '', from: '', to: '' };
+    s.breaks.push(preset);
+    store.commit(); ctx.rerender();
+  };
 
   // 教科テーブル
   root.querySelectorAll('#subjects-body tr').forEach(tr => {
@@ -463,6 +552,17 @@ function wireSettings(root, ctx) {
     tr.querySelector('[name="name"]').addEventListener('change', (ev) => { x.name = ev.target.value; store.commit(); });
     tr.querySelector('[name="short"]').addEventListener('change', (ev) => { x.short = ev.target.value; store.commit(); });
     tr.querySelector('[name="color"]').addEventListener('change', (ev) => { x.color = ev.target.value; store.commit(); });
+    tr.querySelector('[name="parent"]').addEventListener('change', (ev) => {
+      // 二重連鎖の防止(UIでも候補から外しているが、データ整合の最終ガード)
+      if (ev.target.value && s.subjects.some(c => c.parent === x.key)) {
+        toast('この教科は他教科の合算先のため、さらに合算できません', 'error', 4500);
+        ev.target.value = x.parent || '';
+        return;
+      }
+      x.parent = ev.target.value || undefined;
+      if (!x.parent) delete x.parent;
+      store.commit(); ctx.rerender();
+    });
     tr.querySelector('[data-srm]').onclick = async () => {
       const ok = await confirmDialog(`教科「${x.name}」を削除しますか?(入力済みのコマの教科表示が消えます)`, { okLabel: '削除', danger: true });
       if (!ok) return;
@@ -500,6 +600,10 @@ function wireSettings(root, ctx) {
 
   root.querySelector('#gas-autobackup').addEventListener('change', (ev) => {
     s.gas.autoBackup = ev.target.checked;
+    store.commit();
+  });
+  root.querySelector('#gas-auto').addEventListener('change', (ev) => {
+    s.gas.auto = ev.target.checked;
     store.commit();
   });
 

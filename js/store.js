@@ -10,7 +10,7 @@
  */
 
 import { getSubjectPresets, getStandardHours } from './standards.js';
-import { fmtDate, parseDate, mondayOf, addDays, uid, fiscalYearOf, fiscalYearFirstMonday } from './utils.js';
+import { fmtDate, parseDate, mondayOf, addDays, uid, fiscalYearOf, fiscalYearFirstMonday, weekNumberInFiscalYear } from './utils.js';
 
 const STORAGE_KEY = 'shuan-planner-data';
 export const SCHEMA_VERSION = 1;
@@ -59,6 +59,8 @@ export function defaultSettings(schoolType = 'elementary') {
     hoursBase: 35,            // 年間授業週数(時数の進捗目安に使用)
     senkaSubject: '',         // 専科: 担当教科(新規コマの既定教科)
     uiScale: 'normal',        // 画面の文字サイズ: normal | large
+    breaks: [],               // 長期休業 [{name, from:'YYYY-MM-DD', to:'YYYY-MM-DD'}](必要ペース計算・表示に使用)
+    showAttendance: false,    // 出欠メモ行(週案・印刷)
     stampBoxes: ['校長', '教頭', '担任'],
     printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
     printManagerBox: false,   // 印刷に管理職の指導・助言欄を出す
@@ -85,6 +87,7 @@ export function blankWeek(startDateStr) {
     cells: {},
     events: ['', '', '', '', '', ''],
     dayNotes: ['', '', '', '', '', ''],
+    attendance: ['', '', '', '', '', ''], // 出欠メモ(例: 欠1 遅1)
     dayPatterns: {},      // {dayIdx: patternId} 省略=通常日課
     goals: '',
     reflection: '',
@@ -207,13 +210,15 @@ class Store {
 
   /**
    * 前週(または指定週)の時間割をコピー。内容テキストは自動反映に戻す。
-   * コピー先に既にある行事・めあて・反省は保持する(置き換えるのはコマのみ)。
+   * コピー先に既にある行事・めあて・反省は保持する(置き換えるのはコマと日課パターン)。
+   * 日課パターン(水曜=B日課など)は固定運用が多いため一緒に運ぶ。
    */
   copyWeek(fromStart, toStart, { keepText = false } = {}) {
     const src = this.state.weeks[fromStart];
     if (!src) return false;
     const dst = this.state.weeks[toStart] || blankWeek(toStart);
     dst.cells = cloneCells(src.cells, keepText);
+    dst.dayPatterns = { ...(src.dayPatterns || {}) };
     this.state.weeks[toStart] = dst;
     this.commit();
     return true;
@@ -229,26 +234,29 @@ class Store {
     if (!src || !Object.keys(src.cells).length) return false;
     const list = this.state.baseTimetables;
     const cells = cloneCells(src.cells, false);
+    const dayPatterns = { ...(src.dayPatterns || {}) }; // 曜日の日課割当(水曜=B日課等)も一緒に登録
     if (name) {
       const existing = list.find(b => b.name === name);
-      if (existing) existing.cells = cells;
-      else if (list.length < 3) list.push({ id: uid(), name, cells });
+      if (existing) { existing.cells = cells; existing.dayPatterns = dayPatterns; }
+      else if (list.length < 3) list.push({ id: uid(), name, cells, dayPatterns });
       else return false;
     } else if (list.length) {
       list[0].cells = cells;
+      list[0].dayPatterns = dayPatterns;
     } else {
-      list.push({ id: uid(), name: '基本', cells });
+      list.push({ id: uid(), name: '基本', cells, dayPatterns });
     }
     this.commit();
     return true;
   }
 
-  /** 基本時間割をこの週へ流し込む(idを省略すると先頭) */
+  /** 基本時間割をこの週へ流し込む(idを省略すると先頭)。日課パターンも反映する */
   applyBaseTimetable(weekStart, id = null) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     if (!base || !Object.keys(base.cells).length) return false;
     const w = this.getWeek(weekStart, true);
     w.cells = cloneCells(base.cells, false);
+    w.dayPatterns = { ...(base.dayPatterns || {}) };
     this.commit();
     return true;
   }
@@ -308,6 +316,10 @@ class Store {
       const g = this.state.settings.gas;
       if (!g.url) g.url = localGas.url;
       if (!g.token) g.token = localGas.token;
+      // 端末ごとの動作設定は他端末のデータで上書きしない(自動同期が無言でOFFになる事故防止)
+      g.auto = localGas.auto;
+      g.autoBackup = localGas.autoBackup;
+      g.lastSync = localGas.lastSync;
     }
     this.persist();
     this.notify();
@@ -400,11 +412,27 @@ function migrate(data) {
     }
     if (!Array.isArray(w.events)) w.events = ['', '', '', '', '', ''];
     if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
+    if (!Array.isArray(w.attendance)) w.attendance = ['', '', '', '', '', ''];
     if (!w.dayPatterns || typeof w.dayPatterns !== 'object') w.dayPatterns = {};
     w.goals = String(w.goals ?? '');
     w.reflection = String(w.reflection ?? '');
   }
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
+  if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
+  // 教科の合算先(parent)の正規化: 自己参照・連鎖をルート親へ解決(集計は1段しか辿らないため)
+  for (const sub of data.settings.subjects) {
+    if (sub.parent === sub.key) delete sub.parent;
+    let p = sub.parent;
+    let depth = 0;
+    while (p && depth < 5) {
+      const pa = data.settings.subjects.find(x => x.key === p);
+      if (!pa) { delete sub.parent; p = null; break; } // 存在しない親は解除
+      if (!pa.parent) break;
+      p = pa.parent;
+      depth++;
+    }
+    if (p && sub.parent && p !== sub.parent) sub.parent = p;
+  }
   if (!Array.isArray(data.settings.termEnds) || !data.settings.termEnds.length) {
     data.settings.termEnds = data.settings.termSystem === 2 ? ['09-30'] : ['07-31', '12-31'];
   }
@@ -544,7 +572,8 @@ export function scopeGrade(settings, scope) {
 export function computeHours(state, currentWeekStart) {
   const { settings, weeks } = state;
   const range = fiscalRangeOf(currentWeekStart);
-  const acc = new Map(); // scopeKey -> {week, total}
+  const todayStr = fmtDate(new Date());
+  const acc = new Map(); // scopeKey -> {week, total, done}
 
   const weekKeys = Object.keys(weeks).sort();
   for (const wk of weekKeys) {
@@ -552,7 +581,9 @@ export function computeHours(state, currentWeekStart) {
     if (wk > currentWeekStart) break;
     const isCurrent = wk === currentWeekStart;
     const week = weeks[wk];
+    const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {
+      const dateStr = fmtDate(addDays(monday, d));
       for (const p of settings.periods) {
         const eff = effectivePeriod(settings, week, d, p);
         if (!eff) continue;
@@ -561,9 +592,10 @@ export function computeHours(state, currentWeekStart) {
         for (const e of cell.entries) {
           if (!e.subjectKey || e.noCount || e.cancelled) continue;
           const k = scopeKey(e.subjectKey, e.scope);
-          const cur = acc.get(k) || { week: 0, total: 0 };
+          const cur = acc.get(k) || { week: 0, total: 0, done: 0 };
           const c = (eff.coefficient ?? 1) * (e.fraction ?? 1);
           cur.total += c;
+          if (dateStr <= todayStr) cur.done += c; // 実施済み = 今日以前の日付のコマ(予定/実施の分離)
           if (isCurrent) cur.week += c;
           acc.set(k, cur);
         }
@@ -571,6 +603,40 @@ export function computeHours(state, currentWeekStart) {
     }
   }
   return acc;
+}
+
+/**
+ * 残り授業週数。長期休業(settings.breaks)が設定されていれば、基準週の翌週から
+ * 年度末までの「平日が休業で全て潰れていない週」を数える。未設定なら hoursBase - 経過週数。
+ */
+export function teachingWeeksLeft(settings, refWeekStart) {
+  const refMonday = parseDate(refWeekStart);
+  const weekNo = weekNumberInFiscalYear(refMonday);
+  const fy = fiscalYearOf(addDays(refMonday, 3));
+  const fyStart = `${fy}-04-01`;
+  const fyEnd = `${fy + 1}-03-31`;
+  // 対象年度と重なる休業だけを使う(前年度の休業設定を引きずらない)
+  const breaks = (settings.breaks || []).filter(b => b.from && b.to && b.from <= fyEnd && b.to >= fyStart);
+  if (!breaks.length) {
+    return Math.max(0, (settings.hoursBase || 35) - weekNo);
+  }
+  const end = new Date(fy + 1, 2, 31);
+  let count = 0;
+  let monday = addDays(refMonday, 7);
+  while (monday <= end) {
+    const ws = fmtDate(monday);
+    const we = fmtDate(addDays(monday, 4)); // 金曜まで
+    const fullyInBreak = breaks.some(b => b.from <= ws && we <= b.to);
+    if (!fullyInBreak) count++;
+    monday = addDays(monday, 7);
+  }
+  return count;
+}
+
+/** その日付が長期休業中なら休業名を返す */
+export function breakNameOf(settings, dateStr) {
+  const b = (settings.breaks || []).find(b => b.from && b.to && b.from <= dateStr && dateStr <= b.to);
+  return b ? b.name : null;
 }
 
 /**

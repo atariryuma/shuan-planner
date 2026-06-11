@@ -7,13 +7,20 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, fmtHours, scopeKey, standardHoursFor } from './store.js';
-import { parseDate, addDays, fmtMD, weekNumberInFiscalYear, DAY_NAMES, esc } from './utils.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, fmtHours, scopeKey, standardHoursFor, termRanges } from './store.js';
+import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
-import { openModal, toast } from './ui.js';
+import { openModal, toast, infoHTML } from './ui.js';
 import { fracLabel, guideLabel } from './views/week.js';
 
 const FONT_PT = { small: 8, normal: 9, large: 10.5 };
+
+/**
+ * アプリ内ボタンからの印刷中フラグ。
+ * beforeprintハンドラ(Ctrl+P用の再構築)が、ダイアログで組み立てた
+ * おたより・複数週DOMを上書きしないようにする。afterprintで解除。
+ */
+export const printState = { prepared: false };
 
 /** 印刷オプションのモーダルを開く */
 export function openPrintDialog(ctx) {
@@ -21,6 +28,18 @@ export function openPrintDialog(ctx) {
   openModal(`
     <h2>🖨 印刷 / PDF保存</h2>
     <div class="print-options">
+      <div class="field"><label>様式</label>
+        <select name="kind">
+          <option value="teacher">週案(提出用)</option>
+          <option value="kids">時間割おたより(児童・配付用)</option>
+        </select></div>
+      <div class="field"><label>期間${infoHTML('「今月」以降を選ぶと入力済みの週をまとめて1つのPDF/印刷にできます(学期末の綴り用)')}</label>
+        <select name="range">
+          <option value="week">この週</option>
+          <option value="month">今月</option>
+          <option value="term">学期</option>
+          <option value="year">年度(入力済みの全週)</option>
+        </select></div>
       <div class="field"><label>用紙の向き</label>
         <select name="orientation">
           <option value="landscape" ${s.printOrientation === 'landscape' ? 'selected' : ''}>A4 横(推奨)</option>
@@ -50,6 +69,10 @@ export function openPrintDialog(ctx) {
     </div>
   `, (modal, close) => {
     modal.querySelector('[data-cancel]').onclick = close;
+    // おたよりは1週単位なので期間セレクトを無効化
+    const kindSel = modal.querySelector('[name="kind"]');
+    const rangeSel = modal.querySelector('[name="range"]');
+    kindSel.onchange = () => { rangeSel.disabled = kindSel.value === 'kids'; };
     modal.querySelector('[data-print]').onclick = () => {
       s.printOrientation = modal.querySelector('[name="orientation"]').value;
       s.printLayout = modal.querySelector('[name="layout"]').value;
@@ -58,25 +81,62 @@ export function openPrintDialog(ctx) {
       s.printShowHours = modal.querySelector('[name="showHours"]').checked;
       store.commit();
       close();
-      printWeek(ctx.getWeekStart());
+      if (kindSel.value === 'kids') {
+        buildKidsPrintDOM(ctx.getWeekStart());
+        printState.prepared = true;
+        requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+      } else {
+        printWeek(ctx.getWeekStart(), rangeSel.value);
+      }
     };
   });
 }
 
-/** 指定週を印刷する */
-export function printWeek(weekStart) {
-  const result = buildPrintDOM(weekStart);
+/** 期間からまとめ印刷の対象週リストを作る(入力のある週のみ。無ければ表示中の週) */
+function weeksForRange(state, weekStart, range) {
+  if (!range || range === 'week') return [weekStart];
+  const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
+  const fyFrom = fmtDate(fiscalYearFirstMonday(fy));
+  const fyTo = fmtDate(fiscalYearFirstMonday(fy + 1));
+  let from = fyFrom, to = fyTo;
+  if (range === 'month') {
+    const m = parseDate(weekStart);
+    const ym = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
+    const keys = Object.keys(state.weeks).sort().filter(k => k.startsWith(ym) && hasContent(state.weeks[k]));
+    return keys.length ? keys : [weekStart];
+  }
+  if (range === 'term') {
+    const term = termRanges(state.settings, fy).find(t => t.from <= weekStart && weekStart <= t.to);
+    // toは排他的境界として使うため学期末日+1日にする(学期末が月曜の週の脱落を防ぐ)
+    if (term) { from = term.from; to = fmtDate(addDays(parseDate(term.to), 1)); }
+  }
+  const keys = Object.keys(state.weeks).sort()
+    .filter(k => k >= from && k < to && k >= fyFrom && k < fyTo && hasContent(state.weeks[k]));
+  return keys.length ? keys : [weekStart];
+}
+
+function hasContent(w) {
+  return w && (Object.keys(w.cells || {}).length || (w.events || []).some(Boolean) || w.goals || w.reflection);
+}
+
+/** 指定週(または期間)を印刷する */
+export function printWeek(weekStart, range = 'week') {
+  const result = buildPrintDOM(weekStart, { range });
+  if (result.pages > 1) {
+    toast(`${result.pages}週分をまとめて印刷します`, 'info', 3000);
+  }
   if (result.shrunk) {
     toast('内容が多いため文字サイズを自動で縮小しました', 'info', 3500);
   } else if (result.overflow) {
     toast('⚠ 内容が多すぎて一部が印刷されない可能性があります(文字サイズ「小」や内容の短縮をお試しください)', 'error', 6000);
   }
+  printState.prepared = true;
   // DOM反映後に印刷(Chromeはstyle注入直後でも問題ないが、念のため次フレームで)
   requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
 }
 
-/** #print-root に印刷専用DOMを構築し、@pageルールを注入 */
-export function buildPrintDOM(weekStart) {
+/** #print-root に印刷専用DOMを構築し、@pageルールを注入。複数週は1ページ1週で連結 */
+export function buildPrintDOM(weekStart, { range = 'week' } = {}) {
   const state = store.state;
   const s = state.settings;
   const landscape = s.printOrientation !== 'portrait';
@@ -103,28 +163,29 @@ export function buildPrintDOM(weekStart) {
     #print-root .print-page { padding: ${pad}mm; }
   `;
 
+  const weeks = weeksForRange(state, weekStart, range);
   const root = document.getElementById('print-root');
-  root.innerHTML = renderPrintPage(state, weekStart, { innerW });
+  root.innerHTML = weeks.map(wk => renderPrintPage(state, wk, { innerW })).join('');
 
-  // あふれ検知: グリッドが1ページに収まらない場合、フォントを段階的に縮小する。
+  // あふれ検知: 収まらないページがあればフォントを段階的に縮小する(全ページ共通)。
   // 画面ではdisplay:noneでレイアウトされないため、画面外に一時表示して計測する。
   const setFont = (pt) => { styleEl.textContent = styleEl.textContent.replace(/--pfs:[^;]+;/, `--pfs: ${pt}pt;`); };
   const prevStyle = root.getAttribute('style') || '';
   root.setAttribute('style', 'display:block; position:fixed; left:-9999px; top:0;');
   let overflow = false, shrunk = false;
   try {
-    const wrap = root.querySelector('.pp-table-wrap');
+    const wraps = [...root.querySelectorAll('.pp-table-wrap')];
     const steps = [fontPt, 8, 7.2, 6.5];
-    for (let i = 0; wrap && i < steps.length; i++) {
+    for (let i = 0; wraps.length && i < steps.length; i++) {
       setFont(steps[i]);
-      // 強制リフロー後に計測
-      overflow = wrap.scrollHeight > wrap.clientHeight + 2;
+      // 強制リフロー後に全ページを計測
+      overflow = wraps.some(w => w.scrollHeight > w.clientHeight + 2);
       if (!overflow) { shrunk = i > 0; break; }
     }
   } finally {
     root.setAttribute('style', prevStyle);
   }
-  return { overflow, shrunk };
+  return { overflow, shrunk, pages: weeks.length };
 }
 
 // ---------------------------------------------------------------- ページ描画
@@ -189,6 +250,12 @@ function renderTablePeriods(state, week, monday, dayCount, ordinals, innerW) {
   const eventsRow = `<tr class="pp-events"><td class="ph">行事</td>${Array.from({ length: dayCount }, (_, d) =>
     `<td>${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>`).join('')}</tr>`;
 
+  // 出欠メモ行(設定でON時)
+  const attendanceRow = s.showAttendance
+    ? `<tr class="pp-events"><td class="ph">出欠</td>${Array.from({ length: dayCount }, (_, d) =>
+      `<td>${esc(week.attendance?.[d] || '')}</td>`).join('')}</tr>`
+    : '';
+
   const rows = s.periods.map(p => {
     const cells = Array.from({ length: dayCount }, (_, d) => renderPrintCell(state, week, d, p, ordinals)).join('');
     return `<tr>
@@ -197,7 +264,7 @@ function renderTablePeriods(state, week, monday, dayCount, ordinals, innerW) {
       ${cells}</tr>`;
   }).join('');
 
-  return `<table class="pp-grid">${cols}<thead>${head}</thead><tbody>${eventsRow}${rows}</tbody></table>`;
+  return `<table class="pp-grid">${cols}<thead>${head}</thead><tbody>${eventsRow}${attendanceRow}${rows}</tbody></table>`;
 }
 
 /** 縦=曜日 × 横=校時(Excel型)。右端に行事列 */
@@ -218,7 +285,7 @@ function renderTableDays(state, week, monday, dayCount, ordinals, innerW) {
     return `<tr>
       <td class="ph"><span class="p-label">${DAY_NAMES[d]}</span><span class="p-time">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ''}</td>
       ${cells}
-      <td class="pcell" style="font-size: calc(var(--pfs) - 1pt);">${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>
+      <td class="pcell" style="font-size: calc(var(--pfs) - 1pt);">${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}${s.showAttendance && week.attendance?.[d] ? `<div style="color:#555;">出欠: ${esc(week.attendance[d])}</div>` : ''}</td>
     </tr>`;
   }).join('');
 
@@ -361,6 +428,81 @@ function renderFooter(state, week, weekStart) {
     }
   }
   return `<div class="pp-footer">${boxes.join('')}</div>`;
+}
+
+// ---------------------------------------------------------------- 児童向け時間割おたより
+
+/**
+ * 児童・保護者向けの時間割おたより(A4横1枚)。
+ * 教科名を大きく、進度・備考(教師用メモ)・押印欄・時数表は出さない。
+ * 下部に「もちもの・れんらく」の手書きスペースを確保する。
+ */
+export function buildKidsPrintDOM(weekStart) {
+  const state = store.state;
+  const s = state.settings;
+  const monday = parseDate(weekStart);
+  const week = store.getWeek(weekStart);
+  const dayCount = s.saturday ? 6 : 5;
+  const lastDay = addDays(monday, dayCount - 1);
+
+  let styleEl = document.getElementById('print-page-style');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'print-page-style';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = `
+    @page { size: A4 landscape; margin: 0; }
+    #print-root { --page-w: 297mm; --page-h: 209mm; --pfs: 11pt; }
+    #print-root .print-page { padding: 10mm; }
+  `;
+
+  const cornerW = 14;
+  const dayW = (297 - 20 - cornerW) / dayCount;
+  const cols = `<colgroup><col style="width:${cornerW}mm">${Array.from({ length: dayCount }, () => `<col style="width:${dayW.toFixed(2)}mm">`).join('')}</colgroup>`;
+
+  const head = `<tr>${['<th></th>', ...Array.from({ length: dayCount }, (_, d) => {
+    const date = addDays(monday, d);
+    const hol = s.showHolidays ? holidayName(date) : null;
+    return `<th><span class="kp-dow">${DAY_NAMES[d]}</span> <span class="kp-date">${fmtMD(date)}</span>${hol ? `<br><span class="kp-hol">${esc(hol)}</span>` : ''}</th>`;
+  })].join('')}</tr>`;
+
+  const eventsRow = `<tr><td class="kp-ph">よてい</td>${Array.from({ length: dayCount }, (_, d) =>
+    `<td class="kp-event">${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>`).join('')}</tr>`;
+
+  const rows = s.periods.map(p => {
+    const cells = Array.from({ length: dayCount }, (_, d) => {
+      if (!effectivePeriod(s, week, d, p)) return `<td class="kp-cell kp-off"></td>`;
+      const cell = week.cells?.[cellKey(d, p.id)];
+      const entries = (cell?.entries || []).filter(e => e.subjectKey && !e.cancelled);
+      if (!entries.length) return `<td class="kp-cell"></td>`;
+      const inner = entries.map(e => {
+        const subj = s.subjects.find(x => x.key === e.subjectKey);
+        return `<div class="kp-subj">${esc(subj?.name || '')}</div>${e.note ? `<div class="kp-note">${esc(e.note)}</div>` : ''}`;
+      }).join('<div class="kp-sep"></div>');
+      return `<td class="kp-cell">${inner}</td>`;
+    }).join('');
+    return `<tr><td class="kp-ph">${esc(p.label)}</td>${cells}</tr>`;
+  }).join('');
+
+  const className = s.mode === 'fukushiki'
+    ? `${s.fukushikiGrades[0]}・${s.fukushikiGrades[1]}年${esc(s.className || '')}`
+    : `${s.grade}年${esc(s.className || '')}`;
+
+  const root = document.getElementById('print-root');
+  root.innerHTML = `
+    <div class="print-page kp-page">
+      <div class="kp-header">
+        <span class="kp-title">${className} じかんわり</span>
+        <span class="kp-range">${monday.getMonth() + 1}/${monday.getDate()} 〜 ${lastDay.getMonth() + 1}/${lastDay.getDate()}</span>
+      </div>
+      <div class="pp-table-wrap">
+        <table class="pp-grid kp-grid">${cols}<thead>${head}</thead><tbody>${eventsRow}${rows}</tbody></table>
+      </div>
+      <div class="kp-bring">
+        <span class="kp-bring-label">もちもの・れんらく</span>
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------- 時数集計の印刷

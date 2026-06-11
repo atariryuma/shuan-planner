@@ -1,7 +1,7 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours } from '../store.js';
-import { fmtDate, parseDate, addDays, fmtMD, weekNumberInFiscalYear, DAY_NAMES, esc, uid } from '../utils.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, scopeKey, fmtHours, breakNameOf } from '../store.js';
+import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML } from '../ui.js';
 
@@ -18,19 +18,25 @@ export function renderWeekView(root, ctx) {
   const gas = ctx.gas.configured;
 
   const dayHeads = [];
+  let breakDays = 0;
+  let breakLabel = '';
   for (let d = 0; d < dayCount; d++) {
     const date = addDays(monday, d);
     const hol = s.showHolidays ? holidayName(date) : null;
+    const brk = breakNameOf(s, fmtDate(date));
+    if (brk) { breakDays++; breakLabel = brk; }
     const isToday = fmtDate(date) === todayStr;
     dayHeads.push(`
       <th class="day-th" data-day="${d}" title="クリックで一括操作">
-        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''}">
+        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk ? 'in-break' : ''}">
           <span class="dow">${DAY_NAMES[d]}</span>
           <span class="date">${fmtMD(date)}</span>
-          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : ''}
+          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : ''}
         </div>
       </th>`);
   }
+  const breakBanner = breakDays === dayCount
+    ? `<div class="mode-banner" style="background:#f0f9ff; border-color:#7dd3fc; color:#075985;">🏖 ${esc(breakLabel)}の週です</div>` : '';
   const todayIdx = (() => {
     for (let d = 0; d < dayCount; d++) if (fmtDate(addDays(monday, d)) === todayStr) return d;
     return -1;
@@ -65,6 +71,17 @@ export function renderWeekView(root, ctx) {
   for (let d = 0; d < dayCount; d++) {
     eventCells.push(`<td ${d === todayIdx ? 'class="today-col"' : ''}><textarea class="event-input" data-day="${d}" rows="1"
       placeholder="">${esc(week.events?.[d] || '')}</textarea></td>`);
+  }
+
+  // 出欠メモ行(設定でON時のみ。印刷にも出る)
+  let attendanceRow = '';
+  if (s.showAttendance) {
+    const cells = [];
+    for (let d = 0; d < dayCount; d++) {
+      cells.push(`<td style="background:#fdf4ff;"><textarea class="event-input attendance-input" data-day="${d}" rows="1"
+        style="color:#86198f;" placeholder="">${esc(week.attendance?.[d] || '')}</textarea></td>`);
+    }
+    attendanceRow = `<tr><th class="period-head" style="font-size:11.5px; background:#fae8ff; color:#86198f;">出欠${infoHTML('欠席・遅刻・早退のメモ(例: 欠1 遅1)。個人名は書かない運用を推奨。印刷にも出ます')}</th>${cells.join('')}</tr>`;
   }
 
   const bodyRows = s.periods.map(p => {
@@ -134,6 +151,8 @@ export function renderWeekView(root, ctx) {
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
           <button class="btn ghost" id="wk-save-base">基本時間割に登録</button>
+          <button class="btn ghost" id="wk-import-events">📥 年間行事を取り込み</button>
+          <button class="btn ghost" id="wk-review">📜 振り返り一覧</button>
           ${gas ? `
           <button class="btn ghost" id="wk-cal-push">📤 カレンダーへ書き出し</button>
           <button class="btn ghost" id="wk-sheet-push">📊 シートへ書き出し</button>
@@ -142,6 +161,7 @@ export function renderWeekView(root, ctx) {
         </div>
       </details>
     </div>
+    ${breakBanner}
     ${paintBar}
     ${ctx.swapSource ? `<div class="mode-banner">⇄ 移動先のコマをクリック
       <button class="btn small" id="wk-swap-cancel">キャンセル</button></div>` : ''}
@@ -153,6 +173,7 @@ export function renderWeekView(root, ctx) {
             <tr><th class="corner"></th>${dayHeads.join('')}</tr>
             ${patternRow}
             <tr class="event-row"><th class="period-head">行事</th>${eventCells.join('')}</tr>
+            ${attendanceRow}
           </thead>
           <tbody>${bodyRows}</tbody>
         </table>
@@ -338,6 +359,9 @@ function wireNav(root, ctx, monday) {
   const swapCancel = root.querySelector('#wk-swap-cancel');
   if (swapCancel) swapCancel.onclick = () => { ctx.swapSource = null; ctx.rerender(); };
 
+  root.querySelector('#wk-import-events').onclick = () => openEventsImport(ctx);
+  root.querySelector('#wk-review').onclick = () => openReviewList(ctx);
+
   root.querySelector('#wk-copy').onclick = async () => {
     const from = fmtDate(addDays(monday, -7));
     const to = fmtDate(monday);
@@ -449,10 +473,152 @@ function wireNav(root, ctx, monday) {
   };
 }
 
+// ---------------------------------------------------------------- 年間行事の一括取り込み
+
+/**
+ * 年間行事予定(Excel/CSV)の貼り付け取り込み。GAS不要。
+ * 日付列を自動検出し(2026/4/8・4/8・2026-04-08 に対応)、残りの列を行事名として各週の行事欄へ追記する。
+ */
+function openEventsImport(ctx) {
+  const curFY = store.settings.fiscalYear;
+  openModal(`
+    <h2>年間行事を取り込み</h2>
+    <p class="hint">学校の年間行事予定(Excel)から「日付」と「行事名」の列を範囲コピーして貼り付けてください。<br>
+      日付は 4/8・2026/4/8・2026-04-08 のどれでも読み取れます(月日だけなら下の年度で判定)。</p>
+    <div class="field" style="max-width:200px;"><label>対象年度</label>
+      <select name="fy">
+        <option value="${curFY}">${curFY}年度</option>
+        <option value="${curFY + 1}">${curFY + 1}年度(次年度の予定)</option>
+      </select></div>
+    <div class="field import-area">
+      <textarea name="paste" placeholder="4/8	入学式&#10;4/9	始業式&#10;5/20	運動会"></textarea>
+    </div>
+    <div class="field"><label>またはCSVファイル</label>
+      <input type="file" name="file" accept=".csv,.tsv,.txt"></div>
+    <div class="modal-foot">
+      <button class="btn" data-cancel>キャンセル</button>
+      <button class="btn primary" data-next>読み取る</button>
+    </div>
+  `, (modal, close) => {
+    modal.querySelector('[data-cancel]').onclick = close;
+    modal.querySelector('[data-next]').onclick = async () => {
+      let text = modal.querySelector('[name="paste"]').value;
+      const file = modal.querySelector('[name="file"]').files[0];
+      if (!text.trim() && file) text = await file.text();
+      if (!text.trim()) { toast('データを貼り付けてください', 'error'); return; }
+
+      const { parseTable } = await import('../csv.js');
+      const rows = parseTable(text);
+      const fy = Number(modal.querySelector('[name="fy"]').value) || curFY;
+      const events = [];
+      for (const r of rows) {
+        let date = null;
+        const parts = [];
+        for (const cell of r) {
+          const d = !date ? parseFlexDate(String(cell).trim(), fy) : null;
+          if (d) date = d;
+          else if (String(cell).trim()) parts.push(String(cell).trim());
+        }
+        if (date && parts.length) events.push({ date, title: parts.join(' ') });
+      }
+      if (!events.length) { toast('日付+行事名の行が見つかりません', 'error', 4500); return; }
+
+      // プレビューは年込みで表示(取り込み先のズレに気づけるように)
+      const ok = await confirmDialog(
+        `${events.length}件の行事を読み取りました。\n` +
+        `${events.slice(0, 5).map(e => `${e.date.replace(/-/g, '/')} ${e.title}`).join('\n')}${events.length > 5 ? '\n…' : ''}\n\n各週の行事欄に追記しますか?(既存の行事は消えません)`,
+        { okLabel: '取り込む' });
+      if (!ok) return;
+
+      store.snapshot('年間行事の取り込み');
+      const dayCount = store.settings.saturday ? 6 : 5;
+      let applied = 0;
+      for (const ev of events) {
+        const d = parseDate(ev.date);
+        const idx = (d.getDay() + 6) % 7;
+        if (idx >= dayCount) continue; // 日曜・(土曜OFF時の土曜)はスキップ
+        const w = store.getWeek(fmtDate(mondayOf(d)), true);
+        if (!w.events[idx]) w.events[idx] = ev.title;
+        else if (!w.events[idx].includes(ev.title)) w.events[idx] += '\n' + ev.title;
+        applied++;
+      }
+      store.commit();
+      close();
+      toast(`${applied}件を取り込みました`, 'info', 3500, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      ctx.rerender();
+    };
+  });
+}
+
+/** 柔軟な日付パース。月日だけなら年度(4月始まり)から年を補完。日付でなければnull */
+function parseFlexDate(s, fiscalYear) {
+  let m = /^(\d{4})[/\-年](\d{1,2})[/\-月](\d{1,2})日?$/.exec(s);
+  if (m) {
+    const [, y, mo, d] = m.map(Number);
+    return validDate(y, mo, d);
+  }
+  m = /^(\d{1,2})[/\-月](\d{1,2})日?$/.exec(s);
+  if (m) {
+    const mo = Number(m[1]), d = Number(m[2]);
+    const y = mo >= 4 ? fiscalYear : fiscalYear + 1;
+    return validDate(y, mo, d);
+  }
+  return null;
+}
+
+function validDate(y, mo, d) {
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+  const date = new Date(y, mo - 1, d);
+  if (date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  return fmtDate(date);
+}
+
+// ---------------------------------------------------------------- 振り返り一覧
+
+/** 年度内の入力済み週のめあて・反省・行事を一覧表示(学期末の振り返り用) */
+function openReviewList(ctx) {
+  const state = store.state;
+  const fy = state.settings.fiscalYear;
+  const weeks = Object.keys(state.weeks).sort().filter(wk => {
+    const w = state.weeks[wk];
+    return (w.goals || w.reflection || (w.events || []).some(Boolean));
+  });
+  const rows = weeks.map(wk => {
+    const w = state.weeks[wk];
+    const monday = parseDate(wk);
+    const weekNo = weekNumberInFiscalYear(monday);
+    const events = (w.events || []).filter(Boolean).join(' / ');
+    return `
+      <tr>
+        <td style="white-space:nowrap; vertical-align:top;"><button class="btn small ghost" data-goto="${esc(wk)}">第${weekNo}週<br>${fmtMD(monday)}〜</button></td>
+        <td style="vertical-align:top; font-size:12.5px; color:#92400e;">${esc(events)}</td>
+        <td style="vertical-align:top; font-size:12.5px;">${esc(w.goals || '')}</td>
+        <td style="vertical-align:top; font-size:12.5px;">${esc(w.reflection || '')}</td>
+      </tr>`;
+  }).join('');
+
+  openModal(`
+    <h2>振り返り一覧 <span class="hint">${fy}年度</span></h2>
+    ${rows ? `
+    <div style="max-height:60vh; overflow-y:auto;">
+      <table class="stats-table" style="table-layout:fixed;">
+        <thead><tr><th style="width:90px;">週</th><th style="width:24%;">行事</th><th>めあて</th><th>反省</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>` : '<p class="hint">まだ記録がありません。</p>'}
+    <div class="modal-foot"><button class="btn primary" data-close>閉じる</button></div>
+  `, (modal, close) => {
+    modal.querySelector('[data-close]').onclick = close;
+    modal.querySelectorAll('[data-goto]').forEach(b => {
+      b.onclick = () => { close(); ctx.setWeekStart(b.dataset.goto); };
+    });
+  });
+}
+
 // ---------------------------------------------------------------- 週入力
 
 function wireWeekInputs(root, weekStart, ctx) {
-  root.querySelectorAll('.event-input:not(.daynote-input)').forEach(ta => {
+  root.querySelectorAll('.event-input:not(.daynote-input):not(.attendance-input)').forEach(ta => {
     ta.addEventListener('input', () => {
       const w = store.getWeek(weekStart, true);
       w.events[Number(ta.dataset.day)] = ta.value;
@@ -485,6 +651,15 @@ function wireWeekInputs(root, weekStart, ctx) {
       const w = store.getWeek(weekStart, true);
       if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
       w.dayNotes[Number(ta.dataset.day)] = ta.value;
+      store.commit();
+    });
+  });
+  // 出欠メモ
+  root.querySelectorAll('.attendance-input').forEach(ta => {
+    ta.addEventListener('input', () => {
+      const w = store.getWeek(weekStart, true);
+      if (!Array.isArray(w.attendance)) w.attendance = ['', '', '', '', '', ''];
+      w.attendance[Number(ta.dataset.day)] = ta.value;
       store.commit();
     });
   });
@@ -788,19 +963,25 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         };
       });
 
-      // 専科: 学級はボタンで1タップ選択。選んだ学級を次のコマの既定にする
+      // 専科: 学級はボタンで1タップ選択。選んだ学級を次のコマの既定にする(再起動後も)
       box.querySelectorAll('[data-scope-btn]').forEach(b => {
         b.onclick = () => {
           entry.scope = b.dataset.scopeBtn || null;
           ctx.lastScope = entry.scope;
+          try { localStorage.setItem('shuan-last-scope', entry.scope || ''); } catch {}
           store.commit(); render(modal); ctx.rerender();
         };
       });
 
-      // 複式: 直接/間接/ガイドの3択チップ(同じものを押すと解除)
+      // 複式: 直接/間接/ガイドの3択チップ(同じものを押すと解除)。
+      // 片学年に「直」を付けたら、未設定の相方には「間」を自動補完(その逆も)
       box.querySelectorAll('[data-guide]').forEach(b => {
         b.onclick = () => {
           entry.guide = entry.guide === b.dataset.guide ? null : b.dataset.guide;
+          if (cellNow.entries.length === 2 && (entry.guide === 'direct' || entry.guide === 'indirect')) {
+            const other = cellNow.entries.find(x => x !== entry);
+            if (other && !other.guide) other.guide = entry.guide === 'direct' ? 'indirect' : 'direct';
+          }
           store.commit(); render(modal); ctx.rerender();
         };
       });
@@ -906,7 +1087,8 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
       && !(w.events || []).some(Boolean)
       && !Object.keys(w.dayPatterns || {}).length
-      && !(w.dayNotes || []).some(Boolean)) {
+      && !(w.dayNotes || []).some(Boolean)
+      && !(w.attendance || []).some(Boolean)) {
       delete store.state.weeks[weekStart];
     }
     store.commit();
