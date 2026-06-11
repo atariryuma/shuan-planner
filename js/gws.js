@@ -4,7 +4,7 @@
  * 週案のドメイン知識(教科・進度・時数)はすべてフロントに置く。
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, scopeKey, fmtHours, standardHoursFor } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, scopeKey, fmtHours, standardHoursFor, breakNameOf } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, fiscalYearOf, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { subjectOf, fracLabel } from './views/week.js';
@@ -63,7 +63,7 @@ export function buildCalendarEvents(weekStart) {
       const active = cell.entries.filter(e => e.subjectKey && !e.cancelled);
       if (!active.length) continue;
       if (!eff.start || !eff.end) { skipped++; continue; }
-      const title = `${p.label}${p.type === 'module' ? '' : '限'} ` + active.map(e => {
+      const title = `${p.label}${p.type === 'module' ? '' : '校時'} ` + active.map(e => { // 画面・印刷と同一表記(規約6)
         const subj = subjectOf(s, e.subjectKey);
         const scopeLabel = scopeLabelOf(s, e.scope);
         return (scopeLabel ? scopeLabel + ' ' : '') + (subj?.name || '');
@@ -111,6 +111,10 @@ export function buildWeekEmail(weekStart) {
   }
   eventsRow += '</tr>';
 
+  // 祝日・長期休業の日は空白サマリーの母数に入れない(授業のない日を未入力扱いで管理職に列挙しない)
+  const offDay = Array.from({ length: dayCount }, (_, d) =>
+    !!((s.showHolidays && holidayName(addDays(monday, d))) || breakNameOf(s, fmtDate(addDays(monday, d)))));
+
   let body = '';
   let filled = 0;
   const blanks = [];
@@ -119,7 +123,7 @@ export function buildWeekEmail(weekStart) {
     for (let d = 0; d < dayCount; d++) {
       const eff = effectivePeriod(s, week, d, p);
       const text = eff ? cellText(state, week, d, p, ordinals) : '—';
-      if (eff && p.type === 'lesson') {
+      if (eff && p.type === 'lesson' && !offDay[d]) {
         if (text) filled++;
         else blanks.push(`${DAY_NAMES[d]}${p.label}`);
       }

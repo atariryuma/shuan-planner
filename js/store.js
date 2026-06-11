@@ -9,7 +9,7 @@
  *   授業内容の自動反映は保存せず、表示時に年間指導計画と進度カウンタから毎回計算する。
  */
 
-import { getSubjectPresets, getStandardHours } from './standards.js';
+import { getSubjectPresets, getStandardHours, LEGACY_COLOR_FIXES } from './standards.js';
 import { fmtDate, parseDate, mondayOf, addDays, uid, fiscalYearOf, fiscalYearFirstMonday, weekNumberInFiscalYear } from './utils.js';
 
 const STORAGE_KEY = 'shuan-planner-data';
@@ -411,7 +411,22 @@ function migrate(data) {
   if (!Array.isArray(data.settings.periods) || !data.settings.periods.length) data.settings.periods = def.periods;
   if (!Array.isArray(data.settings.subjects) || !data.settings.subjects.length) data.settings.subjects = def.subjects;
   if (!Array.isArray(data.settings.fukushikiGrades) || data.settings.fukushikiGrades.length < 2) data.settings.fukushikiGrades = def.fukushikiGrades;
+  // 中学校なのに複式の学年が4〜6年のまま残っていると、設定画面の表示(1年)と
+  // 実データ(5年等)が食い違う。学年範囲(1〜3)へ補正する
+  if (data.settings.schoolType === 'junior') {
+    const fg = data.settings.fukushikiGrades.map(g => Math.min(Math.max(Number(g) || 1, 1), 3));
+    if (fg[0] >= fg[1]) {
+      if (fg[1] > 1) fg[0] = fg[1] - 1;
+      else { fg[0] = 1; fg[1] = 2; }
+    }
+    data.settings.fukushikiGrades = fg;
+  }
   if (!Array.isArray(data.settings.senkaClasses)) data.settings.senkaClasses = [];
+  // 専科の担当教科: 削除済みの教科キーが残ると新規コマに死んだキーが充填され、
+  // 時数がどの集計にも入らず無言で消えるため実在チェックで解除する(学級IDのvalidScopeと同型)
+  if (data.settings.senkaSubject && !data.settings.subjects.some(x => x.key === data.settings.senkaSubject)) {
+    data.settings.senkaSubject = '';
+  }
 
   // モジュール係数の丸め誤差を救済(0.333→1/3等)。丸めた係数のまま累積すると
   // 105コマで34.965になり、表示・CSVが標準の整数時数(35)と一致しなくなる。
@@ -459,6 +474,11 @@ function migrate(data) {
   // 「道徳」→正式名称「特別の教科 道徳」へ(提出書類に略式名が出ないように。独自に改名済みなら触らない)
   for (const sub of data.settings.subjects) {
     if (sub.key === 'dotoku' && sub.name === '道徳') sub.name = '特別の教科 道徳';
+  }
+  // 旧既定色 → 白文字で4.5:1を満たす新既定色へ(WCAG 1.4.3)。独自に変えた色は触らない
+  for (const sub of data.settings.subjects) {
+    const fixed = LEGACY_COLOR_FIXES[String(sub.color || '').toLowerCase()];
+    if (fixed) sub.color = fixed;
   }
   // 教科の合算先(parent)の正規化: 自己参照・連鎖をルート親へ解決(集計は1段しか辿らないため)
   for (const sub of data.settings.subjects) {
@@ -638,10 +658,16 @@ export function computeHours(state, currentWeekStart) {
   const fyEnd = `${fy + 1}-03-31`;
   const acc = new Map(); // scopeKey -> {week, total, done}
 
+  // 年度境界の週(4/1が木曜の年は3月末日が年度第1週に、金曜の年は4/1-2が前年度最終週に入る)の
+  // コマを取りこぼさないよう、走査範囲は範囲外の隣接週まで広げ、所属年度は実日付だけで判定する。
+  const scanFrom = fmtDate(addDays(parseDate(range.from), -7));
+  const lastWeek = fmtDate(addDays(parseDate(range.to), -7));
+  const scanTo = currentWeekStart >= lastWeek ? range.to : currentWeekStart; // 年度最終週は境界週の3月末日も累計に含める
+
   const weekKeys = Object.keys(weeks).sort();
   for (const wk of weekKeys) {
-    if (wk < range.from) continue; // 前年度以前は集計しない
-    if (wk > currentWeekStart) break;
+    if (wk < scanFrom) continue; // 前年度以前は集計しない
+    if (wk > scanTo) break;
     const isCurrent = wk === currentWeekStart;
     const week = weeks[wk];
     const monday = parseDate(wk);
@@ -757,9 +783,14 @@ export function computeMonthlyHours(state, refWeekStart) {
   const fyEnd = `${fy + 1}-03-31`;
   const todayStr = fmtDate(new Date());
 
+  // computeHoursと同じく境界週(年度範囲外の隣接週に入る年度内の日)を取りこぼさない走査範囲
+  const scanFrom = fmtDate(addDays(parseDate(range.from), -7));
+  const lastWeek = fmtDate(addDays(parseDate(range.to), -7));
+  const scanTo = refWeekStart >= lastWeek ? range.to : refWeekStart;
+
   for (const wk of Object.keys(weeks).sort()) {
-    if (wk < range.from || wk >= range.to) continue;
-    if (wk > refWeekStart) break; // 表示中の週まで(computeHoursと同じ基準に統一)
+    if (wk < scanFrom) continue;
+    if (wk > scanTo) break; // 表示中の週まで(computeHoursと同じ基準に統一)
     const week = weeks[wk];
     const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {
@@ -800,7 +831,11 @@ export function termRanges(settings, fiscalYear) {
   const md2date = (md) => {
     const [m, d] = md.split('-').map(Number);
     const y = m >= 4 ? fiscalYear : fiscalYear + 1;
-    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    // 実在しない日付(6/31、非うるう年の2/29等)は月末日へ丸める。
+    // Dateの繰り上がり(6/31→7/1)に任せると次学期開始が7/2になり、
+    // 7/1がどの学期にも属さず時数が学期計・年度計から漏れる
+    const dd = Math.min(d, new Date(y, m, 0).getDate());
+    return `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
   };
   const start = `${fiscalYear}-04-01`;
   const end = `${fiscalYear + 1}-03-31`;

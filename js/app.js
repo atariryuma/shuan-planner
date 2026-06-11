@@ -65,13 +65,22 @@ document.getElementById('tabs').addEventListener('click', (ev) => {
     if (t === btn) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
+  // 時数集計タブには印刷の追加設定がない: ⚙は無効化する
+  // (押せるのに何も起きないコントロール・説明トーストを置かない)
+  const printOpts = document.getElementById('btn-print-opts');
+  const noOpts = ctx.currentTab === 'stats';
+  printOpts.disabled = noOpts;
+  printOpts.setAttribute('aria-disabled', String(noOpts));
   rerender();
 });
 
-// Escで連続入力・移動モードを解除
+// Escで連続入力・移動モードを終了(バーの「終了」ボタンと同じ挙動に揃える)。
+// モーダルが開いているときはEscはモーダルを閉じる操作なので、連続入力は維持する
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Escape') return;
-  if (ctx.paint.subject || ctx.swapSource) {
+  if (document.getElementById('modal-layer')?.childElementCount) return;
+  if (ctx.paint.open || ctx.swapSource) {
+    ctx.paint.open = false;
     ctx.paint.subject = null;
     ctx.swapSource = null;
     rerender();
@@ -93,7 +102,7 @@ document.getElementById('btn-print').addEventListener('click', async () => {
   printWeek(ctx.weekStart);
 });
 document.getElementById('btn-print-opts').addEventListener('click', () => {
-  if (ctx.currentTab === 'stats') { toast('時数集計はこのまま印刷できます'); return; }
+  if (ctx.currentTab === 'stats') return; // statsタブではタブ切替時にdisabled(保険のガード)
   openPrintDialog(ctx);
 });
 
@@ -141,11 +150,7 @@ store.subscribe(() => {
     indicator.classList.remove('saving');
     indicator.textContent = '✓ 保存済み';
   }, 700);
-  // 初回入力時に一度だけ自動保存を知らせる(保存ボタンを探させない)
-  if (!localStorage.getItem('shuan-save-hinted')) {
-    localStorage.setItem('shuan-save-hinted', '1');
-    toast('入力は自動で保存されます');
-  }
+  // 自動保存の案内トーストは置かない(規約3: 結果報告でない教育文。保存インジケータが常時見える)
 });
 
 // タブ非表示・ページ離脱時に即時保存(beforeunloadはモバイルで発火しないため使わない)
@@ -176,12 +181,22 @@ if (navigator.storage?.persist) {
   }).catch(() => {});
 }
 
-// プライベートブラウジング等で保存できない環境の検知
+// プライベートブラウジング等で保存できない環境の検知。
+// 「入力が一切残らない」データ喪失級の警告のため、消えるトーストでなくモーダルで提示(loadErrorと同様式)
 try {
   localStorage.setItem('shuan-probe', '1');
   localStorage.removeItem('shuan-probe');
 } catch {
-  setTimeout(() => toast('このブラウザでは保存できません(プライベートモード?)。通常のウィンドウでご利用ください', 'error', 8000), 500);
+  setTimeout(() => {
+    openModal(`
+      <h2>保存できないブラウザです</h2>
+      <p>プライベートモード等のため、入力した内容がこのブラウザに保存されません。<br>
+        通常のウィンドウで開き直してからご利用ください。</p>
+      <div class="modal-foot"><button class="btn primary" data-go>閉じる</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-go]').onclick = close;
+    });
+  }, 500);
 }
 
 /** 現在のデータをJSONファイルに書き出す(保存エラー時の救出用) */
@@ -197,7 +212,7 @@ function downloadStateJSON() {
 
 // 保存失敗(容量不足など)はトーストで知らせ、その場でファイルに退避できるようにする
 document.addEventListener('shuan-save-error', () => {
-  toast('保存できません(容量不足の可能性)', 'error', 8000, { label: '書き出し', onClick: downloadStateJSON });
+  toast('保存できません', 'error', 8000, { label: '書き出し', onClick: downloadStateJSON });
 });
 
 // 起動時にデータが壊れていた場合: 退避データの保存手段を出してから続行してもらう
@@ -208,7 +223,7 @@ if (store.loadError) {
       <p>保存データが壊れている可能性があります。壊れたデータのコピーは自動で退避済みです。<br>
         念のためファイルにも保存してから続行してください。</p>
       <div class="modal-foot">
-        <button class="btn" data-dump>退避データを保存</button>
+        <button class="btn" data-dump>退避を保存</button>
         <button class="btn primary" data-go>続行</button>
       </div>
     `, (modal, close) => {

@@ -49,45 +49,71 @@ export const JUNIOR_STANDARD_HOURS = {
 export const JUNIOR_TOTAL_HOURS = [1015, 1015, 1015];
 
 // 教科プリセット(表示名・略称・印刷時にも使う色)
+// 色はすべて白文字(11px・太字=小サイズ文字)で4.5:1以上のコントラスト(WCAG 1.4.3)
 export const ELEMENTARY_SUBJECTS = [
-  { key: 'kokugo',   name: '国語',           short: '国', color: '#e8505b' },
-  { key: 'shosha',   name: '書写',           short: '書', color: '#d4756b', parent: 'kokugo' },
-  { key: 'shakai',   name: '社会',           short: '社', color: '#f08a24' },
+  { key: 'kokugo',   name: '国語',           short: '国', color: '#d22f3b' },
+  { key: 'shosha',   name: '書写',           short: '書', color: '#c84e42', parent: 'kokugo' },
+  { key: 'shakai',   name: '社会',           short: '社', color: '#b4600c' },
   { key: 'sansu',    name: '算数',           short: '算', color: '#1f7ac2' },
-  { key: 'rika',     name: '理科',           short: '理', color: '#2ba84a' },
-  { key: 'seikatsu', name: '生活',           short: '生', color: '#7fb069' },
-  { key: 'ongaku',   name: '音楽',           short: '音', color: '#b86bc9' },
-  { key: 'zuko',     name: '図画工作',       short: '図', color: '#e85f99' },
-  { key: 'katei',    name: '家庭',           short: '家', color: '#c2913a' },
-  { key: 'taiiku',   name: '体育',           short: '体', color: '#16a3a5' },
-  { key: 'hoken',    name: '保健',           short: '保', color: '#3aa6a8', parent: 'taiiku' },
-  { key: 'gaikokugo', name: '外国語',        short: '外', color: '#6577d6' },
-  { key: 'gaikokugokatsudo', name: '外国語活動', short: '外活', color: '#8a93dd' },
+  { key: 'rika',     name: '理科',           short: '理', color: '#22853b' },
+  { key: 'seikatsu', name: '生活',           short: '生', color: '#578144' },
+  { key: 'ongaku',   name: '音楽',           short: '音', color: '#ab4fbf' },
+  { key: 'zuko',     name: '図画工作',       short: '図', color: '#df2373' },
+  { key: 'katei',    name: '家庭',           short: '家', color: '#956f2d' },
+  { key: 'taiiku',   name: '体育',           short: '体', color: '#118283' },
+  { key: 'hoken',    name: '保健',           short: '保', color: '#2e8284', parent: 'taiiku' },
+  { key: 'gaikokugo', name: '外国語',        short: '外', color: '#5b6ed3' },
+  { key: 'gaikokugokatsudo', name: '外国語活動', short: '外活', color: '#7b5bd6' },
   { key: 'dotoku',   name: '特別の教科 道徳', short: '道', color: '#8d6e63' },
-  { key: 'sogo',     name: '総合的な学習の時間', short: '総', color: '#5d8aa8' },
-  { key: 'tokkatsu', name: '特別活動',       short: '特活', color: '#9aa05e' },
-  { key: 'gakkatsu', name: '学級活動',       short: '学活', color: '#a3a86b', parent: 'tokkatsu' },
-  { key: 'gyoji',    name: '学校行事',       short: '行事', color: '#888888' },
+  { key: 'sogo',     name: '総合的な学習の時間', short: '総', color: '#517b98' },
+  { key: 'tokkatsu', name: '特別活動',       short: '特活', color: '#757947' },
+  { key: 'gakkatsu', name: '学級活動',       short: '学活', color: '#6b7040', parent: 'tokkatsu' },
+  { key: 'gyoji',    name: '学校行事',       short: '行事', color: '#767676' },
   { key: 'module',   name: 'モジュール学習', short: 'モ', color: '#64748b' },
-  { key: 'sonota',   name: 'その他',         short: '他', color: '#999999' },
+  { key: 'sonota',   name: 'その他',         short: '他', color: '#6b6b6b' },
 ];
 
 export const JUNIOR_SUBJECTS = [
-  { key: 'kokugo',  name: '国語',     short: '国', color: '#e8505b' },
-  { key: 'shakai',  name: '社会',     short: '社', color: '#f08a24' },
+  { key: 'kokugo',  name: '国語',     short: '国', color: '#d22f3b' },
+  { key: 'shakai',  name: '社会',     short: '社', color: '#b4600c' },
   { key: 'sugaku',  name: '数学',     short: '数', color: '#1f7ac2' },
-  { key: 'rika',    name: '理科',     short: '理', color: '#2ba84a' },
-  { key: 'ongaku',  name: '音楽',     short: '音', color: '#b86bc9' },
-  { key: 'bijutsu', name: '美術',     short: '美', color: '#e85f99' },
-  { key: 'hotai',   name: '保健体育', short: '保体', color: '#16a3a5' },
-  { key: 'gika',    name: '技術・家庭', short: '技家', color: '#c2913a' },
-  { key: 'gaikokugo', name: '外国語(英語)', short: '英', color: '#6577d6' },
+  { key: 'rika',    name: '理科',     short: '理', color: '#22853b' },
+  { key: 'ongaku',  name: '音楽',     short: '音', color: '#ab4fbf' },
+  { key: 'bijutsu', name: '美術',     short: '美', color: '#df2373' },
+  { key: 'hotai',   name: '保健体育', short: '保体', color: '#118283' },
+  { key: 'gika',    name: '技術・家庭', short: '技家', color: '#956f2d' },
+  { key: 'gaikokugo', name: '外国語(英語)', short: '英', color: '#5b6ed3' },
   { key: 'dotoku',  name: '特別の教科 道徳', short: '道', color: '#8d6e63' },
-  { key: 'sogo',    name: '総合的な学習の時間', short: '総', color: '#5d8aa8' },
-  { key: 'tokkatsu', name: '特別活動', short: '特活', color: '#9aa05e' },
-  { key: 'gyoji',   name: '学校行事', short: '行事', color: '#888888' },
-  { key: 'sonota',  name: 'その他',   short: '他', color: '#999999' },
+  { key: 'sogo',    name: '総合的な学習の時間', short: '総', color: '#517b98' },
+  { key: 'tokkatsu', name: '特別活動', short: '特活', color: '#757947' },
+  { key: 'gyoji',   name: '学校行事', short: '行事', color: '#767676' },
+  { key: 'sonota',  name: 'その他',   short: '他', color: '#6b6b6b' },
 ];
+
+/**
+ * 旧既定色 → 新既定色(白文字4.5:1対応)の対応表。
+ * 既存データの教科色が旧既定値のままなら migrate() で新色へ置き換える
+ * (ユーザーが独自に変えた色は触らない)。
+ */
+export const LEGACY_COLOR_FIXES = {
+  '#e8505b': '#d22f3b',
+  '#d4756b': '#c84e42',
+  '#f08a24': '#b4600c',
+  '#2ba84a': '#22853b',
+  '#7fb069': '#578144',
+  '#b86bc9': '#ab4fbf',
+  '#e85f99': '#df2373',
+  '#c2913a': '#956f2d',
+  '#16a3a5': '#118283',
+  '#3aa6a8': '#2e8284',
+  '#6577d6': '#5b6ed3',
+  '#8a93dd': '#7b5bd6',
+  '#5d8aa8': '#517b98',
+  '#9aa05e': '#757947',
+  '#a3a86b': '#6b7040',
+  '#888888': '#767676',
+  '#999999': '#6b6b6b',
+};
 
 /** 学年に応じた標準時数を返す(grade: 1始まり)。設定が無い教科は null。 */
 export function getStandardHours(schoolType, subjectKey, grade) {

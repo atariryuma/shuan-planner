@@ -140,12 +140,12 @@ export function renderWeekView(root, ctx) {
       <button class="btn" id="wk-prev" aria-label="前の週">◀</button>
       <button class="btn" id="wk-today">今週</button>
       <button class="btn" id="wk-next" aria-label="次の週">▶</button>
-      <input type="date" id="wk-date" value="${weekStart}">
+      <input type="date" id="wk-date" value="${weekStart}" aria-label="表示する週の日付">
       <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, dayCount - 1))}
         <span class="week-no">第${weekNo}週</span>
       </span>
       <span class="spacer"></span>
-      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" title="教科を選んでコマを連続入力">🖌 連続入力</button>
+      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">🖌 連続入力</button>
       ${gas ? `<button class="btn" id="wk-calendar">📆 行事</button>` : ''}
       <button class="btn" id="wk-copy">前週コピー</button>
       <button class="btn" id="wk-apply-base" ${store.hasBaseTimetable ? '' : 'disabled'}>📋 基本時間割</button>
@@ -155,8 +155,11 @@ export function renderWeekView(root, ctx) {
         <div class="menu-items">
           <button class="btn ghost" id="wk-save-base">基本時間割に登録</button>
           <button class="btn ghost" id="wk-import-events">年間行事の取り込み</button>
-          <div class="menu-sep" role="separator"></div>
-          ${s.mode !== 'senka' ? `<button class="btn ghost" id="wk-kids-print">おたより印刷${infoHTML('児童・保護者向けの来週の時間割。大きな字で印刷します')}</button>` : ''}
+          ${s.mode !== 'senka' || gas ? '<div class="menu-sep" role="separator"></div>' : ''}
+          ${s.mode !== 'senka' ? `<span style="display:flex; align-items:center;">
+            <button class="btn ghost" id="wk-kids-print" style="flex:1;">おたより印刷</button>
+            ${infoHTML('児童・保護者向けの来週の時間割。大きな字で印刷します')}
+          </span>` : ''}
           ${gas ? `
           <button class="btn ghost" id="wk-cal-push">カレンダーへ書き出し</button>
           <button class="btn ghost" id="wk-sheet-push">シートへ書き出し</button>
@@ -358,7 +361,7 @@ function wireNav(root, ctx, monday) {
         ${bases.map(b => `<button class="btn" data-over="${esc(b.name)}">「${esc(b.name)}」を上書き</button>`).join('')}
         ${bases.length < 3 ? `
         <div style="display:flex; gap:8px;">
-          <input type="text" id="base-name" placeholder="B週" style="flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 9px;">
+          <input type="text" id="base-name" placeholder="B週" aria-label="時間割の名前" style="flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 9px;">
           <button class="btn primary" data-new>追加</button>
         </div>` : ''}
       </div>
@@ -424,20 +427,36 @@ function wireNav(root, ctx, monday) {
   };
 
   // ---- Google連携(設定済みのときだけボタンが存在する)
+  // 設定タブの該当パネルへ誘導する(規約3: 教育文でなくactionボタン)
+  const gotoSettings = (panelId) => {
+    document.querySelector('.tab[data-tab="settings"]')?.click();
+    setTimeout(() => {
+      const target = document.getElementById(panelId);
+      if (!target) return;
+      const det = target.querySelector('details');
+      if (det) det.open = true;
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  };
   const calPush = root.querySelector('#wk-cal-push');
   if (calPush) calPush.onclick = async () => {
     const { buildCalendarEvents } = await import('../gws.js');
     const payload = buildCalendarEvents(fmtDate(monday));
-    if (!payload.events.length) { toast('書き出せる授業がありません(校時の時刻が未設定)', 'error', 4000); return; }
+    if (!payload.events.length) {
+      // skippedあり=入力はあるが校時の時刻が無い → 設定の時程へ誘導(規約3: actionボタン)
+      if (payload.skipped) toast('校時の時刻が未設定です', 'error', 5000, { label: '設定を開く', onClick: () => gotoSettings('sp-schedule') });
+      else toast('書き出せる授業がありません', 'error');
+      return;
+    }
     const ok = await confirmDialog(
-      `${payload.events.length}件をカレンダー「週案」に登録します(再実行で置き換え)` +
+      `${payload.events.length}件をカレンダー「週案」へ書き出します(再実行で置き換え)` +
       (payload.skipped ? `\n時刻未設定の${payload.skipped}コマはスキップ` : ''),
       { okLabel: '書き出し' });
     if (!ok) return;
     try {
       toast('書き出し中…');
       const res = await ctx.gas.pushWeek(payload.events, payload.from, payload.to);
-      toast(`カレンダーに${res.created}件登録しました`);
+      toast(`カレンダーへ${res.created}件書き出しました`);
     } catch (e) {
       toast('書き出し失敗: ' + e.message, 'error', 6000);
     }
@@ -458,17 +477,6 @@ function wireNav(root, ctx, monday) {
   const mailBtn = root.querySelector('#wk-mail');
   if (mailBtn) mailBtn.onclick = async () => {
     const s = store.settings;
-    // 設定タブのGoogle連携欄(または基本情報)へ誘導する(規約3: 教育文でなくactionボタン)
-    const gotoSettings = (panelId) => {
-      document.querySelector('.tab[data-tab="settings"]')?.click();
-      setTimeout(() => {
-        const target = document.getElementById(panelId);
-        if (!target) return;
-        const det = target.querySelector('details');
-        if (det) det.open = true;
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 0);
-    };
     if (!s.gas.mailTo) {
       toast('提出先が未設定です', 'error', 5000, { label: '設定を開く', onClick: () => gotoSettings('sp-google') });
       return;
@@ -483,9 +491,9 @@ function wireNav(root, ctx, monday) {
     if (!ok) return;
     try {
       toast('送信中…');
-      const res = await ctx.gas.mailWeek({ to: s.gas.mailTo, subject: mail.subject, html: mail.html, text: mail.text, senderName: s.gas.senderName || s.teacherName });
+      await ctx.gas.mailWeek({ to: s.gas.mailTo, subject: mail.subject, html: mail.html, text: mail.text, senderName: s.gas.senderName || s.teacherName });
       markMailed(fmtDate(monday));
-      toast(`送信しました(残り${res.remaining}通)`);
+      toast('送信しました');
     } catch (e) {
       toast('送信失敗: ' + e.message, 'error', 6000);
     }
@@ -540,6 +548,7 @@ function openEventsImport(ctx) {
         <option value="${curFY + 1}">${curFY + 1}年度(次年度の予定)</option>
       </select></div>
     <div class="field import-area">
+      <label>Excel/スプレッドシートから貼り付け(タブ区切り) または CSVテキスト</label>
       <textarea name="paste" placeholder="4/8	入学式&#10;4/9	始業式&#10;5/20	運動会"></textarea>
     </div>
     <div class="field"><label>またはCSVファイル</label>
@@ -554,7 +563,7 @@ function openEventsImport(ctx) {
       let text = modal.querySelector('[name="paste"]').value;
       const file = modal.querySelector('[name="file"]').files[0];
       if (!text.trim() && file) text = await file.text();
-      if (!text.trim()) { toast('データを貼り付けてください', 'error'); return; }
+      if (!text.trim()) { toast('データがありません', 'error'); modal.querySelector('[name="paste"]').focus(); return; }
 
       const { parseTable } = await import('../csv.js');
       const rows = parseTable(text);
@@ -572,15 +581,22 @@ function openEventsImport(ctx) {
       }
       if (!events.length) { toast('日付+行事名の行が見つかりません', 'error', 4500); return; }
 
-      // プレビューは年込みで表示(取り込み先のズレに気づけるように)
+      // 土日(土曜授業OFF時は土曜も)の行事は取り込み対象外。無言で捨てると
+      // 運動会等が消えたことに印刷時まで気づけないため、件数を事前に明示する
+      const dayCount = store.settings.saturday ? 6 : 5;
+      const weekendCount = events.filter(e => ((parseDate(e.date).getDay() + 6) % 7) >= dayCount).length;
+      const weekendNote = weekendCount
+        ? `\n${store.settings.saturday ? '日曜' : '土日'}分の${weekendCount}件は取り込み対象外です。` : '';
+
+      // プレビューは年込みで表示(取り込み先のズレに気づけるように)。日付はゼロ詰めなし(規約7)
+      const fmtPreviewDate = (dateStr) => { const d = parseDate(dateStr); return `${d.getFullYear()}/${fmtMD(d)}`; };
       const ok = await confirmDialog(
-        `${events.length}件の行事を読み取りました。\n` +
-        `${events.slice(0, 5).map(e => `${e.date.replace(/-/g, '/')} ${e.title}`).join('\n')}${events.length > 5 ? '\n…' : ''}\n\n各週の行事欄に追記しますか?(既存の行事は消えません)`,
+        `${events.length}件の行事を読み取りました。${weekendNote}\n` +
+        `${events.slice(0, 5).map(e => `${fmtPreviewDate(e.date)} ${e.title}`).join('\n')}${events.length > 5 ? '\n…' : ''}\n\n各週の行事欄に追記しますか?(既存の行事は消えません)`,
         { okLabel: '取り込み' });
       if (!ok) return;
 
       store.snapshot('年間行事の取り込み');
-      const dayCount = store.settings.saturday ? 6 : 5;
       let applied = 0;
       let dup = 0; // 既に行事欄にある行事(再取り込み)は件数に数えない
       for (const ev of events) {
@@ -714,7 +730,8 @@ function wireWeekInputs(root, weekStart, ctx) {
         hidden += w.cells[cellKey(d, p.id)]?.entries?.length || 0;
       }
       if (hidden) {
-        toast(`非表示の授業が${hidden}コマあります`, 'info', 4000,
+        // 単位は「件」: hiddenはエントリ数のため、複式で1コマ(2授業)を「2コマ」と報告しないように
+        toast(`非表示の授業が${hidden}件あります`, 'info', 4000,
           { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       }
       ctx.rerender();
@@ -772,16 +789,20 @@ function wirePaint(root, ctx) {
 function paintCell(weekStart, dayIdx, periodId, ctx) {
   const s = store.settings;
   const paint = ctx.paint;
-  if (!paint.subject) { toast('教科を選んでください', 'error'); return true; }
+  if (!paint.subject) { toast('教科が未選択です', 'error'); return true; }
   const w = store.getWeek(weekStart, true);
   const key = cellKey(dayIdx, periodId);
   const cell = w.cells[key];
   const entries = cell?.entries || [];
 
-  // 同じ教科の「きれいな」単独エントリ → トグル消去(備考・手動内容入りは壊さない)
-  if (entries.length === 1 && entries[0].subjectKey === paint.subject
-    && entries[0].auto && !entries[0].note && !entries[0].cancelled
-    && (s.mode !== 'senka' || entries[0].scope === (paint.scope ?? entries[0].scope))) {
+  // 同じ教科の「きれいな」エントリ → トグル消去(備考・手動内容入りは壊さない)。
+  // 複式はペイントで全学年分のエントリを作るため、全学年そろって同教科のときにトグルする
+  const clean = (e) => e.subjectKey === paint.subject && e.auto && !e.note && !e.cancelled;
+  const toggleHit = s.mode === 'fukushiki'
+    ? (entries.length === s.fukushikiGrades.length && entries.every(clean))
+    : (entries.length === 1 && clean(entries[0])
+      && (s.mode !== 'senka' || entries[0].scope === (paint.scope ?? entries[0].scope)));
+  if (toggleHit) {
     delete w.cells[key];
     store.commit();
     ctx.rerender();
@@ -847,12 +868,14 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
               for (const p of store.settings.periods) {
                 const cell = w.cells[cellKey(d, p.id)];
                 if (!cell) continue;
+                let hit = false;
                 for (const e of cell.entries) {
                   if (e.cancelled || !e.subjectKey) continue;
                   e.cancelledText = resolveEntryText(state, e, ordinals).text;
                   e.cancelled = true;
-                  n++;
+                  hit = true;
                 }
+                if (hit) n++; // コマ(セル)単位で数える。複式は1コマ2エントリのため、エントリ数だと実コマ数の2倍を報告してしまう
               }
             } else if (act === 'clear') {
               for (const p of store.settings.periods) {
@@ -999,7 +1022,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       const e = newEntry();
       if (s.mode === 'senka') {
         e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
-        e.subjectKey = s.senkaSubject || '';
+        // 担当教科も学級ID(validScope)と同様に実在チェック。削除済みキーを充填すると
+        // そのコマの時数が集計・印刷・CSV・メールから無言で消えるため
+        e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
         if (e.subjectKey) prefilled.add(e.id);
       }
       cell.entries.push(e);
@@ -1144,7 +1169,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       const e = newEntry();
       if (s.mode === 'senka') {
         e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
-        e.subjectKey = s.senkaSubject || '';
+        e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : ''; // 実在チェック(ensureと同じ)
         if (e.subjectKey) prefilled.add(e.id); // 追加後に何も触らず閉じたら掃除する
       }
       cellNow.entries.push(e);

@@ -74,6 +74,17 @@ export function renderOnboarding(root, ctx) {
       if (state.mode === 'senka' && !s.senkaClasses.length) {
         s.senkaClasses = [{ id: uid(), label: '', grade: s.grade }];
       }
+      if (state.mode === 'fukushiki') {
+        // 選んだ学年を下学年として複式の2学年を決める(既定の[5,6]のままだと
+        // 中学校で範囲外になる・選んだ学年が週案に反映されない)
+        const max = state.schoolType === 'junior' ? 3 : 6;
+        s.fukushikiGrades = s.grade < max ? [s.grade, s.grade + 1] : [max - 1, max];
+      }
+      // 小1=34週/その他35週の既定を学年に追従(設定画面・年度更新ウィザードと同じ規則)
+      const baseGrade = state.mode === 'fukushiki' ? s.fukushikiGrades[0] : s.grade;
+      if (s.hoursBase === 34 || s.hoursBase === 35) {
+        s.hoursBase = (state.schoolType === 'elementary' && state.mode !== 'senka' && baseGrade === 1) ? 34 : 35;
+      }
     }
     localStorage.setItem('shuan-onboarded', '1');
     store.commit();
@@ -101,22 +112,47 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
   if (localStorage.getItem(flagKey)) return;
   const s = store.settings;
   const gradeMax = s.schoolType === 'junior' ? 3 : 6;
+  const gradeOptions = (selected) =>
+    Array.from({ length: gradeMax }, (_, i) => `<option value="${i + 1}" ${i + 1 === selected ? 'selected' : ''}>${i + 1}年</option>`).join('');
   const nextGrade = Math.min(s.grade + 1, gradeMax);
+  // 複式: 2学年とも繰り上げ。上学年が最高学年なら据え置き(同じ学年構成が続く想定)
+  const [fg0, fg1] = s.fukushikiGrades;
+  const nextFg = fg1 + 1 > gradeMax ? [fg0, fg1] : [fg0 + 1, fg1 + 1];
   const planCount = store.state.plans.length;
   const baseCount = store.state.baseTimetables.length;
   let handled = false;
 
-  openModal(`
-    <h2>${newFY}年度を始めますか?</h2>
-    <p class="hint">昨年度(${oldFY}年度)のデータはそのまま残り、集計は年度ごとに自動で分かれます。</p>
+  // 学級欄は担任形態ごとに変える(複式はfukushikiGradesが実体。s.gradeだけ
+  // 更新しても週案・時数・印刷に反映されない。専科は学級一覧が実体)
+  const classFields = s.mode === 'fukushiki' ? `
+    <div style="display:flex; gap:10px;">
+      <div class="field" style="flex:1;"><label>今年度の下学年</label>
+        <select id="ro-fg0">${gradeOptions(nextFg[0])}</select>
+      </div>
+      <div class="field" style="flex:1;"><label>今年度の上学年</label>
+        <select id="ro-fg1">${gradeOptions(nextFg[1])}</select>
+      </div>
+    </div>
+    <div class="field"><label>組(任意)</label>
+      <input type="text" id="ro-class" value="${esc(s.className || '')}" placeholder="" style="max-width:90px;">
+    </div>`
+    : s.mode === 'senka' ? `
+    <div class="field" style="display:flex; align-items:center; gap:10px;">
+      <span class="hint" style="margin:0;">担当する学級の一覧は「設定 → 担任形態」で見直せます。</span>
+      <button class="btn small" id="ro-senka-set">設定を開く</button>
+    </div>`
+    : `
     <div class="field"><label>今年度の学年</label>
-      <select id="ro-grade">
-        ${Array.from({ length: gradeMax }, (_, i) => `<option value="${i + 1}" ${i + 1 === nextGrade ? 'selected' : ''}>${i + 1}年</option>`).join('')}
-      </select>
+      <select id="ro-grade">${gradeOptions(nextGrade)}</select>
     </div>
     <div class="field"><label>組</label>
       <input type="text" id="ro-class" value="${esc(s.className || '')}" placeholder="1" style="max-width:90px;">
-    </div>
+    </div>`;
+
+  openModal(`
+    <h2>${newFY}年度を始めますか?</h2>
+    <p class="hint">昨年度(${oldFY}年度)のデータはそのまま残り、集計は年度ごとに自動で分かれます。</p>
+    ${classFields}
     ${planCount ? `<div class="checkline"><input type="checkbox" id="ro-plans">
       <label for="ro-plans">年間指導計画 ${planCount}件を削除</label>${infoHTML('新学年の計画を取り込み直す場合にチェック。残しておけばそのまま使えます')}</div>` : ''}
     ${baseCount ? `<div class="checkline"><input type="checkbox" id="ro-base">
@@ -133,13 +169,28 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
       localStorage.setItem(flagKey, '1');
       close();
     };
+    const senkaSet = modal.querySelector('#ro-senka-set');
+    if (senkaSet) senkaSet.onclick = () => {
+      handled = true;
+      localStorage.setItem(flagKey, '1');
+      close();
+      document.querySelector('.tab[data-tab="settings"]')?.click();
+    };
     modal.querySelector('[data-apply]').onclick = () => {
       handled = true;
-      s.grade = Number(modal.querySelector('#ro-grade').value) || s.grade;
-      s.className = modal.querySelector('#ro-class').value.trim();
+      if (s.mode === 'fukushiki') {
+        const g0 = Number(modal.querySelector('#ro-fg0').value) || s.fukushikiGrades[0];
+        const g1 = Number(modal.querySelector('#ro-fg1').value) || s.fukushikiGrades[1];
+        s.fukushikiGrades = [Math.min(g0, g1), Math.max(g0, g1)];
+        s.className = modal.querySelector('#ro-class').value.trim();
+      } else if (s.mode !== 'senka') {
+        s.grade = Number(modal.querySelector('#ro-grade').value) || s.grade;
+        s.className = modal.querySelector('#ro-class').value.trim();
+      }
       // 小1=34週/その他35週の既定を学年に追従(ユーザーが独自値にしている場合は触らない)
+      const baseGrade = s.mode === 'fukushiki' ? s.fukushikiGrades[0] : s.grade;
       if (s.hoursBase === 34 || s.hoursBase === 35) {
-        s.hoursBase = (s.schoolType === 'elementary' && s.grade === 1) ? 34 : 35;
+        s.hoursBase = (s.schoolType === 'elementary' && s.mode !== 'senka' && baseGrade === 1) ? 34 : 35;
       }
       if (modal.querySelector('#ro-plans')?.checked) store.state.plans = [];
       if (modal.querySelector('#ro-base')?.checked) store.state.baseTimetables = [];

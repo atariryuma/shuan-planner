@@ -14,7 +14,7 @@ export function renderPlansView(root, ctx) {
     const total = p.units.reduce((a, u) => a + (Number(u.hours) || 0), 0);
     return `
       <div class="plan-item" data-id="${esc(p.id)}">
-        <span class="subj-chip" style="background:${esc(subj?.color || '#888')}">${esc(subj?.short || '?')}</span>
+        <span class="subj-chip" style="background:${esc(subj?.color || '#767676')}">${esc(subj?.short || '?')}</span>
         <span class="p-subj">${esc(subj?.name || p.subjectKey)}${p.grade ? ` (${p.grade}年)` : ''}</span>
         <span class="p-meta">${esc(p.textbook || '')} / ${p.units.length}単元・計${total}時間${p.startOffset ? ` / 既習${p.startOffset}コマ` : ''}</span>
         <span class="spacer"></span>
@@ -81,9 +81,9 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
   const unitsRows = () => plan.units.map((u, i) => `
     <tr data-unit="${i}">
       <td class="num" style="color:var(--muted)">${i + 1}</td>
-      <td><input type="text" name="name" value="${esc(u.name)}" placeholder="単元名"></td>
-      <td class="num"><input type="number" name="hours" value="${esc(u.hours)}" min="1" step="1"></td>
-      <td><textarea name="lessons" rows="1" placeholder="各時の内容(1行=1時間。空欄可)">${esc((u.lessons || []).map(l => l.text).join('\n'))}</textarea></td>
+      <td><input type="text" name="name" value="${esc(u.name)}" placeholder="単元名" aria-label="単元${i + 1}の単元名"></td>
+      <td class="num"><input type="number" name="hours" value="${esc(u.hours)}" min="1" step="1" aria-label="単元${i + 1}の時数"></td>
+      <td><textarea name="lessons" rows="1" placeholder="各時の内容(1行=1時間。空欄可)" aria-label="単元${i + 1}の各時の内容">${esc((u.lessons || []).map(l => l.text).join('\n'))}</textarea></td>
       <td class="ops">
         <button class="btn small ghost" data-up aria-label="上へ" title="上へ">↑</button>
         <button class="btn small ghost" data-down aria-label="下へ" title="下へ">↓</button>
@@ -173,7 +173,12 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
     modal.querySelector('[data-save]').onclick = () => {
       readForm();
       const named = plan.units.filter(u => u.name);
-      if (!named.length) { toast('単元が1つもありません(単元名を入力してください)', 'error'); return; }
+      if (!named.length) {
+        // モーダルは開いたままなので、結果報告+単元名欄へのフォーカスで誘導(規約3)
+        toast('単元名が未入力です', 'error');
+        modal.querySelector('#units-body [name="name"]')?.focus();
+        return;
+      }
       plan.units = named;
       if (isNew) {
         store.addPlan(plan);
@@ -233,12 +238,13 @@ function openImportDialog(ctx) {
       let text = modal.querySelector('[name="paste"]').value;
       const file = modal.querySelector('[name="file"]').files[0];
       if (!text.trim() && file) text = await file.text();
-      if (!text.trim()) { toast('データを貼り付けるかファイルを選択してください', 'error'); return; }
+      if (!text.trim()) { toast('データがありません', 'error'); modal.querySelector('[name="paste"]').focus(); return; }
       try {
         const rows = parseTable(text);
-        const { units, format, warnings } = tableToUnits(rows);
+        const { units, warnings } = tableToUnits(rows);
         const total = units.reduce((a, u) => a + u.hours, 0);
-        toast(`${units.length}単元・計${total}時間を読み取りました(形式${format})`);
+        // 形式①/②はダイアログ側の説明に任せ、結果報告のみ(規約3・6: ダイアログの①②とAB表記を混ぜない)
+        toast(`${units.length}単元・計${total}時間を読み取りました`);
         warnings.forEach(w => toast(w, 'error', 4000));
         close();
         openPlanEditor(null, ctx, units.map(u => ({ ...u, id: uid() })));

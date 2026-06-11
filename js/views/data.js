@@ -21,9 +21,8 @@ export function renderDataView(root, ctx) {
         </p>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn primary" id="data-export">エクスポート</button>
-          <label class="btn" style="display:inline-block; cursor:pointer;">
-            インポート<input type="file" id="data-import" accept=".json" style="display:none;">
-          </label>
+          <button class="btn" id="data-import-btn">インポート</button>
+          <input type="file" id="data-import" accept=".json" style="display:none;" aria-hidden="true" tabindex="-1">
         </div>
       </div>
 
@@ -56,6 +55,10 @@ export function renderDataView(root, ctx) {
 
   root.querySelector('#data-export').onclick = () => exportJSON();
 
+  // ファイル選択はボタン経由で起動する(display:noneのfile inputは
+  // フォーカス不能のため、label方式だとキーボードから操作できない)
+  root.querySelector('#data-import-btn').onclick = () => root.querySelector('#data-import').click();
+
   root.querySelector('#data-import').addEventListener('change', async (ev) => {
     const file = ev.target.files[0];
     if (!file) return;
@@ -71,7 +74,7 @@ export function renderDataView(root, ctx) {
       if (!ok) return;
       store.snapshot('インポート');
       store.importJSON(text);
-      toast('復元しました', 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      toast('インポートしました', 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     } catch (e) {
       toast('インポート失敗: ' + e.message, 'error', 5000);
@@ -83,7 +86,7 @@ export function renderDataView(root, ctx) {
   const gasPush = root.querySelector('#gas-push');
   if (gasPush) gasPush.onclick = async () => {
     try {
-      toast('送信中…(数秒かかります)');
+      toast('送信中…');
       let res = await ctx.gas.push(store.state);
       if (res.conflict) {
         const ok = await confirmDialog(
@@ -103,7 +106,7 @@ export function renderDataView(root, ctx) {
       // 任意: ドライブへの自動バックアップ(失敗しても同期自体は成功扱い)
       if (store.settings.gas.autoBackup) {
         ctx.gas.driveBackup(store.state)
-          .then(r => toast(`ドライブにもバックアップしました(${r.file})`, 'info', 3500))
+          .then(() => toast('ドライブにもバックアップしました', 'info', 3500))
           .catch(e => toast('ドライブバックアップ失敗: ' + e.message, 'error', 5000));
       }
     } catch (e) {
@@ -115,8 +118,8 @@ export function renderDataView(root, ctx) {
   if (gasDrive) gasDrive.onclick = async () => {
     try {
       toast('ドライブへバックアップ中…');
-      const res = await ctx.gas.driveBackup(store.state);
-      toast(`保存しました: ${res.file}(${res.kept}世代保持)`, 'info', 4000);
+      await ctx.gas.driveBackup(store.state);
+      toast('ドライブへバックアップしました', 'info', 4000); // 世代保持の説明は設定の自動バックアップⓘにある(規約3)
     } catch (e) {
       toast('バックアップ失敗: ' + e.message, 'error', 6000);
     }
@@ -131,7 +134,7 @@ export function renderDataView(root, ctx) {
       if (!report.rows.length) { toast('まだ集計できる授業がありません', 'error'); return; }
       const res = await ctx.gas.sheetReport(report);
       toast('書き出しました', 'info', 3000);
-      openResultLink(res.url, '時数レポートを開く');
+      openResultLink(res.url, 'シートを開く'); // 規約1: ボタンは2〜6字。週案の「シートへ書き出し」と同じ表記
     } catch (e) {
       toast('書き出し失敗: ' + e.message, 'error', 6000);
     }
@@ -140,7 +143,7 @@ export function renderDataView(root, ctx) {
   const gasPull = root.querySelector('#gas-pull');
   if (gasPull) gasPull.onclick = async () => {
     try {
-      toast('取得中…(数秒かかります)');
+      toast('取得中…');
       const res = await ctx.gas.pull();
       if (!res.exists) { toast('Googleにはまだデータがありません'); return; }
       const wc = Object.keys(res.data.weeks || {}).length;
@@ -155,7 +158,7 @@ export function renderDataView(root, ctx) {
       if (res.updatedAt) store.state.updatedAt = res.updatedAt;
       store.settings.gas.lastSync = Date.now();
       store.persist();
-      toast('Googleから復元しました');
+      toast('Googleから取得しました');
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 6000);

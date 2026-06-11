@@ -140,7 +140,7 @@ export function printWeek(weekStart, range = 'week') {
     toast(`${result.pages}週分をまとめて印刷します`, 'info', 3000);
   }
   if (result.shrunk) {
-    toast('内容が多いため文字サイズを自動で縮小しました', 'info', 3500);
+    toast('文字サイズを縮小しました', 'info', 3500);
   } else if (result.overflow) {
     // 文字サイズ「小」への変更は印刷設定から(教育文をトーストに書かずボタンで誘導)
     toast('内容が入りきらない可能性があります', 'error', 6000,

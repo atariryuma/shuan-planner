@@ -314,8 +314,9 @@ details.menu .menu-items {
 details.menu .menu-items .btn { text-align: left; }
 
 /* ---------- 中止エントリ ---------- */
-.entry.cancelled .e-text, .entry.cancelled .e-note { text-decoration: line-through; color: #9ca3af; }
-.entry.cancelled .subj-chip { opacity: .45; }
+/* #6b7280=白背景で4.8:1(WCAG 1.4.3)。中止は取り消し線+「中止」フラグで伝え、文字は読めるまま残す */
+.entry.cancelled .e-text, .entry.cancelled .e-note { text-decoration: line-through; color: #6b7280; }
+.entry.cancelled .subj-chip { opacity: .7; }
 
 /* ---------- toast ---------- */
 #toast-layer { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; }
@@ -497,7 +498,7 @@ html.ui-large body { zoom: 1.12; }
   .daypat-select, .week-nav input[type="date"], #bulk-count, [name="bulkGrade"],
   .modal select, .modal input[type="text"], .modal input[type="number"] { font-size: 16px; } /* iOSのズーム暴発防止 */
   .btn.small { padding: 8px 12px; }
-  .subject-palette button, .paint-chip, .scope-palette button, .guide-btn { padding: 8px 12px; min-height: 40px; }
+  .subject-palette button, .paint-chip, .paint-scope, .scope-palette button, .guide-btn { padding: 8px 12px; min-height: 40px; }
   .guide-btn { width: auto; min-width: 44px; } /* 幅28px固定のままだと文字が潰れタップ目標も不足 */
   .cell-clear { padding: 8px 10px; font-size: 14px; min-width: 44px; min-height: 44px; }
   .oc-close { min-width: 44px; min-height: 44px; }
@@ -508,6 +509,7 @@ html.ui-large body { zoom: 1.12; }
   .topbar-actions .btn { min-height: 44px; }
   .ob-seg button { min-height: 44px; }
   .modal-foot .btn { min-height: 44px; }
+  .set-chip { min-height: 44px; padding: 8px 14px; }
 }
 
 /* ---------- v2.2 ---------- */

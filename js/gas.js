@@ -17,11 +17,13 @@ export class GasClient {
 
   async call(payload) {
     const { url, token } = this.getConfig();
-    if (!url || !token) throw new Error('設定 → Google連携 で接続先URLと合言葉を入力してください');
+    if (!url || !token) throw new Error('接続先URLと合言葉が未入力です');
     if (!/\/exec\s*$/.test(url.trim())) {
       console.warn('GAS URLが /exec で終わっていません。デプロイURLを確認してください。');
     }
-    if (!navigator.onLine) throw new Error('オフラインです。接続後にもう一度お試しください');
+    // 文言は結果報告のみ(規約3)。トースト側で「接続失敗: 」等の接頭辞が付き、
+    // 復旧手順は設定画面の「手順を見る」action・設定手順リンクへ誘導する
+    if (!navigator.onLine) throw new Error('オフラインです');
     let res;
     try {
       res = await fetch(url.trim(), {
@@ -32,20 +34,21 @@ export class GasClient {
       });
     } catch {
       // fetchのTypeErrorは英語のままユーザーに見えるため日本語に変換する
-      throw new Error('サーバーに接続できません(ネットワークか接続先URLを確認してください)');
+      throw new Error('サーバーに接続できません');
     }
     if (!res.ok) throw new Error(`通信エラー (HTTP ${res.status})`);
     // GASはエラー時もHTTP 200で返す。認可エラー等ではJSONでなくHTMLのログインページが
     // 返ることがあるため、先頭文字で防御的に判定する。
     const text = await res.text();
     if (text.trim().startsWith('<')) {
-      throw new Error('Google連携の応答が正しくありません。設定手順の「アクセスできるユーザー: 全員」と承認を確認してください');
+      // 多くは「アクセスできるユーザー: 全員」の設定漏れ・未承認(詳細は設定手順ドキュメントに記載)
+      throw new Error('応答が正しくありません');
     }
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error('Google連携の応答を解釈できません。接続先URL(/exec で終わる)を確認してください');
+      throw new Error('応答を解釈できません'); // 多くは接続先URLの誤り(/exec で終わらない等)
     }
     if (!data.ok && !data.conflict) throw new Error(data.error || '不明なエラー');
     return data;

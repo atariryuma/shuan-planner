@@ -36,7 +36,8 @@ function doPost(e) {
 function handle_(e, req) {
   try {
     var token = PropertiesService.getScriptProperties().getProperty('TOKEN');
-    if (!token) return json_({ ok: false, error: 'サーバー側にTOKENが未設定です(スクリプト プロパティを確認)' });
+    // 画面にそのまま表示されるため、実装用語(TOKEN・スクリプト プロパティ)を出さない(docs/ui-text-rules.md 用語対訳表)
+    if (!token) return json_({ ok: false, error: 'サーバーに合言葉が未設定です(設定手順の手順2を確認)' });
     // 画面にそのまま表示されるため、アプリ側の用語「合言葉」を使う(docs/ui-text-rules.md 用語対訳表)
     if (!req.token || req.token !== token) return json_({ ok: false, error: '認証エラー: 合言葉が一致しません(設定 → Google連携 を確認)' });
 

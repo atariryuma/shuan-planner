@@ -33,7 +33,7 @@ export function renderSettingsView(root, ctx) {
       <div class="field"><label>学年・組</label>
         <div class="inline" style="align-items:center;">
           ${selectHTML('grade', gradeOpts, s.grade, { attrs: 'data-structural="grade" style="max-width:110px;"' })}
-          <input type="text" data-set="className" value="${esc(s.className)}" placeholder="1" style="max-width:80px;">
+          <input type="text" data-set="className" value="${esc(s.className)}" placeholder="1" aria-label="組" style="max-width:80px;">
           <span class="hint" id="class-preview" style="white-space:nowrap;">→ 印刷: ${s.grade}年${esc(s.className || '')}</span>
         </div>
       </div>` : ''}
@@ -70,12 +70,12 @@ export function renderSettingsView(root, ctx) {
         <tbody id="periods-body">
           ${s.periods.map((p, i) => `
             <tr data-p="${i}">
-              <td><input type="text" name="label" value="${esc(p.label)}"></td>
-              <td>${selectHTML('type', [{ value: 'lesson', label: '授業' }, { value: 'module', label: 'モジュール' }], p.type)}</td>
-              <td><input type="time" name="start" value="${esc(p.start || '')}"></td>
-              <td><input type="time" name="end" value="${esc(p.end || '')}"></td>
-              <td><input type="number" name="minutes" value="${esc(p.minutes)}" min="5" max="120"></td>
-              <td><input type="number" name="coefficient" value="${esc(p.coefficient)}" min="0" max="2" step="0.001"></td>
+              <td><input type="text" name="label" value="${esc(p.label)}" aria-label="${esc(p.label)}校時の表示名"></td>
+              <td>${selectHTML('type', [{ value: 'lesson', label: '授業' }, { value: 'module', label: 'モジュール' }], p.type, { attrs: `aria-label="${esc(p.label)}校時の種別"` })}</td>
+              <td><input type="time" name="start" value="${esc(p.start || '')}" aria-label="${esc(p.label)}校時の開始時刻"></td>
+              <td><input type="time" name="end" value="${esc(p.end || '')}" aria-label="${esc(p.label)}校時の終了時刻"></td>
+              <td><input type="number" name="minutes" value="${esc(p.minutes)}" min="5" max="120" aria-label="${esc(p.label)}校時の分"></td>
+              <td><input type="number" name="coefficient" value="${esc(p.coefficient)}" min="0" max="2" step="0.001" aria-label="${esc(p.label)}校時の係数"></td>
               <td class="ops">
                 <button class="btn small ghost" data-pup aria-label="上へ" title="上へ">↑</button>
                 <button class="btn small ghost" data-pdown aria-label="下へ" title="下へ">↓</button>
@@ -123,10 +123,11 @@ export function renderSettingsView(root, ctx) {
             const [m, d] = (md || '7-31').split('-').map(Number);
             const months = Array.from({ length: 12 }, (_, k) => ({ value: k + 1, label: `${k + 1}月` }));
             const days = Array.from({ length: 31 }, (_, k) => ({ value: k + 1, label: `${k + 1}日` }));
+            const termName = s.termSystem === 2 ? '前期' : `${i + 1}学期`;
             return `<span style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">
-              <span class="hint">${s.termSystem === 2 ? '前期' : `${i + 1}学期`}まで</span>
-              ${selectHTML(`term-m-${i}`, months, m || 7, { attrs: `data-term-m="${i}" style="width:auto;"` })}
-              ${selectHTML(`term-d-${i}`, days, d || 31, { attrs: `data-term-d="${i}" style="width:auto;"` })}
+              <span class="hint">${termName}まで</span>
+              ${selectHTML(`term-m-${i}`, months, m || 7, { attrs: `data-term-m="${i}" aria-label="${termName}の最終月" style="width:auto;"` })}
+              ${selectHTML(`term-d-${i}`, days, d || 31, { attrs: `data-term-d="${i}" aria-label="${termName}の最終日" style="width:auto;"` })}
             </span>`;
           }).join('')}
         </div>
@@ -138,9 +139,9 @@ export function renderSettingsView(root, ctx) {
         <tbody id="breaks-body">
           ${(s.breaks || []).map((b, i) => `
             <tr data-b="${i}">
-              <td><input type="text" name="bname" value="${esc(b.name)}" placeholder="夏季休業"></td>
-              <td><input type="date" name="bfrom" value="${esc(b.from || '')}"></td>
-              <td><input type="date" name="bto" value="${esc(b.to || '')}"></td>
+              <td><input type="text" name="bname" value="${esc(b.name)}" placeholder="夏季休業" aria-label="休業${i + 1}の名前"></td>
+              <td><input type="date" name="bfrom" value="${esc(b.from || '')}" aria-label="${esc(b.name || `休業${i + 1}`)}の開始日"></td>
+              <td><input type="date" name="bto" value="${esc(b.to || '')}" aria-label="${esc(b.name || `休業${i + 1}`)}の終了日"></td>
               <td class="ops"><button class="btn small ghost danger" data-brm aria-label="削除" title="削除">×</button></td>
             </tr>`).join('')}
         </tbody>
@@ -178,12 +179,13 @@ export function renderSettingsView(root, ctx) {
               .map(p => ({ value: p.key, label: p.name }));
             return `
             <tr data-s="${i}">
-              <td><input type="text" name="name" value="${esc(x.name)}"></td>
-              <td><input type="text" name="short" value="${esc(x.short || '')}" maxlength="3"></td>
-              <td><input type="color" name="color" value="${esc(x.color)}"></td>
-              <td>${selectHTML('parent', parentOpts, x.parent || '', { allowEmpty: '—' })}</td>
+              <td><input type="text" name="name" value="${esc(x.name)}" aria-label="教科${i + 1}の教科名"></td>
+              <td><input type="text" name="short" value="${esc(x.short || '')}" maxlength="3" aria-label="${esc(x.name || `教科${i + 1}`)}の略称"></td>
+              <td><input type="color" name="color" value="${esc(x.color)}" aria-label="${esc(x.name || `教科${i + 1}`)}の色"></td>
+              <td>${selectHTML('parent', parentOpts, x.parent || '', { allowEmpty: '—', attrs: `aria-label="${esc(x.name || `教科${i + 1}`)}の合算先"` })}</td>
               <td class="ops">
                 <button class="btn small ghost" data-sup aria-label="上へ" title="上へ">↑</button>
+                <button class="btn small ghost" data-sdown aria-label="下へ" title="下へ">↓</button>
                 <button class="btn small ghost danger" data-srm aria-label="削除" title="削除">×</button>
               </td>
             </tr>`;
@@ -240,7 +242,7 @@ export function renderSettingsView(root, ctx) {
         <h3>行事の取り込み元</h3>
         <div id="gas-cal-list">
           ${(s.gas.calendarIds || []).length
-            ? (s.gas.calendarIds || []).map(id => `<span class="subj-chip" style="background:#5d8aa8; margin:2px 4px 2px 0;">${esc(s.gas.calendarNames?.[id] || id)}</span>`).join('')
+            ? (s.gas.calendarIds || []).map(id => `<span class="subj-chip" style="background:#517b98; margin:2px 4px 2px 0;">${esc(s.gas.calendarNames?.[id] || id)}</span>`).join('')
             : '<span class="hint">メインカレンダー</span>'}
         </div>
         <button class="btn small" id="gas-cal-pick" style="margin-top:6px;">カレンダーを選ぶ</button>
@@ -285,9 +287,9 @@ function modeDetailHTML(s, gradeOpts) {
     </div>
     <p class="hint">学級ごとに単元の進度を自動追跡します。</p>
     <div class="inline" style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
-      ${selectHTML('bulkGrade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), s.grade || 1, { attrs: 'style="max-width:90px;"' })}
+      ${selectHTML('bulkGrade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), s.grade || 1, { attrs: 'aria-label="一括生成する学年" style="max-width:90px;"' })}
       <span style="font-size:13px;">×</span>
-      <input type="number" id="bulk-count" value="2" min="1" max="8" style="max-width:64px; border:1px solid var(--line); border-radius:8px; padding:6px;">
+      <input type="number" id="bulk-count" value="2" min="1" max="8" aria-label="一括生成する組数" style="max-width:64px; border:1px solid var(--line); border-radius:8px; padding:6px;">
       <span style="font-size:13px;">組</span>
       <button class="btn small" id="senka-bulk">一括生成</button>
     </div>
@@ -296,8 +298,8 @@ function modeDetailHTML(s, gradeOpts) {
       <tbody id="senka-body">
         ${s.senkaClasses.map((c, i) => `
           <tr data-c="${i}">
-            <td><input type="text" name="label" value="${esc(c.label)}" placeholder="${clsPlaceholder}"></td>
-            <td>${selectHTML('grade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), c.grade)}</td>
+            <td><input type="text" name="label" value="${esc(c.label)}" placeholder="${clsPlaceholder}" aria-label="学級${i + 1}の学級名"></td>
+            <td>${selectHTML('grade', Array.from({ length: gradeMax }, (_, g) => ({ value: g + 1, label: `${g + 1}年` })), c.grade, { attrs: `aria-label="${esc(c.label || `学級${i + 1}`)}の学年"` })}</td>
             <td class="ops">
               <button class="btn small ghost" data-cup aria-label="上へ" title="上へ">↑</button>
               <button class="btn small ghost" data-cdown aria-label="下へ" title="下へ">↓</button>
@@ -344,12 +346,21 @@ function wireSettings(root, ctx) {
     if (v === s.schoolType) return;
     const ok = await confirmDialog('学校種を変更すると、教科と時程が既定値にリセットされます。よろしいですか?\n(週案・年間指導計画のデータは残りますが、教科の対応を確認してください)', { okLabel: '変更', danger: true });
     if (!ok) { ev.target.value = s.schoolType; return; }
+    store.snapshot('学校種の変更'); // カスタマイズ済みの教科・時程を破棄するためUndo可能にする
     s.schoolType = v;
     s.subjects = defaultSubjects(v);
     s.periods = defaultPeriods(v);
-    if (v === 'junior' && s.grade > 3) s.grade = 1;
+    if (s.senkaSubject && !s.subjects.some(x => x.key === s.senkaSubject)) s.senkaSubject = ''; // 教科リセットに伴う実在チェック
+    if (v === 'junior') {
+      if (s.grade > 3) s.grade = 1;
+      // 複式の学年も範囲(1〜3年)へ補正(5・6年のままだと週案・印刷の表示と設定画面が食い違う)
+      const fg = s.fukushikiGrades.map(g => Math.min(g, 3));
+      if (fg[0] >= fg[1]) { fg[1] = Math.min(3, Math.max(2, fg[1])); fg[0] = fg[1] - 1; }
+      s.fukushikiGrades = fg;
+    }
     store.commit();
     ctx.rerender();
+    toast('学校種を変更しました', 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
   });
 
   // 学年・複式学年(再描画して標準時数等を更新)。
@@ -554,7 +565,16 @@ function wireSettings(root, ctx) {
   // 学期の区切り: 月・日のセレクト(入力形式エラーを構造的になくす)
   const setTermEnd = (i) => {
     const m = Number(root.querySelector(`[data-term-m="${i}"]`)?.value) || 7;
-    const d = Number(root.querySelector(`[data-term-d="${i}"]`)?.value) || 31;
+    const dSel = root.querySelector(`[data-term-d="${i}"]`);
+    let d = Number(dSel?.value) || 31;
+    // 実在しない日付(6/31等)は月末日へ補正して保存・表示する。
+    // 不正な日付のまま保存すると、その学期と次学期の間に隙間日ができ時数集計から漏れる
+    const y = m >= 4 ? s.fiscalYear : s.fiscalYear + 1;
+    const maxD = new Date(y, m, 0).getDate();
+    if (d > maxD) {
+      d = maxD;
+      if (dSel) dSel.value = String(d);
+    }
     s.termEnds[i] = `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     store.commit();
   };
@@ -619,12 +639,15 @@ function wireSettings(root, ctx) {
       const ok = await confirmDialog(`教科「${x.name}」を削除しますか?(入力済みのコマの教科表示が消えます)`, { okLabel: '削除', danger: true });
       if (!ok) return;
       store.snapshot('教科の削除');
-      s.subjects.splice(i, 1); store.commit(); ctx.rerender();
+      s.subjects.splice(i, 1);
+      if (s.senkaSubject === x.key) s.senkaSubject = ''; // 死んだキーが新規コマに充填され時数が無言で消えるのを防ぐ
+      store.commit(); ctx.rerender();
     };
     tr.querySelector('[data-sup]').onclick = () => { if (i > 0) { swap(s.subjects, i, i - 1); store.commit(); ctx.rerender(); } };
+    tr.querySelector('[data-sdown]').onclick = () => { if (i < s.subjects.length - 1) { swap(s.subjects, i, i + 1); store.commit(); ctx.rerender(); } };
   });
   root.querySelector('#subject-add').onclick = () => {
-    s.subjects.push({ key: uid(), name: '', short: '', color: '#888888' });
+    s.subjects.push({ key: uid(), name: '', short: '', color: '#767676' }); // 白文字で4.5:1(WCAG 1.4.3)
     store.commit(); ctx.rerender();
   };
   root.querySelector('#subject-reset').onclick = async () => {
@@ -632,6 +655,7 @@ function wireSettings(root, ctx) {
     if (!ok) return;
     store.snapshot('教科のリセット');
     s.subjects = defaultSubjects(s.schoolType);
+    if (s.senkaSubject && !s.subjects.some(x => x.key === s.senkaSubject)) s.senkaSubject = ''; // 実在チェック(教科削除と同じ)
     store.commit(); ctx.rerender();
   };
 
@@ -643,20 +667,30 @@ function wireSettings(root, ctx) {
     });
   });
   root.querySelector('#gas-test').onclick = async () => {
+    if (!ctx.gas.configured) {
+      // 入力欄は同じパネルの直上にある(規約3: 結果報告のみ+フォーカス移動で誘導)
+      toast('接続先が未設定です', 'error');
+      root.querySelector('[data-gas="url"]')?.focus();
+      return;
+    }
     try {
       toast('接続テスト中…');
       await ctx.gas.ping();
       if (!s.gas.auto) {
         // 成功した流れのまま自動同期を始められるように(設定項目を探させない)
         toast('接続できました', 'info', 8000, {
-          label: '自動同期をON',
+          label: '自動同期ON',
           onClick: () => { s.gas.auto = true; store.commit(); ctx.rerender(); toast('自動同期をONにしました'); },
         });
       } else {
         toast('接続できました');
       }
     } catch (e) {
-      toast('接続失敗: ' + e.message, 'error', 6000);
+      // 復旧手順はトーストに書かず「手順を見る」で設定手順ドキュメントへ誘導(規約3)
+      toast('接続失敗: ' + e.message, 'error', 6000, {
+        label: '手順を見る',
+        onClick: () => window.open(new URL('docs/gas-setup.html', location.href.replace(/[^/]*$/, '')).href, '_blank', 'noopener'),
+      });
     }
   };
 
@@ -671,7 +705,12 @@ function wireSettings(root, ctx) {
 
   // カレンダー選択(一覧を取得してチェックボックスで選ぶ)
   root.querySelector('#gas-cal-pick').onclick = async () => {
-    if (!ctx.gas.configured) { toast('先に設定 → Google連携 で接続先URLと合言葉を入力してください', 'error', 4000); return; }
+    if (!ctx.gas.configured) {
+      // 入力欄は同じパネルの直上にある(規約3: 結果報告のみ+フォーカス移動で誘導)
+      toast('接続先が未設定です', 'error');
+      root.querySelector('[data-gas="url"]')?.focus();
+      return;
+    }
     try {
       toast('カレンダー一覧を取得中…');
       const res = await ctx.gas.calendars();
@@ -722,17 +761,17 @@ function openPatternEditor(pat, ctx, { isNew = false } = {}) {
     const enabled = ov.enabled !== false;
     return `
       <tr data-period="${esc(p.id)}">
-        <td style="text-align:center;"><input type="checkbox" name="enabled" ${enabled ? 'checked' : ''} title="この校時を行う"></td>
+        <td style="text-align:center;"><input type="checkbox" name="enabled" ${enabled ? 'checked' : ''} title="この校時を行う" aria-label="${esc(p.label)}校時を行う"></td>
         <td style="text-align:center; font-weight:600;">${esc(p.label)}</td>
-        <td><input type="time" name="start" value="${esc(ov.start ?? p.start ?? '')}"></td>
-        <td><input type="time" name="end" value="${esc(ov.end ?? p.end ?? '')}"></td>
-        <td><input type="number" name="minutes" value="${esc(ov.minutes ?? p.minutes)}" min="5" max="120"></td>
-        <td><input type="number" name="coefficient" value="${esc(ov.coefficient ?? p.coefficient)}" min="0" max="2" step="0.001"></td>
+        <td><input type="time" name="start" value="${esc(ov.start ?? p.start ?? '')}" aria-label="${esc(p.label)}校時の開始時刻"></td>
+        <td><input type="time" name="end" value="${esc(ov.end ?? p.end ?? '')}" aria-label="${esc(p.label)}校時の終了時刻"></td>
+        <td><input type="number" name="minutes" value="${esc(ov.minutes ?? p.minutes)}" min="5" max="120" aria-label="${esc(p.label)}校時の分"></td>
+        <td><input type="number" name="coefficient" value="${esc(ov.coefficient ?? p.coefficient)}" min="0" max="2" step="0.001" aria-label="${esc(p.label)}校時の係数"></td>
       </tr>`;
   }).join('');
 
   openModal(`
-    <h2>日課表パターンの編集</h2>
+    <h2>${isNew ? '日課表パターンの追加' : '日課表パターンの編集'}</h2>
     <div class="field"><label>パターン名</label>
       <input type="text" name="patname" value="${esc(pat.name)}" placeholder="例: 短縮日課 / B日課 / テスト時程"></div>
     <p class="hint">チェックを外した校時はその日課の日に表示されません。分・係数は時数集計に反映されます(40分授業でも1時数と数える運用なら係数は1のまま)。</p>
