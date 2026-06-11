@@ -7,8 +7,8 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, fmtHours, scopeKey, standardHoursFor, termRanges } from './store.js';
-import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, termRanges } from './store.js';
+import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
 import { fracLabel, guideLabel } from './views/week.js';
@@ -22,74 +22,88 @@ const FONT_PT = { small: 8, normal: 9, large: 10.5 };
  */
 export const printState = { prepared: false };
 
-/** 印刷オプションのモーダルを開く */
+/** iPad/iPhone判定(SafariはCSSの用紙向き指定が効かないため案内を出す) */
+function isIOS() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+/**
+ * 印刷オプションのモーダル。毎週変えるのは「期間」だけなので、
+ * 書式(向き・レイアウト等)は折りたたみに収める。設定への保存は書式を変更した時のみ。
+ */
 export function openPrintDialog(ctx) {
   const s = store.settings;
   openModal(`
     <h2>🖨 印刷 / PDF保存</h2>
-    <div class="print-options">
-      <div class="field"><label>様式</label>
-        <select name="kind">
-          <option value="teacher">週案(提出用)</option>
-          <option value="kids">時間割おたより(児童・配付用)</option>
-        </select></div>
-      <div class="field"><label>期間${infoHTML('「今月」以降を選ぶと入力済みの週をまとめて1つのPDF/印刷にできます(学期末の綴り用)')}</label>
-        <select name="range">
-          <option value="week">この週</option>
-          <option value="month">今月</option>
-          <option value="term">学期</option>
-          <option value="year">年度(入力済みの全週)</option>
-        </select></div>
-      <div class="field"><label>用紙の向き</label>
-        <select name="orientation">
-          <option value="landscape" ${s.printOrientation === 'landscape' ? 'selected' : ''}>A4 横(推奨)</option>
-          <option value="portrait" ${s.printOrientation === 'portrait' ? 'selected' : ''}>A4 縦</option>
-        </select></div>
-      <div class="field"><label>レイアウト</label>
-        <select name="layout">
-          <option value="periods" ${s.printLayout === 'periods' ? 'selected' : ''}>縦=校時 × 横=曜日(週案簿型)</option>
-          <option value="days" ${s.printLayout === 'days' ? 'selected' : ''}>縦=曜日 × 横=校時(Excel型)</option>
-        </select></div>
-      <div class="field"><label>文字サイズ</label>
-        <select name="fontSize">
-          <option value="small" ${s.printFontSize === 'small' ? 'selected' : ''}>小</option>
-          <option value="normal" ${s.printFontSize === 'normal' ? 'selected' : ''}>標準</option>
-          <option value="large" ${s.printFontSize === 'large' ? 'selected' : ''}>大</option>
-        </select></div>
-      <div></div>
-      <div class="checkline"><input type="checkbox" name="showTimes" id="po-times" ${s.printShowTimes ? 'checked' : ''}>
-        <label for="po-times">校時の時刻を印刷</label></div>
-      <div class="checkline"><input type="checkbox" name="showHours" id="po-hours" ${s.printShowHours ? 'checked' : ''}>
-        <label for="po-hours">週の時数集計表を印刷</label></div>
-    </div>
-    <p class="hint" style="margin-top:10px;">Chrome / Edge 推奨・倍率100%。PDF保存は印刷画面で「PDFに保存」を選びます。</p>
+    <div class="field"><label>期間${infoHTML('「今月」以降は入力済みの週をまとめて1つの印刷/PDFにします(学期末の綴り提出用)')}</label>
+      <select name="range">
+        <option value="week">この週</option>
+        <option value="month">今月</option>
+        <option value="term">学期</option>
+        <option value="year">年度(入力済みの全週)</option>
+      </select></div>
+    <details class="adv">
+      <summary class="fold-label">書式(設定と共通)</summary>
+      <div class="print-options" style="margin-top:8px;">
+        <div class="field"><label>用紙の向き</label>
+          <select name="orientation">
+            <option value="landscape" ${s.printOrientation === 'landscape' ? 'selected' : ''}>A4 横(推奨)</option>
+            <option value="portrait" ${s.printOrientation === 'portrait' ? 'selected' : ''}>A4 縦</option>
+          </select></div>
+        <div class="field"><label>レイアウト</label>
+          <select name="layout">
+            <option value="periods" ${s.printLayout === 'periods' ? 'selected' : ''}>縦=校時(週案簿型)</option>
+            <option value="days" ${s.printLayout === 'days' ? 'selected' : ''}>縦=曜日(Excel型)</option>
+          </select></div>
+        <div class="field"><label>文字サイズ</label>
+          <select name="fontSize">
+            <option value="small" ${s.printFontSize === 'small' ? 'selected' : ''}>小</option>
+            <option value="normal" ${s.printFontSize === 'normal' ? 'selected' : ''}>標準</option>
+            <option value="large" ${s.printFontSize === 'large' ? 'selected' : ''}>大</option>
+          </select></div>
+        <div></div>
+        <div class="checkline"><input type="checkbox" name="showTimes" id="po-times" ${s.printShowTimes ? 'checked' : ''}>
+          <label for="po-times">校時の時刻</label></div>
+        <div class="checkline"><input type="checkbox" name="showHours" id="po-hours" ${s.printShowHours ? 'checked' : ''}>
+          <label for="po-hours">週の時数表</label></div>
+      </div>
+    </details>
+    <p class="hint" style="margin-top:10px;">${isIOS()
+      ? 'iPadでは共有→プリントで「横向き」を選んでください(Safariは向きの自動指定が効きません)'
+      : 'Chrome / Edge 推奨・倍率100%。PDF保存は印刷画面で「PDFに保存」を選びます。'}</p>
     <div class="modal-foot">
       <button class="btn" data-cancel>キャンセル</button>
       <button class="btn primary" data-print>印刷</button>
     </div>
   `, (modal, close) => {
     modal.querySelector('[data-cancel]').onclick = close;
-    // おたよりは1週単位なので期間セレクトを無効化
-    const kindSel = modal.querySelector('[name="kind"]');
-    const rangeSel = modal.querySelector('[name="range"]');
-    kindSel.onchange = () => { rangeSel.disabled = kindSel.value === 'kids'; };
     modal.querySelector('[data-print]').onclick = () => {
-      s.printOrientation = modal.querySelector('[name="orientation"]').value;
-      s.printLayout = modal.querySelector('[name="layout"]').value;
-      s.printFontSize = modal.querySelector('[name="fontSize"]').value;
-      s.printShowTimes = modal.querySelector('[name="showTimes"]').checked;
-      s.printShowHours = modal.querySelector('[name="showHours"]').checked;
-      store.commit();
-      close();
-      if (kindSel.value === 'kids') {
-        buildKidsPrintDOM(ctx.getWeekStart());
-        printState.prepared = true;
-        requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
-      } else {
-        printWeek(ctx.getWeekStart(), rangeSel.value);
+      // 書式detailsを開いて変更した時だけ設定へ保存(黙った恒久上書きを避ける)
+      const adv = modal.querySelector('details.adv');
+      if (adv.open) {
+        s.printOrientation = modal.querySelector('[name="orientation"]').value;
+        s.printLayout = modal.querySelector('[name="layout"]').value;
+        s.printFontSize = modal.querySelector('[name="fontSize"]').value;
+        s.printShowTimes = modal.querySelector('[name="showTimes"]').checked;
+        s.printShowHours = modal.querySelector('[name="showHours"]').checked;
+        store.commit();
       }
+      close();
+      printWeek(ctx.getWeekStart(), modal.querySelector('[name="range"]').value);
     };
   });
+}
+
+/** 児童向けおたよりを印刷する(書式固定: A4横・1週。⋯メニューから呼ばれる) */
+export function printKidsLetter(weekStart) {
+  if (store.settings.mode === 'senka') {
+    toast('おたよりは学級担任・複式向けの様式です', 'error', 4500);
+    return;
+  }
+  buildKidsPrintDOM(weekStart);
+  printState.prepared = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
 }
 
 /** 期間からまとめ印刷の対象週リストを作る(入力のある週のみ。無ければ表示中の週) */
@@ -128,7 +142,7 @@ export function printWeek(weekStart, range = 'week') {
   if (result.shrunk) {
     toast('内容が多いため文字サイズを自動で縮小しました', 'info', 3500);
   } else if (result.overflow) {
-    toast('⚠ 内容が多すぎて一部が印刷されない可能性があります(文字サイズ「小」や内容の短縮をお試しください)', 'error', 6000);
+    toast('内容が多く一部が入りきらない可能性があります(文字サイズ「小」をお試しください)', 'error', 6000);
   }
   printState.prepared = true;
   // DOM反映後に印刷(Chromeはstyle注入直後でも問題ないが、念のため次フレームで)
@@ -216,7 +230,7 @@ function renderPrintPage(state, weekStart, { innerW }) {
   const header = `
     <div class="pp-header">
       <span class="pp-title">週指導計画</span>
-      <span class="pp-range">${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日</span>
+      <span class="pp-range">${fmtYear(monday.getFullYear(), s.printEra)}${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日</span>
       <span class="pp-weekno">第${weekNo}週</span>
       <div class="pp-school">
         ${esc(s.schoolName || '')} ${modeLabel}<br>
@@ -474,11 +488,24 @@ export function buildKidsPrintDOM(weekStart) {
     const cells = Array.from({ length: dayCount }, (_, d) => {
       if (!effectivePeriod(s, week, d, p)) return `<td class="kp-cell kp-off"></td>`;
       const cell = week.cells?.[cellKey(d, p.id)];
-      const entries = (cell?.entries || []).filter(e => e.subjectKey && !e.cancelled);
+      let entries = (cell?.entries || []).filter(e => e.subjectKey && !e.cancelled);
       if (!entries.length) return `<td class="kp-cell"></td>`;
+      // 複式: 両学年が同じ教科なら1段に統合。違う場合は学年ラベルを付けて区別
+      let merged = false;
+      if (s.mode === 'fukushiki' && entries.length === 2 && entries[0].subjectKey === entries[1].subjectKey) {
+        entries = [entries[0]];
+        merged = true;
+      }
+      // 備考(教師用メモ)は配付物に出さない(配慮事項等の流出防止)
       const inner = entries.map(e => {
         const subj = s.subjects.find(x => x.key === e.subjectKey);
-        return `<div class="kp-subj">${esc(subj?.name || '')}</div>${e.note ? `<div class="kp-note">${esc(e.note)}</div>` : ''}`;
+        // 児童向けは読みやすい短い名前(正式名称はおたよりには硬すぎる)
+        const kidsName = (subj?.name || '')
+          .replace('特別の教科 ', '')
+          .replace('総合的な学習の時間', '総合');
+        const gradeLabel = s.mode === 'fukushiki' && !merged && typeof e.scope === 'number'
+          ? `<div class="kp-grade">${e.scope}年</div>` : '';
+        return `${gradeLabel}<div class="kp-subj">${esc(kidsName)}</div>`;
       }).join('<div class="kp-sep"></div>');
       return `<td class="kp-cell">${inner}</td>`;
     }).join('');
@@ -516,6 +543,10 @@ export function buildStatsPrintDOM(weekStart) {
   const s = state.settings;
   const hours = computeHours(state, weekStart);
   const monthly = computeMonthlyHours(state, weekStart);
+  // 実施は表示中の週ではなく今日現在で数える(過去週からの印刷でも報告値が欠けない)
+  const doneRef = doneRefWeek(weekStart);
+  const hoursDone = computeHours(state, doneRef);
+  const monthlyDone = computeMonthlyHours(state, doneRef);
   const weekNo = weekNumberInFiscalYear(parseDate(weekStart));
   const MONTHS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
 
@@ -548,34 +579,46 @@ export function buildStatsPrintDOM(weekStart) {
       for (const ck of childrenOf[subjKey] || []) v += map.get(scopeKey(ck, sc.scope)) || 0;
       return v;
     };
+    // 計画(入力済み)と実施(今日以前)を行で分けて出す — 実施時数の報告にそのまま使えるように
     const rows = [];
     for (const subj of s.subjects) {
       if (subj.parent && keys.has(subj.parent)) continue;
-      let tt = 0;
+      let tt = 0, dd = 0;
       for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
         const v = hours.get(scopeKey(k, sc.scope));
         if (v) tt += v.total;
+        dd += hoursDone.get(scopeKey(k, sc.scope))?.done || 0;
       }
-      if (!tt) continue;
+      if (!tt && !dd) continue;
       const std = standardHoursFor(s, subj.key, sc.grade);
-      const monthCells = MONTHS.map(m => {
+      const planCells = MONTHS.map(m => {
         const v = get(monthly.months.get(m), subj.key);
         return `<td>${v ? fmtHours(v) : ''}</td>`;
       }).join('');
+      const doneCells = MONTHS.map(m => {
+        const v = get(monthlyDone.monthsDone.get(m), subj.key);
+        return `<td>${v ? fmtHours(v) : ''}</td>`;
+      }).join('');
       rows.push(`<tr>
-        <td style="text-align:left; font-weight:600;">${esc(subj.name)}</td>
-        ${monthCells}
+        <td rowspan="2" style="text-align:left; font-weight:600;">${esc(subj.name)}</td>
+        <td class="ps-kind">計画</td>
+        ${planCells}
         <td><b>${fmtHours(tt)}</b></td>
-        <td>${std ?? ''}</td>
-        <td>${std != null ? fmtHours(std - tt) : ''}</td>
+        <td rowspan="2">${std ?? ''}</td>
+        <td rowspan="2">${std != null ? fmtHours(std - tt) : ''}</td>
+      </tr>
+      <tr>
+        <td class="ps-kind">実施</td>
+        ${doneCells}
+        <td><b>${fmtHours(dd)}</b></td>
       </tr>`);
     }
     if (!rows.length) return '';
     return `
       ${sc.label ? `<h3 class="ps-h3">${esc(sc.label)}</h3>` : ''}
       <table class="ps-table">
-        <thead><tr><th style="width:24mm;">教科</th>${MONTHS.map(m => `<th>${m}月</th>`).join('')}
-          <th>累計</th><th>標準</th><th>残り</th></tr></thead>
+        <thead><tr><th style="width:22mm;">教科</th><th style="width:8mm;">区分</th>${MONTHS.map(m => `<th>${m}月</th>`).join('')}
+          <th>計</th><th>標準</th><th>残り</th></tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>`;
   }).filter(Boolean).join('');
@@ -585,7 +628,8 @@ export function buildStatsPrintDOM(weekStart) {
     <div class="print-page">
       <div class="pp-header" style="margin-bottom:4mm;">
         <span class="pp-title">授業時数集計</span>
-        <span class="pp-range">${s.fiscalYear}年度 第${weekNo}週(${fmtMD(parseDate(weekStart))})まで</span>
+        <span class="pp-range">${fmtFiscalYear(s.fiscalYear, s.printEra)} 第${weekNo}週(${fmtMD(parseDate(weekStart))})まで
+          <span style="font-size:8pt;">/ 実施は${fmtMD(new Date())}現在</span></span>
         <div class="pp-school">${esc(s.schoolName || '')} ${esc(s.teacherName || '')}</div>
       </div>
       ${sections || '<p>データがありません</p>'}

@@ -4,7 +4,7 @@
  * 週案のドメイン知識(教科・進度・時数)はすべてフロントに置く。
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, scopeKey, fmtHours, standardHoursFor } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, scopeKey, fmtHours, standardHoursFor } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { subjectOf, fracLabel } from './views/week.js';
@@ -131,27 +131,46 @@ export function buildWeekEmail(weekStart) {
   // 受け取る側(管理職)が確認しやすいサマリー: 入力済み/空白コマと週時数
   const summary = `入力済み${filled}コマ` + (blanks.length ? ` / 空白${blanks.length}コマ(${blanks.slice(0, 8).join('・')}${blanks.length > 8 ? '…' : ''})` : ' / 空白なし');
 
-  // 週・累計の時数ミニ表(印刷フッターと同じ情報)
+  // 週・累計の時数ミニ表(印刷フッターと同じ情報)。複式は学年别に行を分ける(合算は提出書類として誤り)
   const hours = computeHours(state, weekStart);
-  const hourItems = [];
-  for (const subj of s.subjects) {
-    if (subj.parent) continue;
-    let wk = 0, tt = 0;
-    const scopes = s.mode === 'senka' ? [...s.senkaClasses.map(c => c.id), null]
-      : s.mode === 'fukushiki' ? s.fukushikiGrades : [null];
-    for (const k of [subj.key, ...s.subjects.filter(x => x.parent === subj.key).map(x => x.key)]) {
-      for (const sc of scopes) {
-        const v = hours.get(scopeKey(k, sc));
-        if (v) { wk += v.week; tt += v.total; }
+  const hourScopeGroups = s.mode === 'fukushiki'
+    ? s.fukushikiGrades.map(g => ({ label: `${g}年`, scopes: [g] }))
+    : [{ label: '', scopes: s.mode === 'senka' ? [...s.senkaClasses.map(c => c.id), null] : [null] }];
+
+  const hoursRowsHTML = [];
+  let hourNames = null;
+  for (const grp of hourScopeGroups) {
+    const items = [];
+    for (const subj of s.subjects) {
+      if (subj.parent) continue;
+      let wk = 0, tt = 0;
+      for (const k of [subj.key, ...s.subjects.filter(x => x.parent === subj.key).map(x => x.key)]) {
+        for (const sc of grp.scopes) {
+          const v = hours.get(scopeKey(k, sc));
+          if (v) { wk += v.week; tt += v.total; }
+        }
       }
+      if (wk > 0 || tt > 0) items.push({ name: subj.short || subj.name, wk, tt });
     }
-    if (wk > 0 || tt > 0) hourItems.push({ name: subj.short || subj.name, wk, tt });
+    if (!items.length) continue;
+    if (!hourNames) {
+      hourNames = items.map(i => i.name);
+    } else {
+      for (const i of items) if (!hourNames.includes(i.name)) hourNames.push(i.name);
+    }
+    const find = (n) => items.find(i => i.name === n);
+    hoursRowsHTML.push({
+      grp,
+      week: (names) => names.map(n => `<td style="${td} text-align:center;">${find(n) ? fmtHours(find(n).wk) : ''}</td>`).join(''),
+      total: (names) => names.map(n => `<td style="${td} text-align:center;">${find(n) ? fmtHours(find(n).tt) : ''}</td>`).join(''),
+    });
   }
-  const hoursTable = hourItems.length ? `
+  const hoursTable = hoursRowsHTML.length ? `
     <table cellspacing="0" cellpadding="0" style="border-collapse:collapse; margin-top:10px;">
-      <tr><th style="${th}"></th>${hourItems.map(i => `<th style="${th}">${esc(i.name)}</th>`).join('')}</tr>
-      <tr><th style="${th}">週</th>${hourItems.map(i => `<td style="${td} text-align:center;">${fmtHours(i.wk)}</td>`).join('')}</tr>
-      <tr><th style="${th}">計</th>${hourItems.map(i => `<td style="${td} text-align:center;">${fmtHours(i.tt)}</td>`).join('')}</tr>
+      <tr><th style="${th}"></th>${hourNames.map(n => `<th style="${th}">${esc(n)}</th>`).join('')}</tr>
+      ${hoursRowsHTML.map(r => `
+      <tr><th style="${th}">${esc(r.grp.label)}週</th>${r.week(hourNames)}</tr>
+      <tr><th style="${th}">${esc(r.grp.label)}計</th>${r.total(hourNames)}</tr>`).join('')}
     </table>` : '';
 
   const title = `週指導計画 ${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日(第${weekNo}週)`;
@@ -224,17 +243,19 @@ export function buildWeekSheet(weekStart) {
 
   const lastDay = addDays(monday, dayCount - 1);
   return {
-    sheetName: `週案 ${monday.getMonth() + 1}.${monday.getDate()}週`,
+    sheetName: `週案 ${monday.getMonth() + 1}月${monday.getDate()}日週`, // シート名に「/」は使えないため月日表記
     title: `週指導計画 ${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日(第${weekNo}週) ${s.schoolName || ''} ${s.teacherName || ''}`,
     header, rows, footer,
   };
 }
 
-/** 時数レポート(教科×月+学期+年度計+標準との差) */
+/** 時数レポート(教科×月+学期+年度計+標準との差)。計画/実施の2行で出す */
 export function buildHoursReport(weekStart) {
   const state = store.state;
   const s = state.settings;
   const monthly = computeMonthlyHours(state, weekStart);
+  // 実施は表示中の週ではなく今日現在で数える(報告値が欠けない)
+  const monthlyDone = computeMonthlyHours(state, doneRefWeek(weekStart));
 
   // 親教科に合算(画面の集計と同じ規則)
   const keys = new Set(s.subjects.map(x => x.key));
@@ -267,14 +288,31 @@ export function buildHoursReport(weekStart) {
         return v ? fmtHours(v) : '';
       });
       const total = monthly.terms.reduce((a, t) => a + get(t.hours, subj.key), 0);
-      if (!total) continue;
+      const monthsDone = MONTH_ORDER.map(m => {
+        const v = get(monthlyDone.monthsDone.get(m), subj.key);
+        return v ? fmtHours(v) : '';
+      });
+      const termsDone = monthlyDone.termsDone.map(t => {
+        const v = get(t.hours, subj.key);
+        return v ? fmtHours(v) : '';
+      });
+      const totalDone = monthlyDone.termsDone.reduce((a, t) => a + get(t.hours, subj.key), 0);
+      if (!total && !totalDone) continue;
       const std = standardHoursFor(s, subj.key, sc.grade);
+      const name = (sc.label ? `${sc.label} ` : '') + subj.name;
       rows.push({
-        subject: (sc.label ? `${sc.label} ` : '') + subj.name,
+        subject: `${name}(計画)`,
         months, terms,
         total: fmtHours(total),
         standard: std != null ? String(std) : '',
         remain: std != null ? fmtHours(std - total) : '',
+      });
+      rows.push({
+        subject: `${name}(実施)`,
+        months: monthsDone, terms: termsDone,
+        total: fmtHours(totalDone),
+        standard: std != null ? String(std) : '',
+        remain: std != null ? fmtHours(std - totalDone) : '',
       });
     }
   }

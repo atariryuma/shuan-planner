@@ -37,7 +37,7 @@ export function renderOnboarding(root, ctx) {
       </div>
 
       <button class="btn primary ob-start" id="ob-start">はじめる</button>
-      <button class="btn ghost ob-skip" id="ob-skip">あとで設定する</button>
+      <button class="btn ghost ob-skip" id="ob-skip">あとで</button>
     </div>
   </div>`;
 

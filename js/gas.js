@@ -17,16 +17,23 @@ export class GasClient {
 
   async call(payload) {
     const { url, token } = this.getConfig();
-    if (!url || !token) throw new Error('設定画面でGASのURLと同期トークンを入力してください');
+    if (!url || !token) throw new Error('設定 → Google連携 で接続先URLと合言葉を入力してください');
     if (!/\/exec\s*$/.test(url.trim())) {
       console.warn('GAS URLが /exec で終わっていません。デプロイURLを確認してください。');
     }
-    const res = await fetch(url.trim(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // プリフライト回避
-      redirect: 'follow',
-      body: JSON.stringify({ token, ...payload }),
-    });
+    if (!navigator.onLine) throw new Error('オフラインです。接続後にもう一度お試しください');
+    let res;
+    try {
+      res = await fetch(url.trim(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // プリフライト回避
+        redirect: 'follow',
+        body: JSON.stringify({ token, ...payload }),
+      });
+    } catch {
+      // fetchのTypeErrorは英語のままユーザーに見えるため日本語に変換する
+      throw new Error('サーバーに接続できません(ネットワークか接続先URLを確認してください)');
+    }
     if (!res.ok) throw new Error(`通信エラー (HTTP ${res.status})`);
     // GASはエラー時もHTTP 200で返す。認可エラー等ではJSONでなくHTMLのログインページが
     // 返ることがあるため、先頭文字で防御的に判定する。

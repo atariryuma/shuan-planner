@@ -62,6 +62,26 @@ export function fmtJP(date) {
   return `${date.getMonth() + 1}月${date.getDate()}日(${DAY_NAMES[(date.getDay() + 6) % 7]})`;
 }
 
+/** 6/11 14:32 形式(規約の日付形式。秒・年は出さない) */
+export function fmtMDHM(ts) {
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** 年の表記(西暦/令和)。useEra=trueなら「令和8年」 */
+export function fmtYear(year, useEra) {
+  if (!useEra) return `${year}年`;
+  const r = year - 2018;
+  return r === 1 ? '令和元年' : `令和${r}年`;
+}
+
+/** 年度の表記(西暦/令和) */
+export function fmtFiscalYear(fiscalYear, useEra) {
+  if (!useEra) return `${fiscalYear}年度`;
+  const r = fiscalYear - 2018;
+  return r === 1 ? '令和元年度' : `令和${r}年度`;
+}
+
 /** 簡易UUID */
 export function uid() {
   return 'id-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);

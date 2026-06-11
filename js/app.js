@@ -1,6 +1,6 @@
 /** アプリ本体: タブ切替・週ナビ状態・自動保存表示・印刷起動・PWA登録 */
 
-import { store } from './store.js';
+import { store, termRanges } from './store.js';
 import { GasClient } from './gas.js';
 import { renderWeekView } from './views/week.js';
 import { renderPlansView } from './views/plans.js';
@@ -9,8 +9,8 @@ import { renderSettingsView } from './views/settings.js';
 import { renderDataView } from './views/data.js';
 import { renderOnboarding, needsOnboarding, maybeYearRollover } from './views/onboarding.js';
 import { openPrintDialog, buildPrintDOM, buildStatsPrintDOM, printState } from './print.js';
-import { fmtDate, mondayOf, parseDate, fiscalYearOf } from './utils.js';
-import { toast, closeAllModals, wireInfoPopovers } from './ui.js';
+import { fmtDate, mondayOf, parseDate, addDays, fiscalYearOf } from './utils.js';
+import { toast, closeAllModals, wireInfoPopovers, openModal } from './ui.js';
 
 const VIEWS = {
   week: renderWeekView,
@@ -75,11 +75,21 @@ document.addEventListener('keydown', (ev) => {
 // ---------------------------------------------------------------- 印刷
 
 // 分割ボタン: 主ボタン=前回設定で即印刷 / ⚙=オプション
+// 時数集計タブでは集計表を印刷する(見ているものが印刷される、を裏切らない)
 document.getElementById('btn-print').addEventListener('click', async () => {
+  if (ctx.currentTab === 'stats') {
+    buildStatsPrintDOM(ctx.weekStart);
+    printState.prepared = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+    return;
+  }
   const { printWeek } = await import('./print.js');
   printWeek(ctx.weekStart);
 });
-document.getElementById('btn-print-opts').addEventListener('click', () => openPrintDialog(ctx));
+document.getElementById('btn-print-opts').addEventListener('click', () => {
+  if (ctx.currentTab === 'stats') { toast('集計表はこのまま印刷できます(書式設定は週案用)'); return; }
+  openPrintDialog(ctx);
+});
 
 // Ctrl+P 直接印刷にも対応: 表示中のタブに応じた印刷DOMを組み立てる。
 // アプリ内ボタン経由(おたより・複数週など)は組み立て済みのため上書きしない。
@@ -165,7 +175,52 @@ try {
   localStorage.setItem('shuan-probe', '1');
   localStorage.removeItem('shuan-probe');
 } catch {
-  setTimeout(() => toast('⚠ このブラウザ環境ではデータを保存できません(プライベートモード?)。通常のウィンドウでご利用ください。', 'error', 8000), 500);
+  setTimeout(() => toast('このブラウザでは保存できません(プライベートモード?)。通常のウィンドウでご利用ください', 'error', 8000), 500);
+}
+
+/** 現在のデータをJSONファイルに書き出す(保存エラー時の救出用) */
+function downloadStateJSON() {
+  const blob = new Blob([JSON.stringify(store.state, null, 1)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `週案バックアップ_${fmtDate(new Date())}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// 保存失敗(容量不足など)はトーストで知らせ、その場でファイルに退避できるようにする
+document.addEventListener('shuan-save-error', () => {
+  toast('保存できません(容量不足の可能性)', 'error', 8000, { label: '書き出し', onClick: downloadStateJSON });
+});
+
+// 起動時にデータが壊れていた場合: 退避データの保存手段を出してから続行してもらう
+if (store.loadError) {
+  setTimeout(() => {
+    openModal(`
+      <h2>データを読み込めませんでした</h2>
+      <p>保存データが壊れている可能性があります。壊れたデータのコピーは自動で退避済みです。<br>
+        念のためファイルにも保存してから続行してください。</p>
+      <div class="modal-foot">
+        <button class="btn" data-dump>退避データを保存</button>
+        <button class="btn primary" data-go>新しいデータで続行</button>
+      </div>
+    `, (modal, close) => {
+      modal.querySelector('[data-dump]').onclick = () => {
+        const keys = store.brokenBackups();
+        const raw = keys.length ? localStorage.getItem(keys[0]) : JSON.stringify(store.state);
+        const blob = new Blob([raw || '{}'], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `週案退避データ_${fmtDate(new Date())}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        toast('退避データを保存しました');
+      };
+      modal.querySelector('[data-go]').onclick = close;
+    });
+  }, 300);
 }
 
 // ---------------------------------------------------------------- PWA
@@ -267,10 +322,31 @@ window.addEventListener('online', () => {
   if (store.settings.gas.auto && ctx.gas.configured) autoPush();
 });
 
+// 学期末の週に一度だけ「学期分まとめて印刷」を知らせる(提出時期の機能発見を助ける)
+function maybeTermPrintHint() {
+  if (needsOnboarding()) return;
+  try {
+    const s = store.settings;
+    const monday = parseDate(ctx.weekStart);
+    const terms = termRanges(s, s.fiscalYear);
+    for (let i = 0; i < terms.length; i++) {
+      const end = parseDate(terms[i].to);
+      if (end >= monday && end < addDays(monday, 7)) {
+        const key = `shuan-term-print-hint-${s.fiscalYear}-${i}`;
+        if (localStorage.getItem(key)) return;
+        localStorage.setItem(key, '1');
+        toast('学期分をまとめて印刷できます', 'info', 6000, { label: '印刷設定', onClick: () => openPrintDialog(ctx) });
+        return;
+      }
+    }
+  } catch { /* ヒントは出なくても支障なし */ }
+}
+
 // 起動直後: 他端末の変更を取得 → その後に年度更新ウィザード(必要時)
 setTimeout(async () => {
   await autoPull();
   if (nowFY > bootOldFY && !needsOnboarding()) maybeYearRollover(ctx, bootOldFY, nowFY);
+  maybeTermPrintHint();
 }, 800);
 
 // ---------------------------------------------------------------- 初期描画

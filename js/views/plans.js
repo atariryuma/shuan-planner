@@ -2,7 +2,7 @@
 
 import { store } from '../store.js';
 import { parseTable, tableToUnits, unitsToCSV } from '../csv.js';
-import { openModal, toast, confirmDialog, selectHTML } from '../ui.js';
+import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid } from '../utils.js';
 
 export function renderPlansView(root, ctx) {
@@ -103,7 +103,7 @@ function openPlanEditor(plan, ctx, presetUnits = null) {
       <div class="field"><label>教科書・出典(任意)</label>
         <input type="text" name="textbook" value="${esc(plan.textbook || '')}" placeholder="例: 東京書籍">
       </div>
-      <div class="field"><label>既習コマ数 <span title="年度途中から使い始める場合、すでに授業済みのコマ数">ⓘ</span></label>
+      <div class="field"><label>既習コマ数${infoHTML('年度途中から使い始める場合、すでに授業済みのコマ数。進度の数え始めがその分ずれます')}</label>
         <input type="number" name="startOffset" value="${esc(plan.startOffset || 0)}" min="0">
       </div>
     </div>

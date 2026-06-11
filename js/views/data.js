@@ -2,7 +2,7 @@
 
 import { store } from '../store.js';
 import { toast, confirmDialog, openModal, openResultLink } from '../ui.js';
-import { esc, fmtDate } from '../utils.js';
+import { esc, fmtDate, fmtMDHM } from '../utils.js';
 
 export function renderDataView(root, ctx) {
   const state = store.state;
@@ -20,9 +20,9 @@ export function renderDataView(root, ctx) {
           長期休業の前にはエクスポートを。
         </p>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn primary" id="data-export">⬇ エクスポート</button>
+          <button class="btn primary" id="data-export">エクスポート</button>
           <label class="btn" style="display:inline-block; cursor:pointer;">
-            ⬆ インポート<input type="file" id="data-import" accept=".json" style="display:none;">
+            インポート<input type="file" id="data-import" accept=".json" style="display:none;">
           </label>
         </div>
       </div>
@@ -30,12 +30,12 @@ export function renderDataView(root, ctx) {
       ${ctx.gas.configured ? `
       <div class="panel">
         <h2>Google連携</h2>
-        <p class="hint">${lastSync ? `最終保存: ${new Date(lastSync).toLocaleString('ja-JP')}` : 'まだ保存していません'}</p>
+        <p class="hint">${lastSync ? `最終保存: ${fmtMDHM(lastSync)}` : 'まだ保存していません'}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn primary" id="gas-push">⬆ Googleへ保存</button>
-          <button class="btn" id="gas-pull">⬇ Googleから取得</button>
-          <button class="btn" id="gas-drive">🗂 ドライブへバックアップ</button>
-          <button class="btn" id="gas-report">📈 時数レポート出力</button>
+          <button class="btn primary" id="gas-push">Googleへ保存</button>
+          <button class="btn" id="gas-pull">Googleから取得</button>
+          <button class="btn" id="gas-drive">ドライブへバックアップ</button>
+          <button class="btn" id="gas-report">時数レポート出力</button>
         </div>
       </div>` : ''}
 
@@ -69,8 +69,9 @@ export function renderDataView(root, ctx) {
         `このファイルには ${wc}週分の週案 と ${pc}件の年間指導計画 が含まれています。\n\n現在のデータ(${Object.keys(store.state.weeks).length}週分)をすべて置き換えます。よろしいですか?`,
         { okLabel: '置き換えて復元', danger: true });
       if (!ok) return;
+      store.snapshot('インポート');
       store.importJSON(text);
-      toast('復元しました');
+      toast('復元しました', 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     } catch (e) {
       toast('インポート失敗: ' + e.message, 'error', 5000);
@@ -86,7 +87,7 @@ export function renderDataView(root, ctx) {
       let res = await ctx.gas.push(store.state);
       if (res.conflict) {
         const ok = await confirmDialog(
-          `サーバーには別の端末から保存された新しいデータがあります。\nサーバー: ${new Date(res.serverUpdatedAt).toLocaleString('ja-JP')}\n\nこの端末の内容で上書きしますか?`,
+          `Googleには別の端末から保存された新しいデータがあります。\nGoogle側の保存: ${fmtMDHM(res.serverUpdatedAt)}\n\nこの端末の内容で上書きしますか?`,
           { okLabel: '上書き送信', danger: true });
         if (!ok) return;
         res = await ctx.gas.push(store.state, { force: true });
@@ -97,13 +98,13 @@ export function renderDataView(root, ctx) {
       store.settings.gas.lastSync = Date.now();
       store.persist();
       store.notify();
-      toast('✅ サーバーへ保存しました');
+      toast('Googleへ保存しました');
       ctx.rerender();
-      // 任意: Driveへの自動バックアップ(失敗しても同期自体は成功扱い)
+      // 任意: ドライブへの自動バックアップ(失敗しても同期自体は成功扱い)
       if (store.settings.gas.autoBackup) {
         ctx.gas.driveBackup(store.state)
-          .then(r => toast(`🗂 Driveにもバックアップしました(${r.file})`, 'info', 3500))
-          .catch(e => toast('Driveバックアップ失敗: ' + e.message, 'error', 5000));
+          .then(r => toast(`ドライブにもバックアップしました(${r.file})`, 'info', 3500))
+          .catch(e => toast('ドライブバックアップ失敗: ' + e.message, 'error', 5000));
       }
     } catch (e) {
       toast('送信失敗: ' + e.message, 'error', 6000);
@@ -113,9 +114,9 @@ export function renderDataView(root, ctx) {
   const gasDrive = root.querySelector('#gas-drive');
   if (gasDrive) gasDrive.onclick = async () => {
     try {
-      toast('Driveへバックアップ中…');
+      toast('ドライブへバックアップ中…');
       const res = await ctx.gas.driveBackup(store.state);
-      toast(`✅ 保存しました: ${res.file}(${res.kept}世代保持)`, 'info', 4000);
+      toast(`保存しました: ${res.file}(${res.kept}世代保持)`, 'info', 4000);
     } catch (e) {
       toast('バックアップ失敗: ' + e.message, 'error', 6000);
     }
@@ -129,7 +130,7 @@ export function renderDataView(root, ctx) {
       const report = buildHoursReport(ctx.getWeekStart());
       if (!report.rows.length) { toast('まだ集計できる授業がありません', 'error'); return; }
       const res = await ctx.gas.sheetReport(report);
-      toast('✅ 書き出しました', 'info', 3000);
+      toast('書き出しました', 'info', 3000);
       openResultLink(res.url, '時数レポートを開く');
     } catch (e) {
       toast('出力失敗: ' + e.message, 'error', 6000);
@@ -141,20 +142,20 @@ export function renderDataView(root, ctx) {
     try {
       toast('取得中…(数秒かかります)');
       const res = await ctx.gas.pull();
-      if (!res.exists) { toast('サーバーにはまだデータがありません'); return; }
+      if (!res.exists) { toast('Googleにはまだデータがありません'); return; }
       const wc = Object.keys(res.data.weeks || {}).length;
       const newer = (res.updatedAt || 0) >= (store.state.updatedAt || 0);
       const ok = await confirmDialog(
-        `サーバーのデータ: ${wc}週分(保存: ${new Date(res.updatedAt).toLocaleString('ja-JP')})\n` +
-        (newer ? '' : '⚠ この端末のデータの方が新しいようです。\n') +
-        '\nこの端末のデータをサーバーの内容で置き換えますか?',
-        { okLabel: '置き換える', danger: !newer });
+        `Googleのデータ: ${wc}週分(保存: ${fmtMDHM(res.updatedAt)})\n` +
+        (newer ? '' : 'この端末のデータの方が新しいようです。\n') +
+        '\nこの端末のデータをGoogleの内容で置き換えますか?',
+        { okLabel: '置き換え', danger: !newer });
       if (!ok) return;
       store.replaceState(res.data); // GAS設定はローカルを維持、updatedAtはサーバー値を尊重
       if (res.updatedAt) store.state.updatedAt = res.updatedAt;
       store.settings.gas.lastSync = Date.now();
       store.persist();
-      toast('✅ サーバーから復元しました');
+      toast('Googleから復元しました');
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 6000);

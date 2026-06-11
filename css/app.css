@@ -195,9 +195,15 @@ td.cell:hover .cell-clear { display: block; }
 .modal {
   background: var(--panel); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
   width: 560px; max-width: 100%; padding: 18px 20px 16px; margin-bottom: 40px;
+  max-height: 90dvh; overflow-y: auto; /* 長いモーダルでも内部スクロールでフッターに届く */
 }
 .modal h2 { margin: 0 0 14px; font-size: 16px; }
-.modal .modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.modal .modal-foot {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+  position: sticky; bottom: -16px; background: var(--panel);
+  padding: 10px 0 16px; margin-bottom: -16px;
+  box-shadow: 0 -8px 8px -8px rgba(0,0,0,.18);
+}
 .modal .modal-foot .left { margin-right: auto; }
 
 .field { margin-bottom: 12px; }
@@ -465,15 +471,54 @@ html.ui-large body { zoom: 1.12; }
 
 /* ---------- タッチ環境対応 ---------- */
 @media (hover: none) {
-  td.cell .cell-clear { display: block; } /* ホバーが無い環境では×を常時表示 */
+  /* ホバーが無い環境では×を常時表示。教科チップと重ならないよう右下に置く */
+  td.cell .cell-clear { display: block; top: auto; bottom: 2px; right: 2px; }
 }
 @media (pointer: coarse) {
   .event-input, .field textarea, .field input[type="text"], .field input[type="number"],
-  .units-table input, .units-table textarea, .edit-table input { font-size: 16px; } /* iOSのズーム暴発防止 */
+  .units-table input, .units-table textarea, .edit-table input,
+  .week-notes textarea, .field select, .ob-row select, .stats-table input,
+  .modal select, .modal input[type="text"], .modal input[type="number"] { font-size: 16px; } /* iOSのズーム暴発防止 */
   .btn.small { padding: 8px 12px; }
   .subject-palette button, .paint-chip, .scope-palette button, .guide-btn { padding: 8px 12px; min-height: 40px; }
   .cell-clear { padding: 8px 10px; font-size: 14px; }
+  button.info { padding: 10px; font-size: 15px; } /* 44px相当のタップ目標 */
+  .tabs .tab { min-height: 44px; }
+  .week-nav .btn { min-height: 44px; }
 }
+
+/* ---------- v2.2 ---------- */
+
+/* 週グリッドの最小幅(スマホでセルが潰れない)+ 左列固定 */
+table.week-grid { min-width: 622px; }
+table.week-grid:has(thead tr:first-child th:nth-child(7)) { min-width: 732px; } /* 土曜あり(6日) */
+.week-grid .period-head, .week-grid th.corner {
+  position: sticky; left: 0; z-index: 5;
+  box-shadow: 1px 0 0 var(--line); /* sticky中もborder相当の線を保つ */
+}
+
+/* 横スクロールが必要な表の包み */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ⋯メニューの区切り線(グループ: この週/出力/危険) */
+details.menu .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+
+/* 設定ページの項目ナビ */
+.settings-nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.set-chip {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
+  padding: 5px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit; color: var(--ink);
+}
+.set-chip:hover { border-color: var(--accent); color: var(--accent); }
+.settings-grid .panel { scroll-margin-top: 64px; } /* ジャンプ先が固定ヘッダーに隠れない */
+
+/* ガイドカードの完了ステップ */
+.oc-step.done { opacity: .6; }
+.oc-step.done .oc-num { background: #16a34a; }
+
+/* 曜日ヘッダーの一括操作アフォーダンス */
+.day-caret { font-size: 9px; color: #94a3b8; margin-left: 3px; vertical-align: 1px; }
+.day-th:hover .day-caret { color: var(--accent); }
 
 /* ---------- 画面/印刷の切り替え ---------- */
 @media print {

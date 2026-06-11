@@ -29,14 +29,14 @@ export function renderWeekView(root, ctx) {
     dayHeads.push(`
       <th class="day-th" data-day="${d}" title="クリックで一括操作">
         <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk ? 'in-break' : ''}">
-          <span class="dow">${DAY_NAMES[d]}</span>
+          <span class="dow">${DAY_NAMES[d]}<span class="day-caret">▾</span></span>
           <span class="date">${fmtMD(date)}</span>
           ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : ''}
         </div>
       </th>`);
   }
   const breakBanner = breakDays === dayCount
-    ? `<div class="mode-banner" style="background:#f0f9ff; border-color:#7dd3fc; color:#075985;">🏖 ${esc(breakLabel)}の週です</div>` : '';
+    ? `<div class="mode-banner" style="background:#f0f9ff; border-color:#7dd3fc; color:#075985;">${esc(breakLabel)}の週です</div>` : '';
   const todayIdx = (() => {
     for (let d = 0; d < dayCount; d++) if (fmtDate(addDays(monday, d)) === todayStr) return d;
     return -1;
@@ -112,7 +112,7 @@ export function renderWeekView(root, ctx) {
     let scopeChips = '';
     if (s.mode === 'senka' && s.senkaClasses.length) {
       scopeChips = `<span class="paint-sep"></span>` + s.senkaClasses.map(c =>
-        `<button class="paint-scope ${paint.scope === c.id ? 'selected' : ''}" data-paint-scope="${esc(c.id)}">${esc(c.label || '?')}</button>`).join('');
+        `<button class="paint-scope ${paint.scope === c.id ? 'selected' : ''}" data-paint-scope="${esc(c.id)}">${esc(c.label || '学級未設定')}</button>`).join('');
     }
     paintBar = `
       <div class="paint-bar">
@@ -122,12 +122,13 @@ export function renderWeekView(root, ctx) {
       </div>`;
   }
 
-  // 初回ガイドカード(コマ未入力かつ未消去のとき)
+  // 初回ガイドカード(基本時間割の登録まで案内する。✓で進捗が見える)
   const totalEntries = Object.values(week.cells || {}).reduce((a, c) => a + (c.entries?.length || 0), 0);
-  const onboardCard = (totalEntries === 0 && !localStorage.getItem('shuan-card-done')) ? `
+  const step1done = totalEntries > 0;
+  const onboardCard = (!store.hasBaseTimetable && !localStorage.getItem('shuan-card-done')) ? `
     <div class="onboard-card" id="onboard-card">
       <button class="oc-close" id="oc-close" aria-label="閉じる">×</button>
-      <div class="oc-step"><span class="oc-num">1</span>コマをクリックして教科を選ぶ</div>
+      <div class="oc-step ${step1done ? 'done' : ''}"><span class="oc-num">${step1done ? '✓' : '1'}</span>コマをクリックして教科を選ぶ</div>
       <div class="oc-step"><span class="oc-num">2</span>1週間できたら <button class="btn small" id="oc-base">基本時間割に登録</button></div>
       <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-print">🖨 印刷</button> して提出</div>
     </div>` : '';
@@ -151,13 +152,15 @@ export function renderWeekView(root, ctx) {
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
           <button class="btn ghost" id="wk-save-base">基本時間割に登録</button>
-          <button class="btn ghost" id="wk-import-events">📥 年間行事を取り込み</button>
-          <button class="btn ghost" id="wk-review">📜 振り返り一覧</button>
+          <button class="btn ghost" id="wk-import-events">年間行事の取り込み</button>
+          <div class="menu-sep" role="separator"></div>
+          ${s.mode !== 'senka' ? `<button class="btn ghost" id="wk-kids-print">おたより印刷${infoHTML('児童・保護者向けの来週の時間割。大きな字で印刷します')}</button>` : ''}
           ${gas ? `
-          <button class="btn ghost" id="wk-cal-push">📤 カレンダーへ書き出し</button>
-          <button class="btn ghost" id="wk-sheet-push">📊 シートへ書き出し</button>
-          <button class="btn ghost" id="wk-mail">📧 メールで提出</button>` : ''}
-          <button class="btn ghost danger" id="wk-clear">この週をクリア</button>
+          <button class="btn ghost" id="wk-cal-push">カレンダーへ書き出し</button>
+          <button class="btn ghost" id="wk-sheet-push">シートへ書き出し</button>
+          <button class="btn ghost" id="wk-mail">メールで提出</button>` : ''}
+          <div class="menu-sep" role="separator"></div>
+          <button class="btn ghost danger" id="wk-clear">週クリア</button>
         </div>
       </details>
     </div>
@@ -184,7 +187,10 @@ export function renderWeekView(root, ctx) {
           <textarea id="wk-goals">${esc(week.goals || '')}</textarea>
         </div>
         <div>
-          <label>反省</label>
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <label>反省</label>
+            <button class="btn small ghost" id="wk-review" style="font-size:11.5px; padding:2px 8px;">過去の一覧</button>
+          </div>
           <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
         </div>
       </div>
@@ -222,7 +228,7 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
       const frac = (e.fraction ?? 1) !== 1 ? `<span class="e-flag">${fracLabel(e.fraction)}</span>` : '';
       const guide = s.mode === 'fukushiki' && e.guide ? `<span class="guide-chip g-${e.guide}">${guideLabel(e.guide)}</span>` : '';
       const unsetClass = s.mode === 'senka' && e.subjectKey && (e.scope == null || e.scope === '')
-        ? `<span class="e-flag warn">⚠学級未設定</span>` : '';
+        ? `<span class="e-flag warn">学級未設定</span>` : '';
       return `
         <div class="entry ${e.cancelled ? 'cancelled' : ''}">
           <div class="e-head">
@@ -362,6 +368,12 @@ function wireNav(root, ctx, monday) {
   root.querySelector('#wk-import-events').onclick = () => openEventsImport(ctx);
   root.querySelector('#wk-review').onclick = () => openReviewList(ctx);
 
+  const kidsBtn = root.querySelector('#wk-kids-print');
+  if (kidsBtn) kidsBtn.onclick = async () => {
+    const { printKidsLetter } = await import('../print.js');
+    printKidsLetter(fmtDate(monday));
+  };
+
   root.querySelector('#wk-copy').onclick = async () => {
     const from = fmtDate(addDays(monday, -7));
     const to = fmtDate(monday);
@@ -377,14 +389,16 @@ function wireNav(root, ctx, monday) {
     ctx.rerender();
   };
 
-  // 「この週をクリア」: 確認ダイアログの代わりにUndoで守る
-  root.querySelector('#wk-clear').onclick = () => {
+  // 「週クリア」: 破壊的なので1行確認+Undoの両方で守る
+  root.querySelector('#wk-clear').onclick = async () => {
     const to = fmtDate(monday);
     if (!store.state.weeks[to]) return;
+    const ok = await confirmDialog('この週の入力をすべて消しますか?', { okLabel: '週クリア', danger: true });
+    if (!ok) return;
     store.snapshot('週のクリア');
     delete store.state.weeks[to];
     store.commit();
-    toast('この週をクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    toast('週をクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     ctx.rerender();
   };
 
@@ -397,7 +411,7 @@ function wireNav(root, ctx, monday) {
     const ok = await confirmDialog(
       `${payload.events.length}件をカレンダー「週案」に登録します(再実行で置き換え)` +
       (payload.skipped ? `\n時刻未設定の${payload.skipped}コマはスキップ` : ''),
-      { okLabel: '書き出す' });
+      { okLabel: '書き出し' });
     if (!ok) return;
     try {
       toast('書き出し中…');
@@ -454,6 +468,7 @@ function wireNav(root, ctx, monday) {
       if (res.errors?.length) {
         toast('一部のカレンダーを読めません: ' + res.errors.join(' / '), 'error', 6000);
       }
+      store.snapshot('行事の取得');
       const week = store.getWeek(fmtDate(monday), true);
       let n = 0;
       for (const ev of res.events || []) {
@@ -465,7 +480,7 @@ function wireNav(root, ctx, monday) {
         n++;
       }
       store.commit();
-      toast(`${n}件を取り込みました`);
+      toast(`${n}件を取り込みました`, 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 5000);
@@ -527,7 +542,7 @@ function openEventsImport(ctx) {
       const ok = await confirmDialog(
         `${events.length}件の行事を読み取りました。\n` +
         `${events.slice(0, 5).map(e => `${e.date.replace(/-/g, '/')} ${e.title}`).join('\n')}${events.length > 5 ? '\n…' : ''}\n\n各週の行事欄に追記しますか?(既存の行事は消えません)`,
-        { okLabel: '取り込む' });
+        { okLabel: '取り込み' });
       if (!ok) return;
 
       store.snapshot('年間行事の取り込み');
@@ -754,7 +769,7 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div style="display:flex; flex-direction:column; gap:8px;">
-          <button class="btn" data-act="cancel-all">すべて中止にする</button>
+          <button class="btn" data-act="cancel-all">全コマ中止</button>
           ${d > 0 ? `<button class="btn" data-act="copy-prev">前日をコピー</button>` : ''}
           <button class="btn danger" data-act="clear">この日をクリア</button>
         </div>
@@ -1056,7 +1071,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     <div class="modal-foot">
       <button class="btn danger left" data-clear-cell>クリア</button>
       <button class="btn" data-swap>⇄ 移動</button>
-      <button class="btn primary" data-close>完了</button>
+      <button class="btn primary" data-close>閉じる</button>
     </div>
   `, (modal, close) => {
     render(modal);
@@ -1111,7 +1126,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
   if (s.mode === 'senka' && s.senkaClasses.length) {
     scopeField = `<div class="field"><label>学級</label>
       <div class="scope-palette">${s.senkaClasses.map(c =>
-        `<button data-scope-btn="${esc(c.id)}" class="${entry.scope === c.id ? 'selected' : ''}">${esc(c.label || '?')}</button>`).join('')}
+        `<button data-scope-btn="${esc(c.id)}" class="${entry.scope === c.id ? 'selected' : ''}">${esc(c.label || '学級未設定')}</button>`).join('')}
       </div></div>`;
   }
 
@@ -1121,7 +1136,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     const guideChips = ['direct', 'indirect', 'guide'].map(g =>
       `<button data-guide="${g}" class="guide-btn g-${g} ${entry.guide === g ? 'selected' : ''}">${guideLabel(g)}</button>`).join('');
     gradeHead = `<div class="grade-head">
-      <span>📘 ${isKnownGrade ? `${entry.scope}年` : '学年未設定'}</span>
+      <span>${isKnownGrade ? `${entry.scope}年` : '学年未設定'}</span>
       <span class="guide-chips">${guideChips}${infoHTML('直=直接指導 間=間接指導(自力学習) ガ=ガイド学習。印刷に◎○△で出ます')}</span>
     </div>`;
   }

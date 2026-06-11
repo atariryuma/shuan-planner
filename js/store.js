@@ -64,6 +64,7 @@ export function defaultSettings(schoolType = 'elementary') {
     stampBoxes: ['校長', '教頭', '担任'],
     printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
     printManagerBox: false,   // 印刷に管理職の指導・助言欄を出す
+    printEra: false,          // 印刷・出力の年表記を和暦(令和)にする
     printOrientation: 'landscape',
     printLayout: 'periods',   // periods=縦軸が校時(バーチカル型) | days=縦軸が曜日(Excel型)
     printShowTimes: false,
@@ -144,8 +145,19 @@ class Store {
     } catch (e) {
       console.error('データ読み込み失敗。バックアップを作成して初期化します。', e);
       try { localStorage.setItem(STORAGE_KEY + '-broken-' + Date.now(), localStorage.getItem(STORAGE_KEY) || ''); } catch {}
+      this.loadError = true; // UI層が起動時に退避データの保存手段を提示する
       return defaultState();
     }
+  }
+
+  /** 破損時に退避したデータの一覧(新しい順) */
+  brokenBackups() {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(STORAGE_KEY + '-broken-')) keys.push(k);
+    }
+    return keys.sort().reverse();
   }
 
   /** 変更通知 + 遅延保存 */
@@ -161,7 +173,8 @@ class Store {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
     } catch (e) {
       console.error('保存に失敗しました', e);
-      alert('保存に失敗しました。容量不足の可能性があります。「データ」画面からエクスポートしてバックアップしてください。');
+      // UI層(app.js)がアクション付きトーストで案内する(ネイティブalertは使わない)
+      document.dispatchEvent(new CustomEvent('shuan-save-error'));
     }
   }
 
@@ -419,6 +432,10 @@ function migrate(data) {
   }
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
   if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
+  // 「道徳」→正式名称「特別の教科 道徳」へ(提出書類に略式名が出ないように。独自に改名済みなら触らない)
+  for (const sub of data.settings.subjects) {
+    if (sub.key === 'dotoku' && sub.name === '道徳') sub.name = '特別の教科 道徳';
+  }
   // 教科の合算先(parent)の正規化: 自己参照・連鎖をルート親へ解決(集計は1段しか辿らないため)
   for (const sub of data.settings.subjects) {
     if (sub.parent === sub.key) delete sub.parent;
@@ -565,6 +582,21 @@ export function scopeGrade(settings, scope) {
 // ---------------------------------------------------------------- 時数集計
 
 /**
+ * 「実施済」を数えるための基準週。computeHoursは基準週までしか走査しないため、
+ * 過去の週を表示していても実施時数(今日以前のコマ)が欠けないよう、今日を含む週を返す。
+ * 表示中の年度と今日の年度が違う場合は、その年度内に収まる週に丸める。
+ */
+export function doneRefWeek(weekStart) {
+  const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
+  const todayMon = mondayOf(new Date());
+  const tfy = fiscalYearOf(addDays(todayMon, 3));
+  if (tfy < fy) return weekStart;                                  // 未来年度の閲覧 → 実施は0で正しい
+  if (tfy > fy) return fmtDate(mondayOf(new Date(fy + 1, 2, 31))); // 過年度の閲覧 → 年度末まで実施扱い
+  const t = fmtDate(todayMon);
+  return t > weekStart ? t : weekStart;
+}
+
+/**
  * 時数集計。係数(coefficient)は校時ごとに持つ(モジュール15分=1/3等)。
  * 戻り値: Map<scopeKey, {week: number, total: number}> と教科別集計。
  * total は年度内・指定週(を含む)までの累計。
@@ -573,6 +605,10 @@ export function computeHours(state, currentWeekStart) {
   const { settings, weeks } = state;
   const range = fiscalRangeOf(currentWeekStart);
   const todayStr = fmtDate(new Date());
+  // 年度の実日付範囲(端の週に含まれる前後年度の日を除外し、月別集計と母集合を一致させる)
+  const fy = fiscalYearOf(addDays(parseDate(currentWeekStart), 3));
+  const fyStart = `${fy}-04-01`;
+  const fyEnd = `${fy + 1}-03-31`;
   const acc = new Map(); // scopeKey -> {week, total, done}
 
   const weekKeys = Object.keys(weeks).sort();
@@ -584,6 +620,7 @@ export function computeHours(state, currentWeekStart) {
     const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {
       const dateStr = fmtDate(addDays(monday, d));
+      if (dateStr < fyStart || dateStr > fyEnd) continue;
       for (const p of settings.periods) {
         const eff = effectivePeriod(settings, week, d, p);
         if (!eff) continue;
@@ -648,13 +685,16 @@ export function computeMonthlyHours(state, refWeekStart) {
   const { settings, weeks } = state;
   const range = fiscalRangeOf(refWeekStart);
   const months = new Map();
+  const monthsDone = new Map(); // 実施(今日以前の日付)のみ — 月別実施時数の報告用
   const termRangesList = termRanges(settings, fiscalYearOf(addDays(parseDate(refWeekStart), 3)));
   const terms = termRangesList.map(t => ({ name: t.name, hours: new Map() }));
+  const termsDone = termRangesList.map(t => ({ name: t.name, hours: new Map() }));
 
   const bump = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
   const fy = fiscalYearOf(addDays(parseDate(refWeekStart), 3));
   const fyStart = `${fy}-04-01`;
   const fyEnd = `${fy + 1}-03-31`;
+  const todayStr = fmtDate(new Date());
 
   for (const wk of Object.keys(weeks).sort()) {
     if (wk < range.from || wk >= range.to) continue;
@@ -668,6 +708,7 @@ export function computeMonthlyHours(state, refWeekStart) {
       // (monthsとtermsの母集合を一致させるため)
       if (dateStr < fyStart || dateStr > fyEnd) continue;
       const month = date.getMonth() + 1;
+      const isDone = dateStr <= todayStr;
       const termIdx = termRangesList.findIndex(t => dateStr >= t.from && dateStr <= t.to);
       for (const p of settings.periods) {
         const eff = effectivePeriod(settings, week, d, p);
@@ -681,11 +722,16 @@ export function computeMonthlyHours(state, refWeekStart) {
           if (!months.has(month)) months.set(month, new Map());
           bump(months.get(month), k, c);
           if (termIdx >= 0) bump(terms[termIdx].hours, k, c);
+          if (isDone) {
+            if (!monthsDone.has(month)) monthsDone.set(month, new Map());
+            bump(monthsDone.get(month), k, c);
+            if (termIdx >= 0) bump(termsDone[termIdx].hours, k, c);
+          }
         }
       }
     }
   }
-  return { months, terms };
+  return { months, monthsDone, terms, termsDone };
 }
 
 /** 学期の日付範囲リスト。termEnds(月-日)から年度内の実日付に展開する */

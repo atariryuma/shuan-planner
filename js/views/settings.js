@@ -11,9 +11,19 @@ export function renderSettingsView(root, ctx) {
   const gradeOpts = Array.from({ length: gradeMax }, (_, i) => ({ value: i + 1, label: `${i + 1}年` }));
 
   root.innerHTML = `
+  <nav class="settings-nav" aria-label="設定の項目">
+    <button class="set-chip" data-goto="sp-basic">基本</button>
+    <button class="set-chip" data-goto="sp-mode">担任形態</button>
+    <button class="set-chip" data-goto="sp-schedule">時程</button>
+    <button class="set-chip" data-goto="sp-year">年間・学期</button>
+    <button class="set-chip" data-goto="sp-display">表示</button>
+    <button class="set-chip" data-goto="sp-subjects">教科</button>
+    <button class="set-chip" data-goto="sp-print">印刷</button>
+    <button class="set-chip" data-goto="sp-google">Google連携</button>
+  </nav>
   <div class="settings-grid">
 
-    <div class="panel">
+    <div class="panel" id="sp-basic">
       <h2>基本情報</h2>
       <div class="field"><label>学校名</label>
         <input type="text" data-set="schoolName" value="${esc(s.schoolName)}" placeholder="○○市立○○小学校"></div>
@@ -27,8 +37,6 @@ export function renderSettingsView(root, ctx) {
           <span class="hint" id="class-preview" style="white-space:nowrap;">→ 印刷: ${s.grade}年${esc(s.className || '')}</span>
         </div>
       </div>` : ''}
-      <div class="field"><label>年度</label>
-        <div style="padding:7px 2px; font-size:14px;">${esc(s.fiscalYear)}年度 <span class="hint">(日付から自動。新年度は4月に自動で切り替わります)</span></div></div>
       <div class="field"><label>学校種${infoHTML('変更すると教科・時程が既定値にリセットされます')}</label>
         ${selectHTML('schoolType', [
           { value: 'elementary', label: '小学校(45分授業)' },
@@ -37,17 +45,9 @@ export function renderSettingsView(root, ctx) {
       </div>
       <div class="checkline"><input type="checkbox" id="set-sat" ${s.saturday ? 'checked' : ''}>
         <label for="set-sat">土曜授業あり</label></div>
-      <div class="field"><label>年間授業週数${infoHTML('時数の必要ペース計算に使用。小1=34週、その他35週が標準')}</label>
-        <input type="number" data-set="hoursBase" value="${esc(s.hoursBase)}" min="30" max="45"></div>
-      <div class="field"><label>画面の文字サイズ</label>
-        ${selectHTML('uiScale', [
-          { value: 'normal', label: '標準' },
-          { value: 'large', label: '大' },
-        ], s.uiScale)}
-      </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="sp-mode">
       <h2>担任形態</h2>
       <div class="mode-cards">
         <button class="mode-card ${s.mode === 'homeroom' ? 'selected' : ''}" data-mode="homeroom">
@@ -63,8 +63,8 @@ export function renderSettingsView(root, ctx) {
       <div id="mode-detail" style="margin-top:14px;">${modeDetailHTML(s, gradeOpts)}</div>
     </div>
 
-    <div class="panel">
-      <h2>時程(校時)</h2>
+    <div class="panel" id="sp-schedule">
+      <h2>時程${infoHTML('1校時〜の時間割の枠。係数は時数の数え方です')}</h2>
       <table class="edit-table">
         <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=0.333、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
         <tbody id="periods-body">
@@ -105,26 +105,32 @@ export function renderSettingsView(root, ctx) {
       <button class="btn small" id="pattern-add" style="margin-top:8px;">＋ パターンを追加</button>
     </div>
 
-    <div class="panel">
-      <h2>学期・表示</h2>
+    <div class="panel" id="sp-year">
+      <h2>年間・学期</h2>
+      <div class="field"><label>年度</label>
+        <div style="padding:7px 2px; font-size:14px;">${esc(s.fiscalYear)}年度 <span class="hint">(日付から自動。新年度は4月に自動で切り替わります)</span></div></div>
+      <div class="field"><label>年間授業週数${infoHTML('時数の必要ペース計算に使用。小1=34週、その他35週が標準')}</label>
+        <input type="number" data-set="hoursBase" value="${esc(s.hoursBase)}" min="30" max="45"></div>
       <div class="field"><label>学期制</label>
         ${selectHTML('termSystem', [
           { value: 3, label: '3学期制' },
           { value: 2, label: '2学期制(前期・後期)' },
         ], s.termSystem)}
       </div>
-      <div class="field"><label>学期の区切り(終了日)</label>
-        <div class="inline" id="term-ends">
-          ${(s.termEnds || []).map((md, i) => `<input type="text" data-term="${i}" value="${esc(md)}" placeholder="07-31" style="max-width:110px;" title="月-日(例: 07-31)">`).join('')}
+      <div class="field"><label>学期の区切り${infoHTML('各学期の最終日。時数集計の学期別集計に使います')}</label>
+        <div class="inline" id="term-ends" style="flex-wrap:wrap; gap:10px;">
+          ${(s.termEnds || []).map((md, i) => {
+            const [m, d] = (md || '7-31').split('-').map(Number);
+            const months = Array.from({ length: 12 }, (_, k) => ({ value: k + 1, label: `${k + 1}月` }));
+            const days = Array.from({ length: 31 }, (_, k) => ({ value: k + 1, label: `${k + 1}日` }));
+            return `<span style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">
+              <span class="hint">${s.termSystem === 2 ? '前期' : `${i + 1}学期`}まで</span>
+              ${selectHTML(`term-m-${i}`, months, m || 7, { attrs: `data-term-m="${i}" style="width:auto;"` })}
+              ${selectHTML(`term-d-${i}`, days, d || 31, { attrs: `data-term-d="${i}" style="width:auto;"` })}
+            </span>`;
+          }).join('')}
         </div>
-        <p class="hint">${s.termSystem === 2 ? '前期の最終日' : '1学期・2学期の最終日'}を「月-日」で入力(時数集計の学期別集計に使用)。</p>
       </div>
-      <div class="checkline"><input type="checkbox" id="set-holidays" ${s.showHolidays ? 'checked' : ''}>
-        <label for="set-holidays">祝日を表示</label></div>
-      <div class="checkline"><input type="checkbox" id="set-daynotes" ${s.showDayNotes ? 'checked' : ''}>
-        <label for="set-daynotes">日ごとのメモ欄</label>${infoHTML('自分用メモ。画面のみで印刷されません')}</div>
-      <div class="checkline"><input type="checkbox" id="set-attendance" ${s.showAttendance ? 'checked' : ''}>
-        <label for="set-attendance">出欠メモ欄</label>${infoHTML('欠席・遅刻などの記録欄。印刷にも出ます(週案簿の出欠欄)')}</div>
 
       <h3>長期休業${infoHTML('夏休みなどを登録すると、時数の「必要ペース」が残りの授業週数で正しく計算され、休業中の週に表示が出ます')}</h3>
       <table class="edit-table">
@@ -142,7 +148,23 @@ export function renderSettingsView(root, ctx) {
       <button class="btn small" id="break-add" style="margin-top:8px;">＋ 休業を追加</button>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="sp-display">
+      <h2>表示</h2>
+      <div class="field"><label>画面の文字サイズ</label>
+        ${selectHTML('uiScale', [
+          { value: 'normal', label: '標準' },
+          { value: 'large', label: '大' },
+        ], s.uiScale)}
+      </div>
+      <div class="checkline"><input type="checkbox" id="set-holidays" ${s.showHolidays ? 'checked' : ''}>
+        <label for="set-holidays">祝日を表示</label></div>
+      <div class="checkline"><input type="checkbox" id="set-daynotes" ${s.showDayNotes ? 'checked' : ''}>
+        <label for="set-daynotes">日ごとのメモ欄</label>${infoHTML('自分用メモ。画面のみで印刷されません')}</div>
+      <div class="checkline"><input type="checkbox" id="set-attendance" ${s.showAttendance ? 'checked' : ''}>
+        <label for="set-attendance">出欠メモ欄</label>${infoHTML('欠席・遅刻などの記録欄。印刷にも出ます(週案簿の出欠欄)')}</div>
+    </div>
+
+    <div class="panel" id="sp-subjects">
       <h2>教科</h2>
       <p class="hint">色は画面・印刷の両方で使われます。学校独自の活動(「朝の会」「クラブ」等)も追加できます。</p>
       <table class="edit-table">
@@ -174,7 +196,7 @@ export function renderSettingsView(root, ctx) {
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="sp-print">
       <h2>印刷</h2>
       <div class="print-options">
         <div class="field"><label>用紙の向き</label>
@@ -195,21 +217,23 @@ export function renderSettingsView(root, ctx) {
         <label for="set-phours">週の時数表</label></div>
       <div class="checkline"><input type="checkbox" id="set-pmanager" ${s.printManagerBox ? 'checked' : ''}>
         <label for="set-pmanager">管理職の記入欄</label>${infoHTML('「指導・助言」の空欄を印刷します(押印・コメント運用の学校向け)')}</div>
+      <div class="checkline"><input type="checkbox" id="set-pera" ${s.printEra ? 'checked' : ''}>
+        <label for="set-pera">和暦で表示</label>${infoHTML('印刷ヘッダーの年・年度を令和表記にします')}</div>
       <div class="field"><label>肩書の表記${infoHTML('印刷ヘッダーの「5年1組」の部分。空欄なら自動(学級担任=学年組/専科=担当教科/中学=教科担任)')}</label>
         <input type="text" data-set="printRole" value="${esc(s.printRole || '')}" placeholder="自動"></div>
       <div class="field"><label>押印欄${infoHTML('「、」区切りで複数。空欄にすると非表示')}</label>
         <input type="text" data-set="stampBoxesText" value="${esc((s.stampBoxes || []).join('、'))}" placeholder="校長、教頭、担任"></div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="sp-google">
       <details ${s.gas.url ? 'open' : ''}>
         <summary style="cursor:pointer;"><h2 style="display:inline;">Google連携</h2>
           <span class="hint">任意・未設定でも全機能使えます</span></summary>
         <p class="hint" style="margin-top:10px;">端末間の同期・カレンダー連携・メール提出が使えます。
           <a href="https://github.com/" id="gas-doc-link" target="_blank" rel="noopener">設定手順(約10分)</a></p>
-        <div class="field"><label>WebアプリURL${infoHTML('手順書の通りにデプロイすると表示される /exec で終わるURL')}</label>
+        <div class="field"><label>接続先URL${infoHTML('設定手順の通りにデプロイすると表示される /exec で終わるURL')}</label>
           <input type="text" data-gas="url" value="${esc(s.gas.url)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
-        <div class="field"><label>同期トークン${infoHTML('手順書の手順2で自分で決めた合言葉')}</label>
+        <div class="field"><label>合言葉${infoHTML('設定手順の手順2で自分で決めた合言葉(同期トークン)')}</label>
           <input type="password" data-gas="token" value="${esc(s.gas.token)}"></div>
         <button class="btn" id="gas-test">接続テスト</button>
 
@@ -288,6 +312,17 @@ function modeDetailHTML(s, gradeOpts) {
 function wireSettings(root, ctx) {
   const s = store.settings;
 
+  // 項目ナビ(長い設定ページ内のジャンプ)
+  root.querySelectorAll('.set-chip').forEach(chip => {
+    chip.onclick = () => {
+      const target = root.querySelector('#' + chip.dataset.goto);
+      if (!target) return;
+      const det = target.querySelector('details');
+      if (det) det.open = true; // 折りたたみ先(Google連携)は開いてから移動
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  });
+
   // 単純テキスト/数値(再描画不要)
   root.querySelectorAll('[data-set]').forEach(inp => {
     inp.addEventListener('change', () => {
@@ -307,7 +342,7 @@ function wireSettings(root, ctx) {
   root.querySelector('[name="schoolType"]').addEventListener('change', async (ev) => {
     const v = ev.target.value;
     if (v === s.schoolType) return;
-    const ok = await confirmDialog('学校種を変更すると、教科と時程が既定値にリセットされます。よろしいですか?\n(週案・年間指導計画のデータは残りますが、教科の対応を確認してください)', { okLabel: '変更する', danger: true });
+    const ok = await confirmDialog('学校種を変更すると、教科と時程が既定値にリセットされます。よろしいですか?\n(週案・年間指導計画のデータは残りますが、教科の対応を確認してください)', { okLabel: '変更', danger: true });
     if (!ok) { ev.target.value = s.schoolType; return; }
     s.schoolType = v;
     s.subjects = defaultSubjects(v);
@@ -340,6 +375,7 @@ function wireSettings(root, ctx) {
   root.querySelector('#set-ptime').addEventListener('change', (ev) => { s.printShowTimes = ev.target.checked; store.commit(); });
   root.querySelector('#set-phours').addEventListener('change', (ev) => { s.printShowHours = ev.target.checked; store.commit(); });
   root.querySelector('#set-pmanager').addEventListener('change', (ev) => { s.printManagerBox = ev.target.checked; store.commit(); });
+  root.querySelector('#set-pera').addEventListener('change', (ev) => { s.printEra = ev.target.checked; store.commit(); });
   root.querySelector('[name="uiScale"]').addEventListener('change', (ev) => {
     s.uiScale = ev.target.value;
     document.documentElement.classList.toggle('ui-large', s.uiScale === 'large');
@@ -353,9 +389,9 @@ function wireSettings(root, ctx) {
       classPreview.textContent = `→ 印刷: ${s.grade}年${classInput.value.trim()}`;
     });
   }
-  // 設定手順リンク(GitHub Pages配信時は同リポジトリのdocsへ)
+  // 設定手順リンク(GitHub Pages配信時は同リポジトリのdocsへ。ブラウザで読めるHTML版)
   const docLink = root.querySelector('#gas-doc-link');
-  if (docLink) docLink.href = new URL('docs/gas-setup.md', location.href.replace(/[^/]*$/, '')).href;
+  if (docLink) docLink.href = new URL('docs/gas-setup.html', location.href.replace(/[^/]*$/, '')).href;
   root.querySelector('[name="printOrientation"]').addEventListener('change', (ev) => { s.printOrientation = ev.target.value; store.commit(); });
   root.querySelector('[name="printFontSize"]').addEventListener('change', (ev) => { s.printFontSize = ev.target.value; store.commit(); });
 
@@ -504,20 +540,18 @@ function wireSettings(root, ctx) {
     s.termEnds = s.termSystem === 2 ? ['09-30'] : ['07-31', '12-31'];
     store.commit(); ctx.rerender();
   });
-  root.querySelectorAll('#term-ends input').forEach(inp => {
-    inp.addEventListener('change', () => {
-      const v = inp.value.trim();
-      const match = /^(\d{1,2})-(\d{1,2})$/.exec(v);
-      const m = match ? Number(match[1]) : 0;
-      const d = match ? Number(match[2]) : 0;
-      if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-        s.termEnds[Number(inp.dataset.term)] = `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        store.commit();
-      } else {
-        toast('「月-日」の形式で入力してください(例: 07-31)', 'error');
-        inp.value = s.termEnds[Number(inp.dataset.term)];
-      }
-    });
+  // 学期の区切り: 月・日のセレクト(入力形式エラーを構造的になくす)
+  const setTermEnd = (i) => {
+    const m = Number(root.querySelector(`[data-term-m="${i}"]`)?.value) || 7;
+    const d = Number(root.querySelector(`[data-term-d="${i}"]`)?.value) || 31;
+    s.termEnds[i] = `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    store.commit();
+  };
+  root.querySelectorAll('[data-term-m]').forEach(sel => {
+    sel.addEventListener('change', () => setTermEnd(Number(sel.dataset.termM)));
+  });
+  root.querySelectorAll('[data-term-d]').forEach(sel => {
+    sel.addEventListener('change', () => setTermEnd(Number(sel.dataset.termD)));
   });
   root.querySelector('#set-holidays').addEventListener('change', (ev) => { s.showHolidays = ev.target.checked; store.commit(); });
   root.querySelector('#set-daynotes').addEventListener('change', (ev) => { s.showDayNotes = ev.target.checked; store.commit(); });
@@ -591,10 +625,18 @@ function wireSettings(root, ctx) {
   root.querySelector('#gas-test').onclick = async () => {
     try {
       toast('接続テスト中…');
-      const res = await ctx.gas.ping();
-      toast(`✅ 接続成功 (${res.time || 'pong'})`);
+      await ctx.gas.ping();
+      if (!s.gas.auto) {
+        // 成功した流れのまま自動同期を始められるように(設定項目を探させない)
+        toast('接続できました', 'info', 8000, {
+          label: '自動同期をON',
+          onClick: () => { s.gas.auto = true; store.commit(); ctx.rerender(); toast('自動同期をONにしました'); },
+        });
+      } else {
+        toast('接続できました');
+      }
     } catch (e) {
-      toast('❌ 接続失敗: ' + e.message, 'error', 6000);
+      toast('接続失敗: ' + e.message, 'error', 6000);
     }
   };
 
@@ -622,7 +664,7 @@ function wireSettings(root, ctx) {
         </div>`).join('');
       openModal(`
         <h2>行事の取り込み元カレンダー</h2>
-        <p class="hint">チェックしたカレンダーの予定が「📆 行事を取得」で行事欄に入ります。</p>
+        <p class="hint">チェックしたカレンダーの予定が、週案タブの「📆 行事」で行事欄に入ります。</p>
         <div style="max-height:50vh; overflow-y:auto;">${items || '<p class="hint">カレンダーが見つかりません</p>'}</div>
         <div class="modal-foot">
           <button class="btn" data-cancel>キャンセル</button>

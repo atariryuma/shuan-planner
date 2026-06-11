@@ -78,9 +78,10 @@ export function infoHTML(text) {
 
 /** ⓘポップオーバーの全体配線(アプリ起動時に1回呼ぶ。委譲方式なので再描画に強い) */
 export function wireInfoPopovers() {
+  const closePopover = () => { if (openPopover) { openPopover.remove(); openPopover = null; } };
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('.info[data-info]');
-    if (openPopover) { openPopover.remove(); openPopover = null; }
+    closePopover();
     if (!btn) return;
     ev.preventDefault();
     const pop = document.createElement('div');
@@ -89,9 +90,18 @@ export function wireInfoPopovers() {
     document.body.appendChild(pop);
     const r = btn.getBoundingClientRect();
     pop.style.left = Math.min(r.left, window.innerWidth - pop.offsetWidth - 12) + 'px';
-    pop.style.top = (r.bottom + 6 + window.scrollY) + 'px';
+    // 画面下端にかかるときは上側に出す(モーダル下部のⓘでも読める)
+    const below = r.bottom + 6;
+    if (below + pop.offsetHeight > window.innerHeight - 8) {
+      pop.style.top = Math.max(8, r.top - pop.offsetHeight - 6) + window.scrollY + 'px';
+    } else {
+      pop.style.top = below + window.scrollY + 'px';
+    }
     openPopover = pop;
   });
+  // スクロールで位置がずれたまま残らないよう閉じる(モーダル内スクロールも拾うためcapture)
+  document.addEventListener('scroll', closePopover, true);
+  window.addEventListener('wheel', closePopover, { passive: true });
 }
 
 /** confirm代替。Esc・背景クリックはキャンセル(false)として解決する */
