@@ -12,6 +12,7 @@ import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberI
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
 import { fracLabel, guideLabel } from './views/week.js';
+import { buildPrintHoursModel, printHoursValue } from './print-hours.js';
 
 const FONT_PT = { small: 8, normal: 9, large: 10.5 };
 
@@ -191,12 +192,16 @@ export function buildPrintDOM(weekStart, { range = 'week' } = {}) {
   root.setAttribute('style', 'display:block; position:fixed; left:-9999px; top:0;');
   let overflow = false, shrunk = false;
   try {
-    const wraps = [...root.querySelectorAll('.pp-table-wrap')];
+    const constrained = [...root.querySelectorAll('.pp-table-wrap, .pp-hours')];
+    const pages = [...root.querySelectorAll('.print-page')];
     const steps = [fontPt, 8, 7.2, 6.5];
-    for (let i = 0; wraps.length && i < steps.length; i++) {
+    for (let i = 0; pages.length && i < steps.length; i++) {
       setFont(steps[i]);
-      // 強制リフロー後に全ページを計測
-      overflow = wraps.some(w => w.scrollHeight > w.clientHeight + 2);
+      // 授業表の切れと、フッターを含むページ全体の切れを両方検知する。
+      overflow = constrained.some(box =>
+        box.scrollHeight > box.clientHeight + 2 || box.scrollWidth > box.clientWidth + 2)
+        || pages.some(page =>
+          page.scrollHeight > page.clientHeight + 2 || page.scrollWidth > page.clientWidth + 2);
       if (!overflow) { shrunk = i > 0; break; }
     }
   } finally {
@@ -367,107 +372,69 @@ function renderFooter(state, week, weekStart) {
 
   let hoursBox = '';
   if (s.printShowHours) {
-    const hours = computeHours(state, weekStart);
-    const keys = new Set(s.subjects.map(x => x.key));
-    const childrenOf = {};
-    for (const subj of s.subjects) if (subj.parent && keys.has(subj.parent)) (childrenOf[subj.parent] = childrenOf[subj.parent] || []).push(subj.key);
-
-    /** 1スコープ分の {name, wk, tt} リスト(親教科へ合算) */
-    const itemsFor = (scopesToSum, grade = null) => {
-      const items = [];
-      for (const subj of s.subjects) {
-        if (subj.parent && keys.has(subj.parent)) continue;
-        let wk = 0, tt = 0;
-        for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
-          for (const sc of scopesToSum) {
-            const v = hours.get(scopeKey(k, sc));
-            if (v) { wk += v.week; tt += v.total; }
-          }
-        }
-        if (wk > 0 || tt > 0) {
-          const std = grade == null ? null : standardHoursFor(s, subj.key, grade);
-          items.push({ key: subj.key, name: subj.short || subj.name, wk, tt, std });
-        }
-      }
-      return items;
-    };
-    /** 14列を超える分は時数の少ない順に「ほか」へ合算(5pt縮小は読めないため廃止) */
-    const capCols = (items) => {
-      if (items.length <= 14) return items;
-      const sorted = [...items].sort((a, b) => b.tt - a.tt);
-      const keep = new Set(sorted.slice(0, 13).map(i => i.name));
-      const head = items.filter(i => keep.has(i.name));
-      const rest = items.filter(i => !keep.has(i.name));
-      head.push({
-        key: 'other',
-        name: 'ほか',
-        wk: rest.reduce((a, i) => a + i.wk, 0),
-        tt: rest.reduce((a, i) => a + i.tt, 0),
-        std: null,
-      });
-      return head;
-    };
-
-    if (s.mode === 'fukushiki') {
-      // 学年ごとに別の行で出す(合算すると提出書類として誤りになる)。
-      // 週案は週単位の提出物なので、他形態・メールと同じく学年ごとに「週」「計」の両方を出す。
-      const perGrade = s.fukushikiGrades.map(g => ({ g, items: itemsFor([g], g) }));
-      const names = [];
-      for (const pg of perGrade) for (const i of pg.items) if (!names.includes(i.name)) names.push(i.name);
-      // 14列超過の「ほか」判定は全学年合算の週・累計で行う(列の取捨は両学年で揃える)
-      const merged = names.map(n => ({
-        name: n,
-        wk: perGrade.reduce((a, pg) => a + (pg.items.find(i => i.name === n)?.wk || 0), 0),
-        tt: perGrade.reduce((a, pg) => a + (pg.items.find(i => i.name === n)?.tt || 0), 0),
-      }));
-      const cols = capCols(merged).map(i => i.name);
-      if (cols.length) {
-        const headRow = cols.map(n => `<th>${esc(n)}</th>`).join('');
-        const gradeRows = perGrade.map(pg => {
-          const find = (n) => pg.items.find(i => i.name === n);
-          const others = pg.items.filter(i => !cols.includes(i.name));
-          const cellWk = (n) => n === 'ほか' ? fmtHours(others.reduce((a, i) => a + i.wk, 0)) : (find(n) ? fmtHours(find(n).wk) : '');
-          const cellTt = (n) => n === 'ほか' ? fmtHours(others.reduce((a, i) => a + i.tt, 0)) : (find(n) ? fmtHours(find(n).tt) : '');
-          return `<tr><th>${pg.g}年週</th>${cols.map(n => `<td>${cellWk(n)}</td>`).join('')}</tr>`
-            + `<tr><th>${pg.g}年計</th>${cols.map(n => `<td>${cellTt(n)}</td>`).join('')}</tr>`;
-        }).join('');
-        hoursBox = `<div class="pp-box pp-hours">
-          <table class="pp-hours-table">
-            <tr><th style="width:10mm;"></th>${headRow}</tr>
-            ${gradeRows}
-          </table>
-        </div>`;
-      }
-    } else {
-      const scopesToSum = s.mode === 'senka' ? [...s.senkaClasses.map(c => c.id), null] : [null];
-      const grade = s.mode === 'homeroom' ? s.grade : null;
-      const items = capCols(itemsFor(scopesToSum, grade));
-      if (items.length) {
-        const headRow = items.map(i => `<th>${esc(i.name)}</th>`).join('');
-        const weekRow = items.map(i => `<td>${fmtHours(i.wk)}</td>`).join('');
-        const totalRow = items.map(i => `<td>${fmtHours(i.tt)}</td>`).join('');
-        const hasStandards = items.some(i => i.std != null);
-        const standardRow = hasStandards
-          ? `<tr><th>標準</th>${items.map(i => `<td>${i.std == null ? '' : fmtHours(i.std)}</td>`).join('')}</tr>` : '';
-        const remainRow = hasStandards
-          ? `<tr><th>残り</th>${items.map(i => `<td>${i.std == null ? '' : fmtHours(i.std - i.tt)}</td>`).join('')}</tr>` : '';
-        const progressRow = hasStandards
-          ? `<tr><th>進捗</th>${items.map(i => `<td>${i.std ? `${Math.round(i.tt / i.std * 100)}%` : ''}</td>`).join('')}</tr>` : '';
-        hoursBox = `<div class="pp-box pp-hours">
-          <table class="pp-hours-table">
-            <tr><th style="width:8mm;"></th>${headRow}</tr>
-            <tr><th>週</th>${weekRow}</tr>
-            <tr><th>累計</th>${totalRow}</tr>
-            ${standardRow}${remainRow}${progressRow}
-          </table>
-        </div>`;
-      }
-    }
+    hoursBox = renderWeeklyHoursBox(state, weekStart);
   }
   return `<div class="pp-footer">
     <div class="pp-notes-row">${noteBoxes.join('')}</div>
     ${hoursBox}
   </div>`;
+}
+
+function renderSubjectHoursTable(items, label = '') {
+  if (!items.length) return '';
+  const head = items.map(item => `<th>${esc(item.label)}</th>`).join('');
+  const row = (title, field) => `<tr><th>${title}</th>${items.map(item =>
+    `<td>${printHoursValue(item, field)}</td>`).join('')}</tr>`;
+  return `<div class="pp-hours-section">
+    ${label ? `<div class="pp-hours-caption">${esc(label)}</div>` : ''}
+    <table class="pp-hours-table">
+      <thead><tr><th class="pp-hours-corner">時数</th>${head}</tr></thead>
+      <tbody>
+        ${row('本週', 'week')}
+        ${row('累計', 'total')}
+        ${row('標準', 'standard')}
+        ${row('残り', 'remain')}
+        ${row('進捗', 'progress')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function renderSenkaHoursTable(rows) {
+  if (!rows.length) return '';
+  const table = (part) => {
+    const body = part.map(row => `<tr>
+      <td class="${row.classLabel === '学級未設定' ? 'pp-hours-warn' : ''}">${esc(row.classLabel)}</td>
+      <td>${esc(row.subjectLabel)}</td>
+      <td>${printHoursValue(row, 'week')}</td>
+      <td>${printHoursValue(row, 'total')}</td>
+      <td>${printHoursValue(row, 'standard')}</td>
+      <td>${printHoursValue(row, 'remain')}</td>
+      <td>${printHoursValue(row, 'progress')}</td>
+    </tr>`).join('');
+    return `<table class="pp-hours-table pp-senka-hours">
+      <thead><tr><th>学級</th><th>教科</th><th>本週</th><th>累計</th><th>標準</th><th>残り</th><th>進捗</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>`;
+  };
+  if (rows.length <= 8) return `<div class="pp-senka-grid">${table(rows)}</div>`;
+  const split = Math.ceil(rows.length / 2);
+  return `<div class="pp-senka-grid two-column">${table(rows.slice(0, split))}${table(rows.slice(split))}</div>`;
+}
+
+/** 役割ごとに正しい軸で時数表を組み立てる。 */
+export function renderWeeklyHoursBox(state, weekStart) {
+  const model = buildPrintHoursModel(state, weekStart, { maxSubjects: 14 });
+  let content = '';
+  if (model.kind === 'homeroom') {
+    content = renderSubjectHoursTable(model.items);
+  } else if (model.kind === 'fukushiki') {
+    content = `<div class="pp-fukushiki-hours">${model.grades.map(group =>
+      renderSubjectHoursTable(group.items, `${group.grade}年`)).join('')}</div>`;
+  } else {
+    content = renderSenkaHoursTable(model.rows);
+  }
+  return content ? `<div class="pp-box pp-hours">${content}</div>` : '';
 }
 
 // ---------------------------------------------------------------- 児童向け時間割おたより
