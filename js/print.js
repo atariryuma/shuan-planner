@@ -7,7 +7,7 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, termRanges } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, termRanges, VIEWPOINTS } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
@@ -679,5 +679,77 @@ export function buildStatsPrintDOM(weekStart) {
       </div>
       ${summaryTable}
       ${sections || '<p>データがありません</p>'}
+    </div>`;
+}
+
+// ---------------------------------------------------------------- 単元指導計画の印刷
+
+/**
+ * 年間指導計画(1つのplan)を「単元指導計画表」としてA4縦で印刷する。
+ * 単元ごとに 単元の目標・評価規準(3観点)と、各時の 指導目標／学習活動／評価規準／観点 を表で出す。
+ */
+export function buildPlanPrintDOM(planId) {
+  const state = store.state;
+  const s = state.settings;
+  const plan = state.plans.find(p => p.id === planId);
+
+  let styleEl = document.getElementById('print-page-style');
+  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'print-page-style'; document.head.appendChild(styleEl); }
+  styleEl.textContent = `
+    @page { size: A4 portrait; margin: 0; }
+    #print-root { --page-w: 210mm; --page-h: 296mm; --pfs: 9pt; }
+    #print-root .print-page { padding: 12mm; height: auto; min-height: 200mm; overflow: visible; break-after: auto; }
+  `;
+
+  const root = document.getElementById('print-root');
+  if (!plan) { root.innerHTML = '<div class="print-page"><p>計画がありません</p></div>'; return; }
+  const subj = s.subjects.find(x => x.key === plan.subjectKey);
+  const subjName = subj?.name || plan.subjectKey;
+
+  const units = (plan.units || []).map(u => {
+    const crit = u.criteria || {};
+    const hasCrit = crit.knowledge || crit.thinking || crit.attitude;
+    const n = Math.max(Number(u.hours) || 0, (u.lessons || []).length);
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const l = (u.lessons || [])[i] || {};
+      const obj = l.objective ?? l.text ?? '';
+      const act = l.activity ?? '';
+      const ass = l.assessment ?? '';
+      const vp = l.viewpoint ? `<span class="pi-vp">${esc(l.viewpoint)}</span>` : '';
+      if (!obj && !act && !ass) continue;
+      rows.push(`<tr>
+        <td class="pi-num">${i + 1}</td>
+        <td>${esc(obj)}</td>
+        <td>${esc(act)}</td>
+        <td>${esc(ass)}</td>
+        <td class="pi-num">${vp}</td>
+      </tr>`);
+    }
+    return `
+      <div class="pi-unit">
+        <h3 class="pi-uname">${esc(u.name)} <span class="pi-hours">(${Number(u.hours) || rows.length}時間)</span></h3>
+        ${u.goal ? `<div class="pi-goal"><b>単元の目標</b> ${esc(u.goal)}</div>` : ''}
+        ${hasCrit ? `<table class="pi-crit">
+          <tr><th>知識・技能</th><td>${esc(crit.knowledge || '')}</td></tr>
+          <tr><th>思考・判断・表現</th><td>${esc(crit.thinking || '')}</td></tr>
+          <tr><th>主体的に学習に取り組む態度</th><td>${esc(crit.attitude || '')}</td></tr>
+        </table>` : ''}
+        ${rows.length ? `<table class="pi-table">
+          <thead><tr><th class="pi-num">時</th><th style="width:32%;">指導目標</th><th style="width:34%;">学習活動</th><th style="width:26%;">評価規準</th><th class="pi-num">観点</th></tr></thead>
+          <tbody>${rows.join('')}</tbody>
+        </table>` : ''}
+      </div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <div class="print-page">
+      <div class="pp-header" style="margin-bottom:4mm;">
+        <span class="pp-title">年間指導計画</span>
+        <span class="pp-range">${esc(subjName)}${plan.grade ? ` 第${plan.grade}学年` : ''}${plan.textbook ? `(${esc(plan.textbook)})` : ''}</span>
+        <div class="pp-school">${esc(s.schoolName || '')} ${esc(s.teacherName || '')}</div>
+      </div>
+      <p style="font-size:7.5pt; color:#555; margin:0 0 3mm;">観点: 知=知識・技能 / 思=思考・判断・表現 / 態=主体的に学習に取り組む態度</p>
+      ${units || '<p>単元がありません</p>'}
     </div>`;
 }

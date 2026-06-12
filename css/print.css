@@ -186,6 +186,20 @@ table.ps-table {
 .ps-table .ps-kind { background: #f7f7f7; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-size: 7pt; }
 .pp-hours-table th { background: #efefef; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 
+/* ---------- 単元指導計画(年間指導計画の印刷) ---------- */
+.pi-unit { break-inside: avoid; margin-bottom: 5mm; }
+.pi-uname { font-size: 11pt; margin: 3mm 0 1.5mm; border-bottom: 0.4mm solid #000; padding-bottom: 0.6mm; }
+.pi-uname .pi-hours { font-size: 9pt; font-weight: 400; color: #333; }
+.pi-goal { font-size: 8.5pt; line-height: 1.5; margin-bottom: 1.5mm; }
+.pi-crit { width: 100%; border-collapse: collapse; margin-bottom: 1.5mm; table-layout: fixed; }
+.pi-crit th, .pi-crit td { border: 0.3mm solid #000; font-size: 8pt; padding: 0.8mm 1.2mm; vertical-align: top; text-align: left; }
+.pi-crit th { width: 36mm; background: #eef2f7; print-color-adjust: exact; -webkit-print-color-adjust: exact; font-weight: 700; }
+table.pi-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pi-table th, .pi-table td { border: 0.3mm solid #000; font-size: 8pt; padding: 0.8mm 1.2mm; vertical-align: top; text-align: left; overflow: hidden; }
+.pi-table thead th { background: #efefef; print-color-adjust: exact; -webkit-print-color-adjust: exact; text-align: center; }
+.pi-table .pi-num { width: 8mm; text-align: center; }
+.pi-vp { font-weight: 700; }
+
 /* ---------- 児童向け時間割おたより ---------- */
 .kp-header { display: flex; align-items: baseline; gap: 8mm; margin-bottom: 3mm; }
 .kp-title { font-size: 18pt; font-weight: 700; letter-spacing: .12em; }

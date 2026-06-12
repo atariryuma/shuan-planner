@@ -385,6 +385,25 @@ export function newEntry() {
   };
 }
 
+/**
+ * 各時(lesson)を正規化する。旧形式 {text} は指導目標へ移行。
+ * 新形式: { objective(指導目標/本時のねらい), activity(学習活動), assessment(評価規準), viewpoint(観点) }
+ * viewpoint は観点別評価のタグ: ''|'知'(知識・技能)|'思'(思考・判断・表現)|'態'(主体的に学習に取り組む態度)
+ */
+export function normalizeLesson(l) {
+  l = l && typeof l === 'object' ? l : {};
+  const vp = String(l.viewpoint ?? '');
+  return {
+    objective: String(l.objective ?? l.text ?? ''),  // 旧 text を指導目標として引き継ぐ
+    activity: String(l.activity ?? ''),
+    assessment: String(l.assessment ?? ''),
+    viewpoint: ['知', '思', '態'].includes(vp) ? vp : '',
+  };
+}
+
+/** 観点コード→正式名称(印刷・表示用) */
+export const VIEWPOINTS = { 知: '知識・技能', 思: '思考・判断・表現', 態: '主体的に学習に取り組む態度' };
+
 /** セル群を複製。keepText=falseなら手動内容・備考・中止フラグを初期化して自動反映に戻す */
 function cloneCells(cells, keepText) {
   const out = {};
@@ -449,7 +468,14 @@ function migrate(data) {
       ...u,
       name: String(u.name ?? ''),
       hours: Number(u.hours) || 1,
-      lessons: (Array.isArray(u.lessons) ? u.lessons : []).map(l => ({ text: String(l?.text ?? '') })),
+      goal: String(u.goal ?? ''),                 // 単元の目標
+      // 単元の評価規準(3観点: 知識・技能 / 思考・判断・表現 / 主体的に学習に取り組む態度)
+      criteria: {
+        knowledge: String(u.criteria?.knowledge ?? ''),
+        thinking: String(u.criteria?.thinking ?? ''),
+        attitude: String(u.criteria?.attitude ?? ''),
+      },
+      lessons: (Array.isArray(u.lessons) ? u.lessons : []).map(l => normalizeLesson(l)),
     })),
   }));
   data.weeks = (data.weeks && typeof data.weeks === 'object') ? data.weeks : {};
@@ -582,9 +608,13 @@ export function lessonFromPlan(plan, ordinal) {
     const h = Math.max(1, Math.round(unit.hours || unit.lessons?.length || 1));
     if (rest < h) {
       const lesson = unit.lessons?.[rest];
+      // lessonText は週グリッド・印刷の1行表示に使う指導目標(旧textも吸収)
+      const objective = lesson ? (lesson.objective ?? lesson.text ?? '') : '';
       return {
         unitName: unit.name,
-        lessonText: lesson?.text || '',
+        lessonText: objective,
+        lesson: lesson || null, // 指導目標・学習活動・評価規準の全項目(編集・詳細表示用)
+        unit,                   // 単元の目標・評価規準も参照できるように
         nth: rest + 1,
         unitHours: h,
         exhausted: false,
@@ -592,7 +622,7 @@ export function lessonFromPlan(plan, ordinal) {
     }
     rest -= h;
   }
-  return { unitName: '', lessonText: '', nth: 0, unitHours: 0, exhausted: true };
+  return { unitName: '', lessonText: '', lesson: null, unit: null, nth: 0, unitHours: 0, exhausted: true };
 }
 
 /**
