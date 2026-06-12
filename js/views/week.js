@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, fmtHours, breakNameOf } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, fmtHours, breakNameOf, termRanges } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -24,15 +24,16 @@ export function renderWeekView(root, ctx) {
     const date = addDays(monday, d);
     const hol = s.showHolidays ? holidayName(date) : null;
     const brk = breakNameOf(s, fmtDate(date));
+    const isOff = (s.offDays || []).includes(fmtDate(date)); // 任意の非授業日
     if (brk) { breakDays++; breakLabel = brk; }
     const isToday = fmtDate(date) === todayStr;
     dayHeads.push(`
       <th class="day-th" data-day="${d}" title="クリックで一括操作" tabindex="0" role="button"
           aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作">
-        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk ? 'in-break' : ''}">
+        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk || isOff ? 'in-break' : ''}">
           <span class="dow">${DAY_NAMES[d]}<span class="day-caret">▾</span></span>
           <span class="date">${fmtMD(date)}</span>
-          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : ''}
+          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : isOff ? `<span class="brk-name">休業日</span>` : ''}
         </div>
       </th>`);
   }
@@ -153,6 +154,10 @@ export function renderWeekView(root, ctx) {
       <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
+          ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
+            <button class="btn ghost" id="wk-generate" style="flex:1;">期間をまとめて作成</button>
+            ${infoHTML('基本時間割と年間指導計画から、今週〜学期末などをまとめて自動作成します。祝日・長期休業・非授業日には授業を入れません。入力済みの週は上書きしません')}
+          </span>` : ''}
           <button class="btn ghost" id="wk-save-base">基本時間割に登録</button>
           <button class="btn ghost" id="wk-import-events">年間行事の取り込み</button>
           ${s.mode !== 'senka' || gas ? '<div class="menu-sep" role="separator"></div>' : ''}
@@ -338,6 +343,61 @@ function wireNav(root, ctx, monday) {
       modal.querySelectorAll('[data-base]').forEach(b => {
         b.onclick = () => { close(); apply(b.dataset.base); };
       });
+    });
+  };
+
+  // 期間をまとめて作成(基本時間割+年間指導計画→複数週を自動生成。祝日・休業・非授業日は除外)
+  const genBtn = root.querySelector('#wk-generate');
+  if (genBtn) genBtn.onclick = () => {
+    const fy = fiscalYearOf(addDays(monday, 3));
+    const terms = termRanges(s, fy);
+    const here = fmtDate(monday);
+    const term = terms.find(t => t.from <= here && here <= t.to) || terms[terms.length - 1];
+    const monthEnd = fmtDate(new Date(monday.getFullYear(), monday.getMonth() + 1, 0));
+    const yearEnd = `${fy + 1}-03-31`;
+    const bases = store.state.baseTimetables;
+    const run = async (toDate, baseId) => {
+      const toWeek = fmtDate(mondayOf(parseDate(toDate)));
+      store.snapshot('まとめて作成');
+      const res = store.generateRange(here, toWeek, baseId);
+      if (!res.cells) { toast('追加できるコマがありませんでした(既に入力済みか期間外)', 'error', 4000); return; }
+      toast(`${res.weeks}週・${res.cells}コマを作成しました`, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      ctx.rerender();
+    };
+    const pickBaseThen = async (toDate) => {
+      if (bases.length <= 1) return run(toDate, null);
+      openModal(`<h2>どの時間割で作成しますか?</h2>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
+        </div>
+        <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>`,
+        (m, close) => {
+          m.querySelector('[data-cancel]').onclick = close;
+          m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base); });
+        });
+    };
+    openModal(`
+      <h2>期間をまとめて作成</h2>
+      <p class="hint">今週(${fmtMD(monday)})から下の期間まで、基本時間割と年間指導計画で自動作成します。<br>
+        祝日・長期休業・非授業日は除き、入力済みの週はそのまま残します。</p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn primary" data-to="${term.to}">学期末まで(${fmtMD(parseDate(term.to))})</button>
+        <button class="btn" data-to="${monthEnd}">今月末まで(${fmtMD(parseDate(monthEnd))})</button>
+        <button class="btn" data-to="${yearEnd}">年度末まで(3/31)</button>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="date" id="gen-to" value="${term.to}" style="flex:1;">
+          <button class="btn" data-to-input>この日まで</button>
+        </div>
+      </div>
+      <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-cancel]').onclick = close;
+      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { close(); pickBaseThen(b.dataset.to); });
+      modal.querySelector('[data-to-input]').onclick = () => {
+        const v = modal.querySelector('#gen-to').value;
+        if (!v) { toast('日付を選んでください', 'error'); return; }
+        close(); pickBaseThen(v);
+      };
     });
   };
 
@@ -845,12 +905,15 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
     const open = () => {
       const d = Number(th.dataset.day);
       const date = addDays(monday, d);
+      const dateStr = fmtDate(date);
       const label = `${fmtMD(date)}(${DAY_NAMES[d]})`;
+      const isOff = (store.settings.offDays || []).includes(dateStr);
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div style="display:flex; flex-direction:column; gap:8px;">
           <button class="btn" data-act="cancel-all">全コマ中止</button>
           ${d > 0 ? `<button class="btn" data-act="copy-prev">前日をコピー</button>` : ''}
+          <button class="btn" data-act="offday">${isOff ? '非授業日を解除' : '非授業日にする'}${infoHTML('非授業日にすると、基本時間割の流し込みや「まとめて作成」で授業が入りません(開校記念日・振替・学級閉鎖など)')}</button>
           <button class="btn danger" data-act="clear">この日をクリア</button>
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
@@ -859,6 +922,13 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
         modal.querySelectorAll('[data-act]').forEach(b => {
           b.onclick = () => {
             const act = b.dataset.act;
+            if (act === 'offday') {
+              const nowOff = store.toggleOffDay(dateStr);
+              close();
+              toast(nowOff ? '非授業日にしました' : '非授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleOffDay(dateStr); ctx.rerender(); } });
+              ctx.rerender();
+              return;
+            }
             const w = store.getWeek(weekStart, true);
             const state = store.state;
             const ordinals = computeOrdinals(state, weekStart);

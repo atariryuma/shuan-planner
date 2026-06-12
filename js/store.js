@@ -11,6 +11,7 @@
 
 import { getSubjectPresets, getStandardHours, LEGACY_COLOR_FIXES } from './standards.js';
 import { fmtDate, parseDate, mondayOf, addDays, uid, fiscalYearOf, fiscalYearFirstMonday, weekNumberInFiscalYear } from './utils.js';
+import { holidayName } from './holidays.js';
 
 const STORAGE_KEY = 'shuan-planner-data';
 export const SCHEMA_VERSION = 1;
@@ -61,6 +62,7 @@ export function defaultSettings(schoolType = 'elementary') {
     senkaSubject: '',         // 専科: 担当教科(新規コマの既定教科)
     uiScale: 'normal',        // 画面の文字サイズ: normal | large
     breaks: [],               // 長期休業 [{name, from:'YYYY-MM-DD', to:'YYYY-MM-DD'}](必要ペース計算・表示に使用)
+    offDays: [],              // 任意の非授業日 ['YYYY-MM-DD'](開校記念日・振替・学級閉鎖など。授業を自動挿入しない)
     showAttendance: false,    // 出欠メモ行(週案・印刷)
     stampBoxes: ['校長', '教頭', '担任'],
     printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
@@ -275,19 +277,67 @@ class Store {
     return true;
   }
 
-  /** 基本時間割をこの週へ流し込む(idを省略すると先頭)。日課パターンも反映する */
-  applyBaseTimetable(weekStart, id = null) {
+  /**
+   * 基本時間割をこの週へ流し込む(idを省略すると先頭)。日課パターンも反映する。
+   * 既定では祝日・長期休業・非授業日のコマは入れない(skipNoSchool)。
+   * fillEmptyOnly=true なら、既に入力済みのコマは上書きしない(まとめて作成で既存を守る)。
+   */
+  applyBaseTimetable(weekStart, id = null, { skipNoSchool = true, fillEmptyOnly = false, commit = true } = {}) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     if (!base || !Object.keys(base.cells).length) return false;
+    const monday = parseDate(weekStart);
     const w = this.getWeek(weekStart, true);
-    w.cells = cloneCells(base.cells, false);
+    if (!fillEmptyOnly) { w.cells = {}; }      // 通常の反映は週を一旦まっさらにする
     w.dayPatterns = { ...(base.dayPatterns || {}) };
+    const cloned = cloneCells(base.cells, false);
+    let placed = 0;
+    for (const [key, cell] of Object.entries(cloned)) {
+      const m = /^d(\d+)p/.exec(key);
+      const dayIdx = m ? Number(m[1]) : 0;
+      if (skipNoSchool && isNoSchoolDay(this.settings, fmtDate(addDays(monday, dayIdx)))) continue;
+      if (fillEmptyOnly && w.cells[key]?.entries?.length) continue; // 既存は守る
+      w.cells[key] = cell;
+      placed++;
+    }
+    if (commit) this.commit();
+    return placed > 0;
+  }
+
+  /**
+   * 期間内の各週へ基本時間割をまとめて流し込む(年間指導計画の進度は自動で連続する)。
+   * 祝日・長期休業・非授業日は除外。既存の入力は上書きしない。
+   * 戻り値: { weeks: 生成した週数, cells: 置いたコマ数 }
+   */
+  generateRange(fromWeekStart, toWeekStart, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
+    if (!base) return { weeks: 0, cells: 0 };
+    let monday = mondayOf(parseDate(fromWeekStart));
+    const end = mondayOf(parseDate(toWeekStart));
+    let weeks = 0, cells = 0;
+    let guard = 0;
+    while (fmtDate(monday) <= fmtDate(end) && guard++ < 80) {
+      const before = countCells(this.state.weeks[fmtDate(monday)]);
+      this.applyBaseTimetable(fmtDate(monday), id, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
+      const after = countCells(this.state.weeks[fmtDate(monday)]);
+      if (after > before) { weeks++; cells += after - before; }
+      monday = addDays(monday, 7);
+    }
     this.commit();
-    return true;
+    return { weeks, cells };
   }
 
   get hasBaseTimetable() {
     return (this.state.baseTimetables || []).length > 0;
+  }
+
+  /** 任意の日を非授業日にする/解除する(授業を自動挿入しない日) */
+  toggleOffDay(dateStr) {
+    const s = this.settings;
+    s.offDays = Array.isArray(s.offDays) ? s.offDays : [];
+    const i = s.offDays.indexOf(dateStr);
+    if (i >= 0) s.offDays.splice(i, 1); else s.offDays.push(dateStr);
+    this.commit();
+    return i < 0; // true=非授業日にした
   }
 
   // -------- plans
@@ -497,6 +547,7 @@ function migrate(data) {
   }
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
   if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
+  if (!Array.isArray(data.settings.offDays)) data.settings.offDays = [];
   // 「道徳」→正式名称「特別の教科 道徳」へ(提出書類に略式名が出ないように。独自に改名済みなら触らない)
   for (const sub of data.settings.subjects) {
     if (sub.key === 'dotoku' && sub.name === '道徳') sub.name = '特別の教科 道徳';
@@ -791,6 +842,35 @@ export function teachingWeeksElapsed(settings, refWeekStart) {
 export function breakNameOf(settings, dateStr) {
   const b = (settings.breaks || []).find(b => b.from && b.to && b.from <= dateStr && dateStr <= b.to);
   return b ? b.name : null;
+}
+
+/**
+ * その日が「授業を入れない日」か。基本時間割の流し込み・まとめて作成で除外する。
+ * 対象: 日曜(土は設定次第) / 祝日(祝日表示ONのとき) / 長期休業 / 任意の非授業日。
+ */
+export function isNoSchoolDay(settings, dateStr) {
+  return !!noSchoolReason(settings, dateStr);
+}
+
+/** 非授業日の理由ラベル(なければ null)。表示にも使う */
+export function noSchoolReason(settings, dateStr) {
+  const d = parseDate(dateStr);
+  const dow = d.getDay(); // 0=日, 6=土
+  if (dow === 0) return '日曜';
+  if (dow === 6 && !settings.saturday) return '土曜';
+  if ((settings.offDays || []).includes(dateStr)) return '休業日';
+  const brk = breakNameOf(settings, dateStr);
+  if (brk) return brk;
+  if (settings.showHolidays) { const h = holidayName(d); if (h) return h; }
+  return null;
+}
+
+/** 週のコマ数(エントリのある data セル数)。まとめて作成の差分に使う */
+function countCells(week) {
+  if (!week || !week.cells) return 0;
+  let n = 0;
+  for (const c of Object.values(week.cells)) n += (c.entries?.length ? 1 : 0);
+  return n;
 }
 
 /**
