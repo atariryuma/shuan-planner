@@ -132,6 +132,12 @@ table.pp-grid {
   gap: 2mm;
   margin-top: 2mm;
 }
+.pp-notes-row {
+  flex: 2.4;
+  display: flex;
+  gap: 2mm;
+  min-width: 0;
+}
 .pp-box {
   border: 0.3mm solid #000;
   padding: 1mm 1.5mm;
@@ -161,6 +167,39 @@ table.pp-hours-table { border-collapse: collapse; width: 100%; height: 100%; tab
 }
 /* 管理職の指導・助言欄 */
 .pp-manager { flex: 1; min-height: 14mm; max-height: 38mm; }
+
+/* A4縦の標準週案: 記録欄の下に時数表を横幅いっぱいで置く。
+ * 縦用紙で各欄を横一列に詰めると、時数と反省が読めなくなるため。 */
+#print-root.print-portrait .pp-header {
+  gap: 3mm;
+  margin-bottom: 1.5mm;
+}
+#print-root.print-portrait .pp-title { font-size: 12pt; letter-spacing: .16em; }
+#print-root.print-portrait .pp-footer {
+  flex-direction: column;
+  gap: 1.5mm;
+}
+#print-root.print-portrait .pp-notes-row {
+  flex: none;
+  width: 100%;
+}
+#print-root.print-portrait .pp-goals,
+#print-root.print-portrait .pp-reflection,
+#print-root.print-portrait .pp-manager {
+  min-height: 12mm;
+  max-height: 27mm;
+}
+#print-root.print-portrait .pp-hours {
+  flex: none;
+  width: 100%;
+  min-height: 18mm;
+  max-height: 32mm;
+}
+#print-root.print-portrait .pp-hours-table th,
+#print-root.print-portrait .pp-hours-table td {
+  font-size: 6.8pt;
+  padding: 0.35mm 0;
+}
 
 /* ---------- 時数集計の印刷(A4縦) ---------- */
 .ps-h3 { font-size: 11pt; margin: 4mm 0 1.5mm; }

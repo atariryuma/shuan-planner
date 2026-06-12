@@ -209,8 +209,8 @@ export function renderSettingsView(root, ctx) {
       <div class="print-options">
         <div class="field"><label>用紙の向き</label>
           ${selectHTML('printOrientation', [
-            { value: 'landscape', label: 'A4 横(推奨)' },
-            { value: 'portrait', label: 'A4 縦' },
+            { value: 'portrait', label: 'A4 縦(標準)' },
+            { value: 'landscape', label: 'A4 横(ワイド)' },
           ], s.printOrientation)}
         </div>
         <div class="field"><label>文字サイズ</label>

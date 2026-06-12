@@ -48,8 +48,8 @@ export function openPrintDialog(ctx) {
       <div class="print-options" style="margin-top:8px;">
         <div class="field"><label>用紙の向き</label>
           <select name="orientation">
-            <option value="landscape" ${s.printOrientation === 'landscape' ? 'selected' : ''}>A4 横(推奨)</option>
-            <option value="portrait" ${s.printOrientation === 'portrait' ? 'selected' : ''}>A4 縦</option>
+            <option value="portrait" ${s.printOrientation === 'portrait' ? 'selected' : ''}>A4 縦(標準)</option>
+            <option value="landscape" ${s.printOrientation === 'landscape' ? 'selected' : ''}>A4 横(ワイド)</option>
           </select></div>
         <div class="field"><label>レイアウト</label>
           <select name="layout">
@@ -70,7 +70,7 @@ export function openPrintDialog(ctx) {
       </div>
     </details>
     <p class="hint" style="margin-top:10px;">${isIOS()
-      ? 'iPadでは共有→プリントで「横向き」を選んでください(Safariは向きの自動指定が効きません)'
+      ? `iPadでは共有→プリントで「${s.printOrientation === 'portrait' ? '縦向き' : '横向き'}」を選んでください(Safariは向きの自動指定が効きません)`
       : 'Chrome / Edge 推奨・倍率100%。PDF保存は印刷画面で「PDFに保存」を選びます。'}</p>
     <div class="modal-foot">
       <button class="btn" data-cancel>キャンセル</button>
@@ -181,6 +181,7 @@ export function buildPrintDOM(weekStart, { range = 'week' } = {}) {
 
   const weeks = weeksForRange(state, weekStart, range);
   const root = document.getElementById('print-root');
+  root.classList.toggle('print-portrait', !landscape);
   root.innerHTML = weeks.map(wk => renderPrintPage(state, wk, { innerW })).join('');
 
   // あふれ検知: 収まらないページがあればフォントを段階的に縮小する(全ページ共通)。
@@ -357,13 +358,14 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
 
 function renderFooter(state, week, weekStart) {
   const s = state.settings;
-  const boxes = [];
-  boxes.push(`<div class="pp-box pp-goals"><span class="box-label">今週のめあて・重点</span>${esc(week.goals || '').replace(/\n/g, '<br>')}</div>`);
-  boxes.push(`<div class="pp-box pp-reflection"><span class="box-label">反省・次週への課題</span>${esc(week.reflection || '').replace(/\n/g, '<br>')}</div>`);
+  const noteBoxes = [];
+  noteBoxes.push(`<div class="pp-box pp-goals"><span class="box-label">今週のめあて・重点</span>${esc(week.goals || '').replace(/\n/g, '<br>')}</div>`);
+  noteBoxes.push(`<div class="pp-box pp-reflection"><span class="box-label">反省・次週への課題</span>${esc(week.reflection || '').replace(/\n/g, '<br>')}</div>`);
   if (s.printManagerBox) {
-    boxes.push(`<div class="pp-box pp-manager"><span class="box-label">指導・助言</span></div>`);
+    noteBoxes.push(`<div class="pp-box pp-manager"><span class="box-label">指導・助言</span></div>`);
   }
 
+  let hoursBox = '';
   if (s.printShowHours) {
     const hours = computeHours(state, weekStart);
     const keys = new Set(s.subjects.map(x => x.key));
@@ -371,7 +373,7 @@ function renderFooter(state, week, weekStart) {
     for (const subj of s.subjects) if (subj.parent && keys.has(subj.parent)) (childrenOf[subj.parent] = childrenOf[subj.parent] || []).push(subj.key);
 
     /** 1スコープ分の {name, wk, tt} リスト(親教科へ合算) */
-    const itemsFor = (scopesToSum) => {
+    const itemsFor = (scopesToSum, grade = null) => {
       const items = [];
       for (const subj of s.subjects) {
         if (subj.parent && keys.has(subj.parent)) continue;
@@ -382,7 +384,10 @@ function renderFooter(state, week, weekStart) {
             if (v) { wk += v.week; tt += v.total; }
           }
         }
-        if (wk > 0 || tt > 0) items.push({ name: subj.short || subj.name, wk, tt });
+        if (wk > 0 || tt > 0) {
+          const std = grade == null ? null : standardHoursFor(s, subj.key, grade);
+          items.push({ key: subj.key, name: subj.short || subj.name, wk, tt, std });
+        }
       }
       return items;
     };
@@ -393,14 +398,20 @@ function renderFooter(state, week, weekStart) {
       const keep = new Set(sorted.slice(0, 13).map(i => i.name));
       const head = items.filter(i => keep.has(i.name));
       const rest = items.filter(i => !keep.has(i.name));
-      head.push({ name: 'ほか', wk: rest.reduce((a, i) => a + i.wk, 0), tt: rest.reduce((a, i) => a + i.tt, 0) });
+      head.push({
+        key: 'other',
+        name: 'ほか',
+        wk: rest.reduce((a, i) => a + i.wk, 0),
+        tt: rest.reduce((a, i) => a + i.tt, 0),
+        std: null,
+      });
       return head;
     };
 
     if (s.mode === 'fukushiki') {
       // 学年ごとに別の行で出す(合算すると提出書類として誤りになる)。
       // 週案は週単位の提出物なので、他形態・メールと同じく学年ごとに「週」「計」の両方を出す。
-      const perGrade = s.fukushikiGrades.map(g => ({ g, items: itemsFor([g]) }));
+      const perGrade = s.fukushikiGrades.map(g => ({ g, items: itemsFor([g], g) }));
       const names = [];
       for (const pg of perGrade) for (const i of pg.items) if (!names.includes(i.name)) names.push(i.name);
       // 14列超過の「ほか」判定は全学年合算の週・累計で行う(列の取捨は両学年で揃える)
@@ -420,31 +431,43 @@ function renderFooter(state, week, weekStart) {
           return `<tr><th>${pg.g}年週</th>${cols.map(n => `<td>${cellWk(n)}</td>`).join('')}</tr>`
             + `<tr><th>${pg.g}年計</th>${cols.map(n => `<td>${cellTt(n)}</td>`).join('')}</tr>`;
         }).join('');
-        boxes.push(`<div class="pp-box pp-hours">
+        hoursBox = `<div class="pp-box pp-hours">
           <table class="pp-hours-table">
             <tr><th style="width:10mm;"></th>${headRow}</tr>
             ${gradeRows}
           </table>
-        </div>`);
+        </div>`;
       }
     } else {
       const scopesToSum = s.mode === 'senka' ? [...s.senkaClasses.map(c => c.id), null] : [null];
-      const items = capCols(itemsFor(scopesToSum));
+      const grade = s.mode === 'homeroom' ? s.grade : null;
+      const items = capCols(itemsFor(scopesToSum, grade));
       if (items.length) {
         const headRow = items.map(i => `<th>${esc(i.name)}</th>`).join('');
         const weekRow = items.map(i => `<td>${fmtHours(i.wk)}</td>`).join('');
         const totalRow = items.map(i => `<td>${fmtHours(i.tt)}</td>`).join('');
-        boxes.push(`<div class="pp-box pp-hours">
+        const hasStandards = items.some(i => i.std != null);
+        const standardRow = hasStandards
+          ? `<tr><th>標準</th>${items.map(i => `<td>${i.std == null ? '' : fmtHours(i.std)}</td>`).join('')}</tr>` : '';
+        const remainRow = hasStandards
+          ? `<tr><th>残り</th>${items.map(i => `<td>${i.std == null ? '' : fmtHours(i.std - i.tt)}</td>`).join('')}</tr>` : '';
+        const progressRow = hasStandards
+          ? `<tr><th>進捗</th>${items.map(i => `<td>${i.std ? `${Math.round(i.tt / i.std * 100)}%` : ''}</td>`).join('')}</tr>` : '';
+        hoursBox = `<div class="pp-box pp-hours">
           <table class="pp-hours-table">
             <tr><th style="width:8mm;"></th>${headRow}</tr>
             <tr><th>週</th>${weekRow}</tr>
-            <tr><th>計</th>${totalRow}</tr>
+            <tr><th>累計</th>${totalRow}</tr>
+            ${standardRow}${remainRow}${progressRow}
           </table>
-        </div>`);
+        </div>`;
       }
     }
   }
-  return `<div class="pp-footer">${boxes.join('')}</div>`;
+  return `<div class="pp-footer">
+    <div class="pp-notes-row">${noteBoxes.join('')}</div>
+    ${hoursBox}
+  </div>`;
 }
 
 // ---------------------------------------------------------------- 児童向け時間割おたより
@@ -520,6 +543,7 @@ export function buildKidsPrintDOM(weekStart) {
     : `${s.grade}年${esc(s.className || '')}`;
 
   const root = document.getElementById('print-root');
+  root.classList.remove('print-portrait');
   root.innerHTML = `
     <div class="print-page kp-page">
       <div class="kp-header">
@@ -669,6 +693,7 @@ export function buildStatsPrintDOM(weekStart) {
   // 4月以降に前年度の集計を印刷するとデータと年度ラベルが食い違う)
   const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
   const root = document.getElementById('print-root');
+  root.classList.remove('print-portrait');
   root.innerHTML = `
     <div class="print-page">
       <div class="pp-header" style="margin-bottom:4mm;">
@@ -702,6 +727,7 @@ export function buildPlanPrintDOM(planId) {
   `;
 
   const root = document.getElementById('print-root');
+  root.classList.remove('print-portrait');
   if (!plan) { root.innerHTML = '<div class="print-page"><p>計画がありません</p></div>'; return; }
   const subj = s.subjects.find(x => x.key === plan.subjectKey);
   const subjName = subj?.name || plan.subjectKey;

@@ -14,7 +14,7 @@ import { fmtDate, parseDate, mondayOf, addDays, uid, fiscalYearOf, fiscalYearFir
 import { holidayName } from './holidays.js';
 
 const STORAGE_KEY = 'shuan-planner-data';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------- defaults
 
@@ -68,11 +68,12 @@ export function defaultSettings(schoolType = 'elementary') {
     printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
     printManagerBox: false,   // 印刷に管理職の指導・助言欄を出す
     printEra: false,          // 印刷・出力の年表記を和暦(令和)にする
-    printOrientation: 'landscape',
+    printOrientation: 'portrait',
     printLayout: 'periods',   // periods=縦軸が校時(バーチカル型) | days=縦軸が曜日(Excel型)
     printShowTimes: false,
     printShowHours: true,
     printFontSize: 'normal',  // small | normal | large
+    printPresetVersion: 2,    // v2=A4縦を標準とする週案様式
     weekStartNote: '',
     gas: {
       url: '', token: '', auto: false, lastSync: null,
@@ -473,10 +474,30 @@ function cloneCells(cells, keepText) {
 }
 
 function migrate(data) {
+  const sourceVersion = Number(data.schemaVersion) || 1;
+  const oldPrint = data.settings ? {
+    orientation: data.settings.printOrientation,
+    layout: data.settings.printLayout,
+    fontSize: data.settings.printFontSize,
+    showTimes: data.settings.printShowTimes,
+    showHours: data.settings.printShowHours,
+    presetVersion: data.settings.printPresetVersion,
+  } : {};
   if (!data.schemaVersion) data.schemaVersion = 1;
   // 将来のスキーマ変更はここに追記(schemaVersionで分岐)
   const def = defaultSettings(data.settings?.schoolType || 'elementary');
   data.settings = { ...def, ...data.settings, gas: { ...def.gas, ...(data.settings?.gas || {}) } };
+  // v2: 一般的な週案簿に合わせ、旧既定のまま使われていた印刷設定だけをA4縦へ移行する。
+  // 横向き等を明示的に変更していた利用者の設定は維持する。
+  if (sourceVersion < 2 && oldPrint.presetVersion == null) {
+    const wasLegacyDefault = (oldPrint.orientation == null || oldPrint.orientation === 'landscape')
+      && (oldPrint.layout == null || oldPrint.layout === 'periods')
+      && (oldPrint.fontSize == null || oldPrint.fontSize === 'normal')
+      && (oldPrint.showTimes == null || oldPrint.showTimes === false)
+      && (oldPrint.showHours == null || oldPrint.showHours === true);
+    if (wasLegacyDefault) data.settings.printOrientation = 'portrait';
+    data.settings.printPresetVersion = 2;
+  }
   if (!Array.isArray(data.settings.periods) || !data.settings.periods.length) data.settings.periods = def.periods;
   if (!Array.isArray(data.settings.subjects) || !data.settings.subjects.length) data.settings.subjects = def.subjects;
   if (!Array.isArray(data.settings.fukushikiGrades) || data.settings.fukushikiGrades.length < 2) data.settings.fukushikiGrades = def.fukushikiGrades;
@@ -582,6 +603,7 @@ function migrate(data) {
       : [];
     delete data.baseTimetable;
   }
+  data.schemaVersion = SCHEMA_VERSION;
   data.updatedAt = Number(data.updatedAt) || Date.now();
   return data;
 }
