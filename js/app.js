@@ -226,19 +226,29 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => store.persist());
 
-// 別タブでの変更を検知(last-write-wins消失防止)
+// 同じ端末で複数タブを開いているときのタブ間整合(last-write-wins消失防止)。
+// 同一ユーザーの同じデータを揃えるだけなので無音で行う(編集のたび通知が出ると煩い)。
+// 入力中・モーダル操作中は中断しないよう、安定した瞬間にだけ適用する。
+let crossTabTimer = null;
+let crossTabPending = null;
 window.addEventListener('storage', (ev) => {
   if (ev.key !== 'shuan-planner-data' || ev.newValue == null) return;
-  try {
-    const incoming = JSON.parse(ev.newValue);
-    // 自タブの方が新しい変更を持っている場合は採用しない(次の自動保存で自タブ版が勝つ)
-    if ((incoming.updatedAt || 0) < (store.state.updatedAt || 0)) return;
-    // 開いているモーダルは旧stateのオブジェクトを参照しているため、必ず閉じてから差し替える
-    closeAllModals();
-    store.replaceState(incoming); // migrate(正規化)を通し、ローカルのGAS設定を維持
-    rerender();
-    toast('別のタブでの変更を読み込みました');
-  } catch { /* 壊れた値は無視 */ }
+  crossTabPending = ev.newValue;
+  clearTimeout(crossTabTimer);
+  crossTabTimer = setTimeout(() => {
+    const raw = crossTabPending; crossTabPending = null;
+    try {
+      const incoming = JSON.parse(raw);
+      // 自タブの方が新しい変更を持っている場合は採用しない(次の自動保存で自タブ版が勝つ)
+      if ((incoming.updatedAt || 0) <= (store.state.updatedAt || 0)) return;
+      // 入力中・モーダル表示中は差し替えない(タイピングやダイアログ操作を壊さない)
+      const a = document.activeElement;
+      if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+      if (document.querySelector('.modal-backdrop')) return;
+      store.replaceState(incoming); // migrate(正規化)を通し、ローカルのGAS設定を維持
+      rerender(); // 通知は出さない(タブ間の整合は裏方の動作)
+    } catch { /* 壊れた値は無視 */ }
+  }, 400); // 連続保存をまとめて1回だけ適用(通知も再描画も最小化)
 });
 
 // ストレージの永続化を要求(SafariのITP 7日間削除・容量逼迫時の自動削除への防御)
