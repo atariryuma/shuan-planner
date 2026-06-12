@@ -7,7 +7,7 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, termRanges, VIEWPOINTS } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, termRanges, VIEWPOINTS } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
@@ -68,6 +68,8 @@ export function openPrintDialog(ctx) {
           <label for="po-times">校時の時刻</label></div>
         <div class="checkline"><input type="checkbox" name="showHours" id="po-hours" ${s.printShowHours ? 'checked' : ''}>
           <label for="po-hours">週の時数表</label></div>
+        <div class="checkline"><input type="checkbox" name="showPlanDetails" id="po-details" ${s.printShowPlanDetails ? 'checked' : ''}>
+          <label for="po-details">指導計画詳細を添付</label></div>
       </div>
     </details>
     <p class="hint" style="margin-top:10px;">${isIOS()
@@ -88,6 +90,7 @@ export function openPrintDialog(ctx) {
         s.printFontSize = modal.querySelector('[name="fontSize"]').value;
         s.printShowTimes = modal.querySelector('[name="showTimes"]').checked;
         s.printShowHours = modal.querySelector('[name="showHours"]').checked;
+        s.printShowPlanDetails = modal.querySelector('[name="showPlanDetails"]').checked;
         store.commit();
       }
       close();
@@ -137,8 +140,8 @@ function hasContent(w) {
 /** 指定週(または期間)を印刷する */
 export function printWeek(weekStart, range = 'week') {
   const result = buildPrintDOM(weekStart, { range });
-  if (result.pages > 1) {
-    toast(`${result.pages}週分をまとめて印刷します`, 'info', 3000);
+  if (result.weeks > 1 || result.pages > result.weeks) {
+    toast(`${result.weeks}週分・全${result.pages}ページを印刷します`, 'info', 3000);
   }
   if (result.shrunk) {
     toast('文字サイズを縮小しました', 'info', 3500);
@@ -183,7 +186,12 @@ export function buildPrintDOM(weekStart, { range = 'week' } = {}) {
   const weeks = weeksForRange(state, weekStart, range);
   const root = document.getElementById('print-root');
   root.classList.toggle('print-portrait', !landscape);
-  root.innerHTML = weeks.map(wk => renderPrintPage(state, wk, { innerW })).join('');
+  const pageHTML = weeks.flatMap(wk => {
+    const pages = [renderPrintPage(state, wk, { innerW })];
+    if (s.printShowPlanDetails) pages.push(...renderPlanDetailPages(state, wk));
+    return pages;
+  });
+  root.innerHTML = pageHTML.join('');
 
   // あふれ検知: 収まらないページがあればフォントを段階的に縮小する(全ページ共通)。
   // 画面ではdisplay:noneでレイアウトされないため、画面外に一時表示して計測する。
@@ -207,7 +215,7 @@ export function buildPrintDOM(weekStart, { range = 'week' } = {}) {
   } finally {
     root.setAttribute('style', prevStyle);
   }
-  return { overflow, shrunk, pages: weeks.length };
+  return { overflow, shrunk, pages: pageHTML.length, weeks: weeks.length };
 }
 
 // ---------------------------------------------------------------- ページ描画
@@ -325,9 +333,15 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
   let mergedLabel = '';
   if (s.mode === 'fukushiki' && entries.length === 2) {
     const [a, b] = entries;
-    const ta = a.cancelled ? (a.cancelledText || '') : resolveEntryText(state, a, ordinals).text;
-    const tb = b.cancelled ? (b.cancelledText || '') : resolveEntryText(state, b, ordinals).text;
+    const pa = resolveEntryPlanDetails(state, a, ordinals);
+    const pb = resolveEntryPlanDetails(state, b, ordinals);
+    const ta = a.cancelled ? (a.cancelledText || '') : pa.resolved.text;
+    const tb = b.cancelled ? (b.cancelledText || '') : pb.resolved.text;
+    const detailKey = detail => detail
+      ? `${detail.activity}\u0000${detail.assessment}\u0000${detail.viewpoint}`
+      : '';
     if (a.subjectKey && a.subjectKey === b.subjectKey && ta === tb
+      && detailKey(pa.details) === detailKey(pb.details)
       && (a.note || '') === (b.note || '') && !!a.cancelled === !!b.cancelled
       && (a.guide || null) === (b.guide || null)) {
       entries = [a];
@@ -337,7 +351,7 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
 
   const inner = entries.map(e => {
     const subj = s.subjects.find(x => x.key === e.subjectKey);
-    const resolved = resolveEntryText(state, e, ordinals);
+    const { resolved, details } = resolveEntryPlanDetails(state, e, ordinals);
     const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
     const scopeLabel = mergedLabel || (e.scope != null && e.scope !== ''
       ? (s.mode === 'fukushiki' ? `${e.scope}年` : (s.senkaClasses.find(c => c.id === e.scope)?.label || ''))
@@ -355,10 +369,138 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
           ${e.cancelled ? `<span class="e-scope">中止</span>` : ''}
         </div>
         ${text ? `<div class="e-text">${esc(text)}</div>` : ''}
+        ${!e.cancelled && details?.activity ? `<div class="e-plan"><b>活</b>${esc(details.activity)}</div>` : ''}
+        ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan e-eval"><b>評${details.viewpoint ? `(${esc(details.viewpoint)})` : ''}</b>${esc(details.assessment)}</div>` : ''}
         ${e.note ? `<div class="e-note">※${esc(e.note)}</div>` : ''}
       </div>`;
   }).join('');
   return `<td class="pcell">${inner}</td>`;
+}
+
+function printScopeLabel(settings, scope) {
+  if (scope == null || scope === '') return '';
+  if (settings.mode === 'fukushiki') return `${scope}年`;
+  if (settings.mode === 'senka') return settings.senkaClasses.find(c => c.id === scope)?.label || '学級未設定';
+  return '';
+}
+
+/** その週に配置された授業を、単元ごとの全項目を持つ印刷行へ変換する。 */
+export function buildWeekPlanDetailModel(state, weekStart) {
+  const s = state.settings;
+  const week = state.weeks[weekStart] || { cells: {} };
+  const ordinals = computeOrdinals(state, weekStart);
+  const monday = parseDate(weekStart);
+  const dayCount = s.saturday ? 6 : 5;
+  const groups = new Map();
+
+  for (let day = 0; day < dayCount; day++) {
+    for (const period of s.periods) {
+      if (!effectivePeriod(s, week, day, period)) continue;
+      const entries = week.cells?.[cellKey(day, period.id)]?.entries || [];
+      for (const entry of entries) {
+        const { details } = resolveEntryPlanDetails(state, entry, ordinals);
+        if (!details) continue;
+        const subject = s.subjects.find(x => x.key === entry.subjectKey);
+        const key = `${details.planId || entry.subjectKey}|${details.unitId}|${entry.scope ?? ''}`;
+        if (!groups.has(key)) {
+          groups.set(key, {
+            subject: subject?.name || entry.subjectKey,
+            scope: printScopeLabel(s, entry.scope) || (details.grade ? `${details.grade}年` : ''),
+            textbook: details.textbook,
+            unitName: details.unitName,
+            unitHours: details.unitHours,
+            unitGoal: details.unitGoal,
+            unitCriteria: details.unitCriteria,
+            lessons: [],
+          });
+        }
+        groups.get(key).lessons.push({
+          date: fmtMD(addDays(monday, day)),
+          day: DAY_NAMES[day],
+          period: period.type === 'module' ? period.label : `${period.label}校時`,
+          cancelled: Boolean(entry.cancelled),
+          nth: details.nth,
+          objective: details.objective,
+          activity: details.activity,
+          assessment: details.assessment,
+          viewpoint: details.viewpoint,
+          viewpointLabel: details.viewpointLabel,
+          manualText: details.manualText,
+          note: entry.note || '',
+        });
+      }
+    }
+  }
+  return [...groups.values()];
+}
+
+export function splitDetailLessons(lessons) {
+  const chunks = [];
+  let chunk = [];
+  let weight = 0;
+  for (const lesson of lessons) {
+    const chars = lesson.objective.length + lesson.activity.length + lesson.assessment.length + lesson.note.length;
+    const itemWeight = Math.max(1, Math.ceil(chars / 150));
+    if (chunk.length && weight + itemWeight > 7) {
+      chunks.push(chunk);
+      chunk = [];
+      weight = 0;
+    }
+    chunk.push(lesson);
+    weight += itemWeight;
+  }
+  if (chunk.length) chunks.push(chunk);
+  return chunks;
+}
+
+function renderUnitOverview(group, continuation) {
+  const criteria = [
+    ['知識・技能', group.unitCriteria.knowledge],
+    ['思考・判断・表現', group.unitCriteria.thinking],
+    ['主体的に学習に取り組む態度', group.unitCriteria.attitude],
+  ];
+  return `<section class="pd-unit">
+    <h2>${esc(group.subject)}${group.scope ? `・${esc(group.scope)}` : ''}　${esc(group.unitName)}
+      <span>${group.unitHours}時間${group.textbook ? ` / ${esc(group.textbook)}` : ''}${continuation ? ' / 続き' : ''}</span></h2>
+    ${group.unitGoal ? `<div class="pd-goal"><b>単元の目標</b><span>${esc(group.unitGoal)}</span></div>` : ''}
+    <table class="pd-criteria"><tbody>${criteria.map(([label, value]) =>
+      `<tr><th>${label}</th><td>${esc(value || '—')}</td></tr>`).join('')}</tbody></table>
+  </section>`;
+}
+
+function renderDetailLessonTable(lessons) {
+  return `<table class="pd-lessons">
+    <thead><tr><th class="pd-when">日時</th><th class="pd-num">時</th><th>指導目標（本時のねらい）</th><th>学習活動</th><th>評価規準・観点</th></tr></thead>
+    <tbody>${lessons.map(lesson => `<tr class="${lesson.cancelled ? 'pd-cancelled' : ''}">
+      <td>${lesson.date}(${lesson.day})<br>${esc(lesson.period)}${lesson.cancelled ? '<br><b>中止</b>' : ''}</td>
+      <td>${lesson.nth}</td>
+      <td>${esc(lesson.objective || '—')}${lesson.manualText ? `<div class="pd-manual">週案記載: ${esc(lesson.manualText)}</div>` : ''}</td>
+      <td>${esc(lesson.activity || '—')}</td>
+      <td>${lesson.viewpoint ? `<span class="pd-vp">${esc(lesson.viewpoint)} ${esc(lesson.viewpointLabel)}</span>` : ''}${esc(lesson.assessment || '—')}${lesson.note ? `<div class="pd-note">備考: ${esc(lesson.note)}</div>` : ''}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+/** 週案本紙を崩さず、年間指導計画の全項目を単元別の補足ページへ出す。 */
+function renderPlanDetailPages(state, weekStart) {
+  const groups = buildWeekPlanDetailModel(state, weekStart);
+  if (!groups.length) return [];
+  const monday = parseDate(weekStart);
+  const lastDay = addDays(monday, state.settings.saturday ? 5 : 4);
+  const pages = [];
+  for (const group of groups) {
+    splitDetailLessons(group.lessons).forEach((lessons, index) => {
+      pages.push(`<div class="print-page pp-detail-page">
+        <header class="pd-header">
+          <div><span class="pd-title">今週の指導計画詳細</span><span class="pd-range">${fmtMD(monday)}〜${fmtMD(lastDay)}</span></div>
+          <div>${esc(state.settings.schoolName || '')}　${esc(state.settings.teacherName || '')}</div>
+        </header>
+        ${renderUnitOverview(group, index > 0)}
+        ${renderDetailLessonTable(lessons)}
+      </div>`);
+    });
+  }
+  return pages;
 }
 
 function renderFooter(state, week, weekStart) {

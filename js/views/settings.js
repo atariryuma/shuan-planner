@@ -223,6 +223,8 @@ export function renderSettingsView(root, ctx) {
         <label for="set-ptime">校時の時刻</label></div>
       <div class="checkline"><input type="checkbox" id="set-phours" ${s.printShowHours ? 'checked' : ''}>
         <label for="set-phours">週の時数表</label></div>
+      <div class="checkline"><input type="checkbox" id="set-pdetails" ${s.printShowPlanDetails ? 'checked' : ''}>
+        <label for="set-pdetails">指導計画詳細を添付</label>${infoHTML('週案本紙の後に、その週の単元目標・3観点評価・各時の指導目標／学習活動／評価規準を印刷します')}</div>
       <div class="checkline"><input type="checkbox" id="set-pmanager" ${s.printManagerBox ? 'checked' : ''}>
         <label for="set-pmanager">管理職の記入欄</label>${infoHTML('「指導・助言」の空欄を印刷します(押印・コメント運用の学校向け)')}</div>
       <div class="checkline"><input type="checkbox" id="set-pera" ${s.printEra ? 'checked' : ''}>
@@ -398,6 +400,7 @@ function wireSettings(root, ctx) {
   root.querySelector('#set-sat').addEventListener('change', (ev) => { s.saturday = ev.target.checked; store.commit(); ctx.rerender(); });
   root.querySelector('#set-ptime').addEventListener('change', (ev) => { s.printShowTimes = ev.target.checked; store.commit(); });
   root.querySelector('#set-phours').addEventListener('change', (ev) => { s.printShowHours = ev.target.checked; store.commit(); });
+  root.querySelector('#set-pdetails').addEventListener('change', (ev) => { s.printShowPlanDetails = ev.target.checked; store.commit(); });
   root.querySelector('#set-pmanager').addEventListener('change', (ev) => { s.printManagerBox = ev.target.checked; store.commit(); });
   root.querySelector('#set-pera').addEventListener('change', (ev) => { s.printEra = ev.target.checked; store.commit(); });
   root.querySelector('[name="uiScale"]').addEventListener('change', (ev) => {

@@ -72,6 +72,7 @@ export function defaultSettings(schoolType = 'elementary') {
     printLayout: 'periods',   // periods=縦軸が校時(バーチカル型) | days=縦軸が曜日(Excel型)
     printShowTimes: false,
     printShowHours: true,
+    printShowPlanDetails: true, // 週案本紙の後に、その週の指導計画詳細を添付
     printFontSize: 'normal',  // small | normal | large
     printPresetVersion: 2,    // v2=A4縦を標準とする週案様式
     weekStartNote: '',
@@ -714,6 +715,50 @@ export function resolveEntryText(state, entry, ordinals) {
   const sub = info.lessonText ? ` ${info.lessonText}` : '';
   const counter = info.unitHours > 1 ? `(${info.nth}/${info.unitHours})` : '';
   return { text: `${head}${counter}${sub}`.trim(), auto: true, info };
+}
+
+/** 年間指導計画から、週案UI・印刷で共有する全項目を取り出す。 */
+export function resolveEntryPlanDetails(state, entry, ordinals) {
+  const resolved = resolveEntryText(state, entry, ordinals);
+  let info = resolved.info;
+  let plan = null;
+  if (!info && entry.subjectKey) {
+    const grade = scopeGrade(state.settings, entry.scope);
+    plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
+      || null;
+    info = plan ? lessonFromPlan(plan, ordinals.get(entry.id)) : null;
+  } else if (info) {
+    const grade = scopeGrade(state.settings, entry.scope);
+    plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
+      || null;
+  }
+  if (!info || info.exhausted || !info.unit) return { resolved, details: null };
+  const lesson = normalizeLesson(info.lesson);
+  const criteria = info.unit.criteria || {};
+  return {
+    resolved,
+    details: {
+      unitName: String(info.unitName || ''),
+      unitId: String(info.unit.id || info.unitName || ''),
+      nth: info.nth,
+      unitHours: info.unitHours,
+      planId: String(plan?.id || ''),
+      textbook: String(plan?.textbook || ''),
+      grade: Number(plan?.grade || scopeGrade(state.settings, entry.scope)) || null,
+      manualText: resolved.auto ? '' : resolved.text,
+      unitGoal: String(info.unit.goal || ''),
+      unitCriteria: {
+        knowledge: String(criteria.knowledge || ''),
+        thinking: String(criteria.thinking || ''),
+        attitude: String(criteria.attitude || ''),
+      },
+      objective: lesson.objective,
+      activity: lesson.activity,
+      assessment: lesson.assessment,
+      viewpoint: lesson.viewpoint,
+      viewpointLabel: VIEWPOINTS[lesson.viewpoint] || '',
+    },
+  };
 }
 
 /** scope(専科=classId / 複式=学年番号)から学年を解決 */

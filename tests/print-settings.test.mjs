@@ -42,6 +42,7 @@ test('new users get the standard A4 portrait weekly-plan preset', () => {
   assert.equal(settings.printOrientation, 'portrait');
   assert.equal(settings.printLayout, 'periods');
   assert.equal(settings.printShowHours, true);
+  assert.equal(settings.printShowPlanDetails, true);
   assert.equal(settings.printPresetVersion, 2);
 });
 

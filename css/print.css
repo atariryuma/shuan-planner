@@ -123,7 +123,50 @@ table.pp-grid {
 }
 .pp-entry .e-scope { font-size: calc(var(--pfs) - 1.5pt); font-weight: 700; white-space: nowrap; }
 .pp-entry .e-text { font-size: calc(var(--pfs) - 1pt); }
+.pp-entry .e-plan {
+  display: flex; gap: 0.8mm; margin-top: 0.25mm;
+  font-size: calc(var(--pfs) - 2pt); color: #222; line-height: 1.2;
+}
+.pp-entry .e-plan b {
+  flex: 0 0 auto; border: 0.2mm solid #777; border-radius: 0.6mm;
+  padding: 0 0.4mm; font-size: calc(var(--pfs) - 2.5pt);
+}
+.pp-entry .e-eval { color: #5c2b16; }
 .pp-entry .e-note { font-size: calc(var(--pfs) - 2pt); color: #222; }
+
+/* ---------- 週案に添付する指導計画詳細 ---------- */
+.pp-detail-page { padding: 8mm; }
+.pd-header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  border-bottom: 0.5mm solid #000; padding-bottom: 1.5mm; margin-bottom: 3mm;
+  font-size: 8pt;
+}
+.pd-title { font-size: 14pt; font-weight: 700; letter-spacing: .12em; margin-right: 5mm; }
+.pd-range { font-size: 9pt; }
+.pd-unit h2 {
+  display: flex; justify-content: space-between; gap: 4mm; align-items: baseline;
+  margin: 0 0 1.5mm; font-size: 11pt;
+}
+.pd-unit h2 span { font-size: 8pt; font-weight: 400; }
+.pd-goal { display: grid; grid-template-columns: 28mm 1fr; border: 0.3mm solid #000; margin-bottom: 1.5mm; font-size: 8pt; }
+.pd-goal b { background: #efefef; padding: 1mm 1.5mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.pd-goal span { padding: 1mm 1.5mm; }
+.pd-criteria, .pd-lessons { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.pd-criteria { margin-bottom: 2.5mm; }
+.pd-criteria th, .pd-criteria td, .pd-lessons th, .pd-lessons td {
+  border: 0.3mm solid #000; padding: 0.8mm 1.2mm; vertical-align: top; overflow-wrap: anywhere;
+}
+.pd-criteria th { width: 42mm; background: #efefef; text-align: left; font-size: 7.5pt; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.pd-criteria td { font-size: 7.5pt; }
+.pd-lessons th { background: #efefef; font-size: 7.5pt; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+.pd-lessons td { font-size: 7.2pt; line-height: 1.4; }
+.pd-lessons .pd-when { width: 23mm; }
+.pd-lessons .pd-num { width: 8mm; }
+.pd-lessons td:nth-child(2) { text-align: center; }
+.pd-vp { display: block; font-weight: 700; margin-bottom: 0.6mm; }
+.pd-manual { border-top: 0.2mm dotted #777; margin-top: 0.8mm; padding-top: 0.5mm; font-weight: 700; }
+.pd-note { border-top: 0.2mm dotted #777; margin-top: 0.8mm; padding-top: 0.5mm; font-size: 6.8pt; }
+.pd-cancelled { color: #555; text-decoration: line-through; }
 
 /* ---------- フッター(目標・反省・時数) ---------- */
 .pp-footer {

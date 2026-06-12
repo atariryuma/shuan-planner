@@ -32,7 +32,7 @@ export function renderPlansView(root, ctx) {
   root.innerHTML = `
     <div class="panel">
       <h2>年間指導計画</h2>
-      <p class="hint">単元を登録すると、週案のコマに単元名・内容が自動で入ります。</p>
+      <p class="hint">単元を登録すると、週案に単元名・本時のねらい・学習活動・評価規準が自動で入ります。</p>
       <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
         <button class="btn primary" id="plan-new">＋ 作成</button>
         <button class="btn" id="plan-import">📥 取り込み</button>

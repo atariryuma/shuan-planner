@@ -13,9 +13,9 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails } = await import('../js/store.js');
 const { buildPrintHoursModel, capSubjectColumns } = await import('../js/print-hours.js');
-const { renderWeeklyHoursBox } = await import('../js/print.js');
+const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons } = await import('../js/print.js');
 
 const WEEK = '2026-06-08';
 
@@ -160,4 +160,88 @@ test('senka print with many classes renders two complete bordered tables', () =>
   assert.match(html, /3年10組/);
   assert.match(html, /標準/);
   assert.match(html, /進捗/);
+});
+
+test('weekly plan details preserve every annual-plan field', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.plans.push({
+    id: 'plan-rika-4',
+    subjectKey: 'rika',
+    grade: 4,
+    textbook: 'テスト出版',
+    startOffset: 0,
+    units: [{
+      id: 'unit-air',
+      name: '空気と水',
+      hours: 1,
+      goal: '空気と水の性質を理解する。',
+      criteria: {
+        knowledge: '性質を理解している。',
+        thinking: '実験結果から考察している。',
+        attitude: '進んで実験に取り組んでいる。',
+      },
+      lessons: [{
+        objective: '閉じ込めた空気の性質を調べる。',
+        activity: '注射器を使って体積の変化を比較する。',
+        assessment: '空気を押したときの変化を説明できる。',
+        viewpoint: '思',
+      }],
+    }],
+  });
+  addEntry(state, 0, 'p1', 'rika');
+
+  const entry = state.weeks[WEEK].cells[cellKey(0, 'p1')].entries[0];
+  const detail = resolveEntryPlanDetails(state, entry, computeOrdinals(state, WEEK)).details;
+  const model = buildWeekPlanDetailModel(state, WEEK);
+
+  assert.equal(detail.unitGoal, '空気と水の性質を理解する。');
+  assert.equal(detail.unitCriteria.knowledge, '性質を理解している。');
+  assert.equal(detail.activity, '注射器を使って体積の変化を比較する。');
+  assert.equal(detail.assessment, '空気を押したときの変化を説明できる。');
+  assert.equal(detail.viewpointLabel, '思考・判断・表現');
+  assert.equal(model.length, 1);
+  assert.equal(model[0].textbook, 'テスト出版');
+  assert.equal(model[0].scope, '4年');
+  assert.equal(model[0].lessons[0].objective, '閉じ込めた空気の性質を調べる。');
+});
+
+test('manual weekly text keeps its linked annual-plan details', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.plans.push({
+    id: 'plan-rika-manual',
+    subjectKey: 'rika',
+    grade: 4,
+    units: [{
+      id: 'unit-manual',
+      name: '天気',
+      hours: 1,
+      goal: '天気の変化を理解する。',
+      criteria: { knowledge: '', thinking: '', attitude: '' },
+      lessons: [{ objective: '雲を観察する。', activity: '空を見る。', assessment: '記録できる。', viewpoint: '知' }],
+    }],
+  });
+  addEntry(state, 0, 'p1', 'rika', null, { auto: false, text: '雨天のため映像資料で確認' });
+
+  const entry = state.weeks[WEEK].cells[cellKey(0, 'p1')].entries[0];
+  const detail = resolveEntryPlanDetails(state, entry, computeOrdinals(state, WEEK)).details;
+
+  assert.equal(detail.objective, '雲を観察する。');
+  assert.equal(detail.manualText, '雨天のため映像資料で確認');
+});
+
+test('long lesson details are divided before they overflow one page', () => {
+  const long = '長い指導内容を具体的に記載する。'.repeat(12);
+  const lessons = Array.from({ length: 8 }, () => ({
+    objective: long,
+    activity: long,
+    assessment: long,
+    note: '',
+  }));
+
+  const chunks = splitDetailLessons(lessons);
+
+  assert.ok(chunks.length > 1);
+  assert.equal(chunks.flat().length, lessons.length);
 });

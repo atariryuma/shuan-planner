@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, fmtHours, breakNameOf, termRanges } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, termRanges } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -235,7 +235,7 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
   } else {
     inner = entries.map(e => {
       const subj = subjectOf(s, e.subjectKey);
-      const resolved = resolveEntryText(state, e, ordinals);
+      const { resolved, details } = resolveEntryPlanDetails(state, e, ordinals);
       const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
       const scopeLabel = scopeLabelOf(s, e.scope);
       const frac = (e.fraction ?? 1) !== 1 ? `<span class="e-flag">${fracLabel(e.fraction)}</span>` : '';
@@ -254,6 +254,8 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
             ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           </div>
           ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
+          ${!e.cancelled && details?.activity ? `<div class="e-plan-line e-activity"><span>活</span>${esc(details.activity)}</div>` : ''}
+          ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan-line e-assessment"><span>評</span>${details.viewpoint ? `<b class="e-viewpoint">${esc(details.viewpoint)}</b>` : ''}${esc(details.assessment)}</div>` : ''}
           ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
         </div>`;
     }).join('');
@@ -1300,7 +1302,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
 function entryEditorHTML(state, entry, idx, period, ordinals) {
   const s = state.settings;
-  const resolved = resolveEntryText(state, entry, ordinals);
+  const { resolved, details } = resolveEntryPlanDetails(state, entry, ordinals);
   const isModule = period?.type === 'module';
   const effAdvance = entry.advance == null ? !isModule : !!entry.advance;
 
@@ -1331,10 +1333,27 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     </div>`;
   }
 
-  const autoBlock = entry.auto && resolved.text
-    ? `<div class="auto-preview"><span class="label">自動反映</span>${esc(resolved.text)}</div>`
+  const criteriaRows = details ? [
+    ['知識・技能', details.unitCriteria.knowledge],
+    ['思考・判断・表現', details.unitCriteria.thinking],
+    ['主体的態度', details.unitCriteria.attitude],
+  ].filter(([, value]) => value).map(([label, value]) =>
+    `<div class="auto-plan-row"><dt>${label}</dt><dd>${esc(value)}</dd></div>`).join('') : '';
+  const autoBlock = details
+    ? `<div class="auto-preview auto-plan-preview">
+        <div class="auto-plan-title"><span class="label">${entry.auto ? '年間指導計画から自動反映' : '元の年間指導計画（週案は手動記載）'}</span><strong>${esc(details.unitName)}</strong>${details.unitHours > 1 ? `<span>${details.nth}/${details.unitHours}時</span>` : ''}</div>
+        ${details.objective ? `<div class="auto-plan-item"><b>本時のねらい</b><span>${esc(details.objective)}</span></div>` : ''}
+        ${details.activity ? `<div class="auto-plan-item"><b>学習活動</b><span>${esc(details.activity)}</span></div>` : ''}
+        ${details.assessment || details.viewpointLabel ? `<div class="auto-plan-item"><b>評価</b><span>${details.viewpointLabel ? `<em>${esc(details.viewpointLabel)}</em>` : ''}${esc(details.assessment)}</span></div>` : ''}
+        ${(details.unitGoal || criteriaRows) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
+          ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
+          ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}
+        </details>` : ''}
+      </div>`
+    : (entry.auto && resolved.text
+      ? `<div class="auto-preview"><span class="label">自動反映</span>${esc(resolved.text)}</div>`
     : (entry.auto && !state.plans.length && idx === 0
-      ? `<div class="auto-preview muted">年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>` : '');
+      ? `<div class="auto-preview muted">年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>` : ''));
 
   // 既定値から変わっている項目があるときだけ「詳細」を開いておく
   const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled;
