@@ -490,6 +490,8 @@ function consumeConnectLink() {
 
 wireInfoPopovers();
 consumeConnectLink(); // 接続リンクで開かれた場合は接続中画面に切り替える
+// 既に開いているタブのアドレスバーへ接続リンクを貼られた場合(ハッシュのみ変化=再読込なし)にも対応
+window.addEventListener('hashchange', consumeConnectLink);
 rerender();
 
 // デバッグ・コンソール操作用フック(開発者ツールから状態を確認できる)
