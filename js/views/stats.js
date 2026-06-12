@@ -23,6 +23,8 @@ export function renderStatsView(root, ctx) {
   const fy = fiscalYearOf(addDays(parseDate(weekStart), 3));
 
   const scopes = scopesOf(s, hours);
+  // 複数学級(専科・複式)では、全学級の時数を1枚で見渡せる横断サマリーを先頭に出す
+  const classSummary = scopes.length >= 2 ? renderClassSummary(state, hours, hoursDone, scopes) : '';
   const sections = scopes.map(sc => renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail)).filter(Boolean).join('');
   const progress = renderProgress(state, weekStart);
 
@@ -37,6 +39,7 @@ export function renderStatsView(root, ctx) {
         <button class="btn small" id="stats-csv">CSV保存</button>
         <button class="btn small" id="stats-print">印刷</button>
       </div>
+      ${classSummary}
       ${progress}
       ${sections || '<p class="hint">まだ授業の入力がありません。週案タブでコマをクリックして始めてください。</p>'}
     </div>
@@ -82,6 +85,80 @@ function scopesOf(s, hours) {
     return list;
   }
   return [{ scope: '', label: '', grade: s.grade }];
+}
+
+// ---------------------------------------------------------------- 学級横断サマリー(専科・複式)
+
+/**
+ * 全学級(専科)・全学年(複式)の時数を1枚で見渡す一覧。
+ * 専科で12学級を担当していても、提出時に「どの学級が標準に対してどこまで進んだか」を一望できる。
+ * 各学級の主要教科(合算先を持たない教科)の実施済・予定計・標準を合算して出す。
+ */
+function renderClassSummary(state, hours, hoursDone, scopes) {
+  const s = state.settings;
+  const keys = new Set(s.subjects.map(x => x.key));
+  const childrenOf = {};
+  for (const subj of s.subjects) {
+    if (subj.parent && keys.has(subj.parent)) (childrenOf[subj.parent] = childrenOf[subj.parent] || []).push(subj.key);
+  }
+
+  let sumDone = 0, sumTotal = 0, sumStd = 0;
+  const rows = [];
+  for (const sc of scopes) {
+    const scopeVal = sc.scope === '' ? null : sc.scope;
+    let done = 0, total = 0, std = 0;
+    for (const subj of s.subjects) {
+      if (subj.parent && keys.has(subj.parent)) continue;
+      let t = 0, d = 0;
+      for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
+        const v = hours.get(scopeKey(k, scopeVal));
+        if (v) t += v.total;
+        d += hoursDone.get(scopeKey(k, scopeVal))?.done || 0;
+      }
+      if (t > 0 || d > 0) {
+        total += t; done += d;
+        const sd = standardHoursFor(s, subj.key, sc.grade);
+        if (sd != null) std += sd;
+      }
+    }
+    if (total === 0 && done === 0) continue; // 未入力の学級は出さない
+    sumDone += done; sumTotal += total; sumStd += std;
+    const pct = std ? Math.min(100, Math.round((done / std) * 100)) : 0;
+    const remain = std ? std - total : null;
+    rows.push(`
+      <tr>
+        <td class="subj">${esc(sc.label || '—')}</td>
+        <td>${fmtHours(done)}</td>
+        <td>${fmtHours(total)}</td>
+        <td>${std || '—'}</td>
+        <td>${remain != null ? fmtHours(remain) : '—'}</td>
+        <td style="text-align:left;"><div class="bar-wrap"><div class="bar" style="width:${pct}%; background:#2563eb"></div></div></td>
+      </tr>`);
+  }
+  if (rows.length < 2) return ''; // 1学級分しか無ければ通常テーブルで十分
+
+  const label = s.mode === 'fukushiki' ? '学年' : '学級';
+  return `
+    <h3 style="margin-top:0;">全${label}の進捗${infoHTML('担当する全' + label + 'の実施済・予定計・標準時数を一覧します。提出時の確認用。バーは実施済÷標準')}</h3>
+    <div class="table-scroll">
+      <table class="stats-table" style="margin-bottom:18px;">
+        <thead><tr>
+          <th style="width:110px;">${label}</th>
+          <th style="width:74px;">実施済</th>
+          <th style="width:74px;">予定計</th>
+          <th style="width:64px;">標準</th>
+          <th style="width:64px;">残り</th>
+          <th>進捗(実施)</th>
+        </tr></thead>
+        <tbody>
+          ${rows.join('')}
+          <tr style="background:#f8fafc;">
+            <td class="subj">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumTotal)}</td>
+            <td>${sumStd || '—'}</td><td>${sumStd ? fmtHours(sumStd - sumTotal) : '—'}</td><td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
 }
 
 // ---------------------------------------------------------------- 進度一覧(専科・複式の核心ビュー)

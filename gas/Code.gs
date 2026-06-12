@@ -189,11 +189,25 @@ function events_(req) {
       // 自分が書き出した週案イベントは行事として取り込まない
       if (ev.getTag && ev.getTag('shuanPlanner')) return;
       var start = ev.getStartTime();
-      events.push({
-        date: Utilities.formatDate(start, 'Asia/Tokyo', 'yyyy-MM-dd'),
-        time: ev.isAllDayEvent() ? '' : Utilities.formatDate(start, 'Asia/Tokyo', 'HH:mm'),
-        title: ev.getTitle(),
-      });
+      var title = ev.getTitle();
+      if (ev.isAllDayEvent()) {
+        // 終日イベントは複数日にまたがることがある(宿泊学習・修学旅行など)。
+        // 取得期間と重なる各日に展開する(getEndTimeは最終日の翌日0時=排他的)。
+        var dayMs = 24 * 60 * 60 * 1000;
+        var s = ev.getAllDayStartDate ? ev.getAllDayStartDate() : start;
+        var e = ev.getAllDayEndDate ? ev.getAllDayEndDate() : new Date(start.getTime() + dayMs);
+        for (var t = s.getTime(); t < e.getTime(); t += dayMs) {
+          var ds = Utilities.formatDate(new Date(t), 'Asia/Tokyo', 'yyyy-MM-dd');
+          if (ds < req.from || ds > req.to) continue; // 取得期間外の日は除く
+          events.push({ date: ds, time: '', title: title });
+        }
+      } else {
+        events.push({
+          date: Utilities.formatDate(start, 'Asia/Tokyo', 'yyyy-MM-dd'),
+          time: Utilities.formatDate(start, 'Asia/Tokyo', 'HH:mm'),
+          title: title,
+        });
+      }
     });
   });
   events.sort(function (a, b) { return (a.date + a.time) < (b.date + b.time) ? -1 : 1; });

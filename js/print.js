@@ -575,6 +575,45 @@ export function buildStatsPrintDOM(weekStart) {
       ? [...s.senkaClasses.map(c => ({ scope: c.id, label: c.label, grade: c.grade })), { scope: null, label: '(学級指定なし)', grade: s.grade }]
       : [{ scope: null, label: '', grade: s.grade }];
 
+  // 学級横断サマリー(複数学級のときだけ。提出時に全学級の進捗を1枚で確認できる)
+  let summaryTable = '';
+  if (scopes.length >= 2) {
+    let sumDone = 0, sumTotal = 0, sumStd = 0;
+    const srows = [];
+    for (const sc of scopes) {
+      let done = 0, total = 0, std = 0;
+      for (const subj of s.subjects) {
+        if (subj.parent && keys.has(subj.parent)) continue;
+        let t = 0, d = 0;
+        for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
+          const v = hours.get(scopeKey(k, sc.scope));
+          if (v) t += v.total;
+          d += hoursDone.get(scopeKey(k, sc.scope))?.done || 0;
+        }
+        if (t > 0 || d > 0) {
+          total += t; done += d;
+          const sd = standardHoursFor(s, subj.key, sc.grade);
+          if (sd != null) std += sd;
+        }
+      }
+      if (total === 0 && done === 0) continue;
+      sumDone += done; sumTotal += total; sumStd += std;
+      srows.push(`<tr><td style="text-align:left; font-weight:600;">${esc(sc.label || '—')}</td>
+        <td>${fmtHours(done)}</td><td>${fmtHours(total)}</td><td>${std || ''}</td><td>${std ? fmtHours(std - total) : ''}</td></tr>`);
+    }
+    if (srows.length >= 2) {
+      const lbl = s.mode === 'fukushiki' ? '学年' : '学級';
+      summaryTable = `
+        <h3 class="ps-h3" style="margin-top:0;">全${lbl}の進捗</h3>
+        <table class="ps-table">
+          <thead><tr><th style="width:24mm;">${lbl}</th><th>実施済</th><th>予定計</th><th>標準</th><th>残り</th></tr></thead>
+          <tbody>${srows.join('')}
+            <tr><td style="text-align:left; font-weight:700;">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumTotal)}</td><td>${sumStd || ''}</td><td>${sumStd ? fmtHours(sumStd - sumTotal) : ''}</td></tr>
+          </tbody>
+        </table>`;
+    }
+  }
+
   const sections = scopes.map(sc => {
     const get = (map, subjKey) => {
       if (!map) return 0;
@@ -638,6 +677,7 @@ export function buildStatsPrintDOM(weekStart) {
           <span style="font-size:8pt;">/ 実施は${fmtMD(new Date())}現在</span></span>
         <div class="pp-school">${esc(s.schoolName || '')} ${esc(s.teacherName || '')}</div>
       </div>
+      ${summaryTable}
       ${sections || '<p>データがありません</p>'}
     </div>`;
 }
