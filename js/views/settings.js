@@ -243,7 +243,10 @@ export function renderSettingsView(root, ctx) {
           <input type="text" data-gas="url" value="${esc(s.gas.url)}" placeholder="https://script.google.com/macros/s/…/exec"></div>
         <div class="field"><label>合言葉${infoHTML('設定手順の手順2で自分で決めた合言葉(同期トークン)')}</label>
           <input type="password" data-gas="token" value="${esc(s.gas.token)}"></div>
-        <button class="btn" id="gas-test">接続テスト</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn" id="gas-test">接続テスト</button>
+          ${s.gas.url && s.gas.token ? `<button class="btn" id="gas-add-device">他の端末を追加${infoHTML('スマホや別のPCを、URLと合言葉を手入力せずリンクを開くだけで接続できます')}</button>` : ''}
+        </div>
 
         <h3>行事の取り込み元</h3>
         <div id="gas-cal-list">
@@ -703,6 +706,36 @@ function wireSettings(root, ctx) {
         onClick: () => window.open(new URL('docs/gas-setup.html', location.href.replace(/[^/]*$/, '')).href, '_blank', 'noopener'),
       });
     }
+  };
+
+  // 他の端末を追加: 接続情報を載せたリンク/コードを表示する(新端末はリンクを開くだけ)
+  const addDeviceBtn = root.querySelector('#gas-add-device');
+  if (addDeviceBtn) addDeviceBtn.onclick = async () => {
+    const { encodeConnect } = await import('../gas.js');
+    const code = encodeConnect(s.gas.url, s.gas.token);
+    const link = location.origin + location.pathname + '#connect=' + code;
+    openModal(`
+      <h2>他の端末を追加</h2>
+      <p class="hint">新しい端末(スマホ・別のPC)で<b>このリンクを開くだけ</b>で、URL・合言葉の入力なしに接続され、保存済みのデータを自動で取得します。<br>
+        スマホへは、自分宛のメールやGoogle Keep・LINEのKeepメモにリンクを貼って開くのが簡単です。</p>
+      <div class="field"><label>接続リンク</label>
+        <input type="text" id="connect-link" value="${esc(link)}" readonly style="font-size:12px;"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn primary" id="connect-copy">リンクをコピー</button>
+        ${navigator.share ? '<button class="btn" id="connect-share">共有</button>' : ''}
+      </div>
+      <p class="hint" style="margin-top:12px; color:#9a3412;">このリンクには合言葉が含まれます。自分の端末だけで使い、他人と共有しないでください。</p>
+      <div class="modal-foot"><button class="btn" data-close>閉じる</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-close]').onclick = close;
+      const input = modal.querySelector('#connect-link');
+      modal.querySelector('#connect-copy').onclick = async () => {
+        try { await navigator.clipboard.writeText(link); toast('リンクをコピーしました'); }
+        catch { input.select(); document.execCommand('copy'); toast('リンクをコピーしました'); }
+      };
+      const shareBtn = modal.querySelector('#connect-share');
+      if (shareBtn) shareBtn.onclick = () => navigator.share({ title: '週案プランナー 接続リンク', url: link }).catch(() => {});
+    });
   };
 
   root.querySelector('#gas-autobackup').addEventListener('change', (ev) => {

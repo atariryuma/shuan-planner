@@ -5,6 +5,26 @@
  * GASは302リダイレクトで応答するので redirect: 'follow' が必須。
  */
 
+/**
+ * 接続情報(接続先URL+合言葉)を1つの文字列にまとめる/復元する。
+ * 新しい端末への引き継ぎ用。URLの#(フラグメント)に載せて使う想定で、
+ * フラグメントはHTTPリクエストでサーバーに送られない(合言葉が外部に漏れない)。
+ */
+export function encodeConnect(url, token) {
+  const json = JSON.stringify({ u: String(url || ''), t: String(token || '') });
+  // UTF-8安全なbase64 → URLセーフ(+/= を -_ と無印に)
+  return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function decodeConnect(code) {
+  try {
+    const b64 = String(code).replace(/-/g, '+').replace(/_/g, '/');
+    const o = JSON.parse(decodeURIComponent(escape(atob(b64))));
+    if (o && typeof o.u === 'string' && typeof o.t === 'string' && o.u && o.t) return o;
+  } catch { /* 壊れたコードはnull */ }
+  return null;
+}
+
 export class GasClient {
   constructor(getConfig) {
     this.getConfig = getConfig; // () => ({url, token})

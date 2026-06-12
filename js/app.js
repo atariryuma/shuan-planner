@@ -1,7 +1,7 @@
 /** アプリ本体: タブ切替・週ナビ状態・自動保存表示・印刷起動・PWA登録 */
 
 import { store, termRanges } from './store.js';
-import { GasClient } from './gas.js';
+import { GasClient, decodeConnect } from './gas.js';
 import { renderWeekView } from './views/week.js';
 import { renderPlansView } from './views/plans.js';
 import { renderStatsView } from './views/stats.js';
@@ -76,9 +76,20 @@ function findByFocusKey(key) {
   return null;
 }
 
+// 接続リンク(#connect=…)からの自動接続中フラグ。trueの間はオンボーディングの代わりに
+// 「接続中…」を出す(新端末がデータ取得を終えるまで、空のセットアップ画面を見せない)。
+let connecting = false;
+
 function rerender() {
   const main = document.getElementById('main');
   document.documentElement.classList.toggle('ui-large', store.settings.uiScale === 'large');
+  if (connecting) {
+    document.querySelector('.topbar').style.display = 'none';
+    main.innerHTML = `<div class="onboarding"><div class="ob-card">
+      <div class="ob-logo">🔄</div><h1>他の端末と接続中…</h1>
+      <p class="ob-sub">保存済みのデータを取得しています(数秒)</p></div></div>`;
+    return;
+  }
   if (needsOnboarding()) {
     document.querySelector('.topbar').style.display = 'none';
     renderOnboarding(main, ctx);
@@ -332,6 +343,7 @@ let lastSyncedUpdatedAt = null; // 直近にサーバーと一致した時点の
 
 async function autoPull() {
   const g = store.settings.gas;
+  if (connecting) return; // 接続リンクからの自動接続中は重複pullしない
   if (!g.auto || !ctx.gas.configured || !navigator.onLine) return;
   try {
     const baseAt = store.state.updatedAt || 0; // pull開始時点のローカル状態を記録
@@ -427,9 +439,57 @@ setTimeout(async () => {
   maybeTermPrintHint();
 }, 800);
 
+// ---------------------------------------------------------------- 新しい端末の自動接続(#connect=…)
+
+/**
+ * 接続リンクで開かれたら、接続先URL+合言葉を取り込んで自動で接続・データ取得・自動同期ONまで行う。
+ * 新端末では「リンクを開くだけ」で同期が始まる(URLや合言葉を手入力しなくてよい)。
+ */
+function consumeConnectLink() {
+  const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  if (!m) return;
+  const creds = decodeConnect(m[1]);
+  // 合言葉をアドレスバー・履歴に残さないよう、ハッシュは即座に消す
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!creds) { toast('接続リンクが正しくありません', 'error', 5000); return; }
+  connecting = true;
+  rerender();
+  (async () => {
+    // 接続先を先に設定(replaceStateのkeepLocalGasがこの値を保持する)
+    store.settings.gas.url = creds.u;
+    store.settings.gas.token = creds.t;
+    store.settings.gas.auto = true;
+    try {
+      await ctx.gas.ping();
+      const res = await ctx.gas.pull();
+      if (res.exists) {
+        closeAllModals();
+        store.replaceState(res.data); // GAS設定(URL・合言葉・auto)はローカル=今セットした値を維持
+        store.state.updatedAt = res.updatedAt || store.state.updatedAt;
+      }
+      // サーバー側が空でも、設定した接続情報は確実に残す
+      store.settings.gas.url = creds.u;
+      store.settings.gas.token = creds.t;
+      store.settings.gas.auto = true;
+      store.settings.gas.lastSync = Date.now();
+      lastSyncedUpdatedAt = store.state.updatedAt;
+      store.persist();
+      connecting = false;
+      rerender();
+      toast(res.exists ? 'この端末を接続しました(データ取得済み)' : 'この端末を接続しました', 'info', 5000);
+    } catch (e) {
+      connecting = false;
+      store.persist();
+      rerender();
+      toast('接続できませんでした: ' + e.message, 'error', 8000, { label: '設定を開く', onClick: () => document.querySelector('.tab[data-tab="settings"]')?.click() });
+    }
+  })();
+}
+
 // ---------------------------------------------------------------- 初期描画
 
 wireInfoPopovers();
+consumeConnectLink(); // 接続リンクで開かれた場合は接続中画面に切り替える
 rerender();
 
 // デバッグ・コンソール操作用フック(開発者ツールから状態を確認できる)
