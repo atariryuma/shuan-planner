@@ -12,7 +12,7 @@ export function renderOnboarding(root, ctx) {
   <div class="onboarding">
     <div class="ob-card">
       <div class="ob-logo">📅</div>
-      <h1>週案プランナー</h1>
+      <h1>はじめましょう</h1>
       <p class="ob-sub">2つ選ぶだけで始められます</p>
 
       <div class="ob-q">

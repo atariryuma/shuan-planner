@@ -54,7 +54,7 @@ export function renderDataView(root, ctx) {
 
       <div class="panel">
         <h2><span class="h2-ic">ℹ️</span>このアプリについて</h2>
-        <p class="app-id"><b>ルーズリーフ</b><span>週案プランナー</span></p>
+        <p class="app-id"><b>ルーズリーフ</b></p>
         <p class="hint">データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。児童生徒の個人名は入力しない運用を推奨します。</p>
       </div>
 

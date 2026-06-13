@@ -195,7 +195,7 @@ export function buildWeekEmail(weekStart) {
     ${week.goals ? `<p style="font-size:12.5px; color:#222222;"><b>今週のめあて:</b> ${esc(week.goals).replace(/\n/g, '<br>')}</p>` : ''}
     ${week.reflection ? `<p style="font-size:12.5px; color:#222222;"><b>反省:</b> ${esc(week.reflection).replace(/\n/g, '<br>')}</p>` : ''}
     ${hoursTable}
-    <p style="font-size:11px; color:#888888;">週案プランナーから送信</p>
+    <p style="font-size:11px; color:#888888;">ルーズリーフから送信</p>
   </div>`;
 
   // テキスト版にもタブ区切りの表を入れる(HTML非対応メーラー対策)

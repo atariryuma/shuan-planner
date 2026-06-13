@@ -743,7 +743,7 @@ function wireSettings(root, ctx) {
         catch { input.select(); document.execCommand('copy'); toast('リンクをコピーしました'); }
       };
       const shareBtn = modal.querySelector('#connect-share');
-      if (shareBtn) shareBtn.onclick = () => navigator.share({ title: '週案プランナー 接続リンク', url: link }).catch(() => {});
+      if (shareBtn) shareBtn.onclick = () => navigator.share({ title: 'ルーズリーフ 接続リンク', url: link }).catch(() => {});
     });
   };
 
