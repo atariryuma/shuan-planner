@@ -46,6 +46,19 @@ export function renderWeekView(root, ctx) {
     return -1;
   })();
 
+  // 表示モード: day=今日ビュー(縦リスト・すきま記録向き) / week=週グリッド。
+  // 初回は狭い画面なら day(スマホでの断片入力に最適)、PCは week を既定にする。
+  let viewMode = localStorage.getItem('shuan-week-view');
+  if (viewMode !== 'day' && viewMode !== 'week') {
+    viewMode = window.matchMedia && window.matchMedia('(max-width: 640px)').matches ? 'day' : 'week';
+  }
+  // 今日ビューで選択中の曜日。範囲外/未設定なら今日、無ければ先頭。
+  let dayViewIdx = ctx.dayViewIdx;
+  if (typeof dayViewIdx !== 'number' || dayViewIdx < 0 || dayViewIdx >= dayCount) {
+    dayViewIdx = todayIdx >= 0 ? todayIdx : 0;
+  }
+  ctx.dayViewIdx = dayViewIdx;
+
   // 日課パターン行(パターンが定義されているときだけ表示)
   let patternRow = '';
   if (s.periodPatterns.length) {
@@ -138,6 +151,51 @@ export function renderWeekView(root, ctx) {
       <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-print">印刷</button> して提出</div>
     </div>` : '';
 
+  // 週案の「活用ループ」: 先週のめあて・反省を今週の冒頭に出し、提出物で終わらせない。
+  const loopCard = renderLoopCardHTML(state, monday);
+
+  // 週ごとのメモ(めあて・反省・管理職)。日ビュー/週ビューの両方で出す。
+  const weekNotesHTML = `<div class="week-notes">
+        <div>
+          <label for="wk-goals">今週のめあて</label>
+          <textarea id="wk-goals">${esc(week.goals || '')}</textarea>
+        </div>
+        <div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between;">
+            <label for="wk-reflection">反省</label>
+            <button class="btn small ghost" id="wk-review">過去の一覧</button>
+          </div>
+          <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
+        </div>
+        ${s.printManagerBox ? `
+        <div>
+          <label for="wk-manager">指導・助言${infoHTML('管理職からの指導・助言を記録します。印刷の管理職欄に出ます')}</label>
+          <textarea id="wk-manager" placeholder="管理職コメントを記録">${esc(week.managerNote || '')}</textarea>
+        </div>` : ''}
+      </div>`;
+
+  const gridPanel = `<div class="panel">
+      <div class="week-grid-wrap">
+        <table class="week-grid ${paint.subject ? 'painting' : ''} ${density === 'compact' ? 'density-compact' : ''}">
+          <thead>
+            <tr><th class="corner"></th>${dayHeads.join('')}</tr>
+            ${patternRow}
+            <tr class="event-row"><th class="period-head">行事</th>${eventCells.join('')}</tr>
+            ${attendanceRow}
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+      ${weekNotesHTML}
+    </div>`;
+
+  const dayPanel = `<div class="panel day-panel">
+      ${renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx, ordinals, ctx)}
+    </div>
+    <div class="panel">${weekNotesHTML}</div>`;
+
+  const mainPanel = viewMode === 'day' ? dayPanel : gridPanel;
+
   root.innerHTML = `
     <div class="week-nav">
       <button class="btn" id="wk-prev" aria-label="前の週">◀</button>
@@ -147,9 +205,13 @@ export function renderWeekView(root, ctx) {
       <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, dayCount - 1))}
         <span class="week-no">第${weekNo}週</span>
       </span>
+      <span class="view-toggle" role="group" aria-label="表示の切り替え">
+        <button class="vt-btn ${viewMode === 'day' ? 'active' : ''}" id="wk-view-day" aria-pressed="${viewMode === 'day'}" title="今日の授業だけを縦に表示(スマホ・すきま記録向き)">日</button>
+        <button class="vt-btn ${viewMode === 'week' ? 'active' : ''}" id="wk-view-week" aria-pressed="${viewMode === 'week'}" title="1週間をまとめて表示">週</button>
+      </span>
       <span class="spacer"></span>
-      <button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
-      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">🖌 連続入力</button>
+      ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
+      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">🖌 連続入力</button>` : ''}
       ${gas ? `<button class="btn" id="wk-calendar">📆 行事</button>` : ''}
       <button class="btn" id="wk-copy">前週コピー</button>
       <button class="btn" id="wk-apply-base" ${store.hasBaseTimetable ? '' : 'disabled'}>📋 基本時間割</button>
@@ -182,49 +244,143 @@ export function renderWeekView(root, ctx) {
     ${ctx.swapSource ? `<div class="mode-banner">⇄ 移動先のコマをクリック
       <button class="btn small" id="wk-swap-cancel">キャンセル</button></div>` : ''}
     ${onboardCard}
-    <div class="panel">
-      <div class="week-grid-wrap">
-        <table class="week-grid ${paint.subject ? 'painting' : ''} ${density === 'compact' ? 'density-compact' : ''}">
-          <thead>
-            <tr><th class="corner"></th>${dayHeads.join('')}</tr>
-            ${patternRow}
-            <tr class="event-row"><th class="period-head">行事</th>${eventCells.join('')}</tr>
-            ${attendanceRow}
-          </thead>
-          <tbody>${bodyRows}</tbody>
-        </table>
-      </div>
-      <div class="week-notes">
-        <div>
-          <label for="wk-goals">今週のめあて</label>
-          <textarea id="wk-goals">${esc(week.goals || '')}</textarea>
-        </div>
-        <div>
-          <div style="display:flex; align-items:baseline; justify-content:space-between;">
-            <label for="wk-reflection">反省</label>
-            <button class="btn small ghost" id="wk-review">過去の一覧</button>
-          </div>
-          <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
-        </div>
-        ${s.printManagerBox ? `
-        <div>
-          <label for="wk-manager">指導・助言${infoHTML('管理職からの指導・助言を記録します。印刷の管理職欄に出ます')}</label>
-          <textarea id="wk-manager" placeholder="管理職コメントを記録">${esc(week.managerNote || '')}</textarea>
-        </div>` : ''}
-      </div>
-    </div>
+    ${loopCard}
+    ${mainPanel}
     ${renderMiniStats(state, weekStart)}
   `;
 
   wireNav(root, ctx, monday);
   wireWeekInputs(root, weekStart, ctx);
   wireCells(root, weekStart, ctx);
+  wireDayView(root, weekStart, ctx);
   wirePaint(root, ctx);
   wireOnboardCard(root, ctx, monday);
   wireDayMenu(root, ctx, monday, weekStart, dayCount);
 }
 
 // ---------------------------------------------------------------- セル描画
+
+// 1コマ分の授業(entries)の中身HTML。週グリッドのセルと「今日ビュー」で共有する。
+function renderEntriesHTML(state, entries, ordinals) {
+  const s = state.settings;
+  return entries.map(e => {
+    const subj = subjectOf(s, e.subjectKey);
+    const { resolved, details } = resolveEntryPlanDetails(state, e, ordinals);
+    const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
+    const scopeLabel = scopeLabelOf(s, e.scope);
+    const frac = (e.fraction ?? 1) !== 1 ? `<span class="e-flag">${fracLabel(e.fraction)}</span>` : '';
+    const guide = s.mode === 'fukushiki' && e.guide ? `<span class="guide-chip g-${e.guide}">${guideLabel(e.guide)}</span>` : '';
+    // 空scopeに加えて「設定から削除済みの学級ID」も学級未設定として警告する
+    // (集計のどのスコープにも入らず時数が無言で消えるため)
+    const unsetClass = s.mode === 'senka' && e.subjectKey
+      && (e.scope == null || e.scope === '' || !s.senkaClasses.some(c => c.id === e.scope))
+      ? `<span class="e-flag warn">学級未設定</span>` : '';
+    const changed = e.override && Object.keys(e.override).length
+      ? `<span class="e-flag e-changed" title="計画から変更あり">●変更</span>` : '';
+    return `
+      <div class="entry ${e.cancelled ? 'cancelled' : ''}">
+        <div class="e-head">
+          ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
+          ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
+          ${guide}${frac}${unsetClass}${changed}
+          ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
+        </div>
+        ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
+        ${!e.cancelled && details?.activity ? `<div class="e-plan-line e-activity"><span>活</span>${esc(details.activity)}</div>` : ''}
+        ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan-line e-assessment"><span>評</span>${details.viewpoint ? `<b class="e-viewpoint">${esc(details.viewpoint)}</b>` : ''}${esc(details.assessment)}</div>` : ''}
+        ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// 週案の「活用ループ」カード: 先週のめあて・反省を今週の冒頭に表示する。
+// 週案を「書いて出すだけ(形骸化)」にせず、前週を踏まえて回すための導線。
+function renderLoopCardHTML(state, monday) {
+  const prevKey = fmtDate(addDays(monday, -7));
+  const pw = state.weeks[prevKey];
+  if (!pw) return '';
+  const goals = String(pw.goals || '').trim();
+  const ref = String(pw.reflection || '').trim();
+  if (!goals && !ref) return '';
+  return `<div class="loop-card">
+    <div class="loop-head">先週のふりかえり${infoHTML('先週のめあて・反省です。今週の計画に活かして、週案を「出すだけ」で終わらせないための欄です')}</div>
+    <div class="loop-body">
+      ${goals ? `<div class="loop-item"><span class="loop-label">めあて</span><span class="loop-text">${esc(goals)}</span></div>` : ''}
+      ${ref ? `<div class="loop-item"><span class="loop-label">反省</span><span class="loop-text">${esc(ref)}</span></div>` : ''}
+    </div>
+  </div>`;
+}
+
+// 今日のとき、各校時を時刻で「いま/次」に色分けする。
+function periodTimeStatus(periods, isToday) {
+  const status = {};
+  if (!isToday) return status;
+  const now = new Date();
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(t || ''); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+  let hasNow = false, nextId = null, nextStart = Infinity;
+  for (const p of periods) {
+    const st = toMin(p.start), en = toMin(p.end);
+    if (st != null && en != null && cur >= st && cur < en) { status[p.id] = 'now'; hasNow = true; }
+    if (st != null && st > cur && st < nextStart) { nextStart = st; nextId = p.id; }
+  }
+  if (!hasNow && nextId) status[nextId] = 'next';
+  return status;
+}
+
+// 今日ビュー: 選択中の1日を縦リストで表示。すきま時間に1タップで記録する導線。
+function renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx, ordinals, ctx) {
+  const s = state.settings;
+  const date = addDays(monday, dayViewIdx);
+  const isToday = dayViewIdx === todayIdx;
+
+  const chips = [];
+  for (let d = 0; d < dayCount; d++) {
+    const dt = addDays(monday, d);
+    const hol = s.showHolidays ? holidayName(dt) : null;
+    const brk = breakNameOf(s, fmtDate(dt));
+    const off = (s.offDays || []).includes(fmtDate(dt));
+    const tag = hol || brk || (off ? '休' : '');
+    chips.push(`<button class="day-chip ${d === dayViewIdx ? 'selected' : ''} ${d === todayIdx ? 'is-today' : ''} ${d === 5 ? 'sat' : ''} ${tag ? 'muted' : ''}" data-daysel="${d}" role="tab" aria-selected="${d === dayViewIdx}">
+      <b>${DAY_NAMES[d]}</b><span>${fmtMD(dt)}</span>${tag ? `<i>${esc(tag)}</i>` : ''}
+    </button>`);
+  }
+
+  const status = periodTimeStatus(s.periods, isToday);
+  const items = s.periods.map(p => {
+    if (!effectivePeriod(s, week, dayViewIdx, p)) return '';
+    const entries = week.cells?.[cellKey(dayViewIdx, p.id)]?.entries || [];
+    const st = status[p.id] || '';
+    const body = entries.length
+      ? renderEntriesHTML(state, entries, ordinals)
+      : `<div class="dp-empty">＋ タップして授業を入れる</div>`;
+    const flag = st === 'now' ? '<span class="dp-now">いま</span>' : st === 'next' ? '<span class="dp-next">次</span>' : '';
+    return `<li class="day-period ${st} ${entries.length ? '' : 'is-empty'}" data-day="${dayViewIdx}" data-period="${esc(p.id)}" tabindex="0" role="button" aria-label="${esc(p.label)} ${entries.length ? '' : '空き'}">
+      <div class="dp-time"><span class="dp-label">${esc(p.label)}</span>${p.start ? `<span class="dp-clock">${esc(p.start)}</span>` : ''}${flag}</div>
+      <div class="dp-body">${body}</div>
+    </li>`;
+  }).join('');
+
+  const ev = String(week.events?.[dayViewIdx] || '').trim();
+  const memo = esc(week.dayNotes?.[dayViewIdx] || '');
+  const hol = s.showHolidays ? holidayName(date) : null;
+  const brk = breakNameOf(s, fmtDate(date));
+  const off = (s.offDays || []).includes(fmtDate(date));
+  const banner = hol ? `<div class="day-banner hol">${esc(hol)}</div>`
+    : brk ? `<div class="day-banner brk">${esc(brk)}</div>`
+    : off ? '<div class="day-banner brk">休業日</div>' : '';
+
+  return `
+    <div class="day-switch" role="tablist">${chips.join('')}</div>
+    <h2 class="day-title">${fmtMD(date)}（${DAY_NAMES[dayViewIdx]}）${isToday ? '<span class="day-today-badge">今日</span>' : ''}</h2>
+    ${banner}
+    ${ev ? `<div class="day-event"><span class="de-label">行事</span>${esc(ev)}</div>` : ''}
+    <ol class="day-list">${items || '<li class="day-empty">この日に授業はありません</li>'}</ol>
+    <div class="day-memo">
+      <label for="dp-memo">今日のメモ${infoHTML('自分用のメモ。すきま時間の記録にどうぞ。印刷されません')}</label>
+      <textarea id="dp-memo" data-day="${dayViewIdx}" placeholder="気づき・持ち物・連絡など">${memo}</textarea>
+    </div>`;
+}
 
 function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
   const s = state.settings;
@@ -237,37 +393,9 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
   const isModule = period.type === 'module';
-  let inner;
-  if (!entries.length) {
-    inner = `<div class="cell-empty">＋</div>`;
-  } else {
-    inner = entries.map(e => {
-      const subj = subjectOf(s, e.subjectKey);
-      const { resolved, details } = resolveEntryPlanDetails(state, e, ordinals);
-      const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
-      const scopeLabel = scopeLabelOf(s, e.scope);
-      const frac = (e.fraction ?? 1) !== 1 ? `<span class="e-flag">${fracLabel(e.fraction)}</span>` : '';
-      const guide = s.mode === 'fukushiki' && e.guide ? `<span class="guide-chip g-${e.guide}">${guideLabel(e.guide)}</span>` : '';
-      // 空scopeに加えて「設定から削除済みの学級ID」も学級未設定として警告する
-      // (集計のどのスコープにも入らず時数が無言で消えるため)
-      const unsetClass = s.mode === 'senka' && e.subjectKey
-        && (e.scope == null || e.scope === '' || !s.senkaClasses.some(c => c.id === e.scope))
-        ? `<span class="e-flag warn">学級未設定</span>` : '';
-      return `
-        <div class="entry ${e.cancelled ? 'cancelled' : ''}">
-          <div class="e-head">
-            ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
-            ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
-            ${guide}${frac}${unsetClass}
-            ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
-          </div>
-          ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
-          ${!e.cancelled && details?.activity ? `<div class="e-plan-line e-activity"><span>活</span>${esc(details.activity)}</div>` : ''}
-          ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan-line e-assessment"><span>評</span>${details.viewpoint ? `<b class="e-viewpoint">${esc(details.viewpoint)}</b>` : ''}${esc(details.assessment)}</div>` : ''}
-          ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
-        </div>`;
-    }).join('');
-  }
+  const inner = entries.length
+    ? renderEntriesHTML(state, entries, ordinals)
+    : `<div class="cell-empty">＋</div>`;
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)
@@ -326,15 +454,20 @@ function wireNav(root, ctx, monday) {
     if (ev.target.value) ctx.setWeekStart(ev.target.value);
   };
 
-  // 簡潔/詳細の表示密度切替(学習活動・評価規準の行をまとめて表示/非表示)。再描画せずCSSで切替
-  root.querySelector('#wk-density').onclick = (ev) => {
+  // 日/週ビューの切替(選択を端末に記憶し再描画)
+  const setView = (mode) => () => { localStorage.setItem('shuan-week-view', mode); ctx.rerender(); };
+  root.querySelector('#wk-view-day')?.addEventListener('click', setView('day'));
+  root.querySelector('#wk-view-week')?.addEventListener('click', setView('week'));
+
+  // 簡潔/詳細の表示密度切替(週ビューのみ)。再描画せずCSSで切替
+  root.querySelector('#wk-density')?.addEventListener('click', (ev) => {
     const next = localStorage.getItem('shuan-week-density') === 'compact' ? 'detail' : 'compact';
     localStorage.setItem('shuan-week-density', next);
     root.querySelector('.week-grid')?.classList.toggle('density-compact', next === 'compact');
     const btn = ev.currentTarget;
     btn.textContent = next === 'detail' ? '詳細表示' : '簡潔表示';
     btn.setAttribute('aria-pressed', String(next === 'detail'));
-  };
+  });
 
   root.querySelector('#wk-apply-base').onclick = async () => {
     const to = fmtDate(monday);
@@ -845,12 +978,13 @@ function wireWeekInputs(root, weekStart, ctx) {
 // ---------------------------------------------------------------- 連続入力(ペイント)
 
 function wirePaint(root, ctx) {
-  root.querySelector('#wk-paint').onclick = () => {
+  // 連続入力ボタンは週ビューのみ(日ビューにはグリッドが無い)
+  root.querySelector('#wk-paint')?.addEventListener('click', () => {
     ctx.paint.open = !ctx.paint.open;
     if (!ctx.paint.open) ctx.paint.subject = null;
     ctx.swapSource = null;
     ctx.rerender();
-  };
+  });
   const closeBtn = root.querySelector('#paint-close');
   if (closeBtn) closeBtn.onclick = () => {
     ctx.paint.open = false;
@@ -1064,6 +1198,43 @@ function wireCells(root, weekStart, ctx) {
       ctx.rerender();
     });
   });
+}
+
+// 今日ビューの操作: 曜日チップ切替・コマのタップ編集(移動モード対応)・今日のメモ。
+function wireDayView(root, weekStart, ctx) {
+  root.querySelectorAll('.day-chip[data-daysel]').forEach(b => {
+    b.addEventListener('click', () => { ctx.dayViewIdx = Number(b.dataset.daysel); ctx.rerender(); });
+  });
+  root.querySelectorAll('.day-period').forEach(li => {
+    const act = () => {
+      const day = Number(li.dataset.day);
+      const period = li.dataset.period;
+      if (ctx.swapSource) {
+        const src = ctx.swapSource;
+        ctx.swapSource = null;
+        swapCells(weekStart, src, { day, period });
+        ctx.rerender();
+        return;
+      }
+      openCellEditor(weekStart, day, period, ctx);
+    };
+    li.addEventListener('click', act);
+    li.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      if (ev.target !== li) return;
+      ev.preventDefault();
+      act();
+    });
+  });
+  const memo = root.querySelector('#dp-memo');
+  if (memo) {
+    memo.addEventListener('input', () => {
+      const w = store.getWeek(weekStart, true);
+      if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
+      w.dayNotes[Number(memo.dataset.day)] = memo.value;
+      store.commit();
+    });
+  }
 }
 
 /** 2つのコマの中身を入れ替える(片方が空なら移動になる)。無効な校時へは移動させない */

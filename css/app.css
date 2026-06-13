@@ -836,6 +836,96 @@ td.cell:focus-visible, .day-th:focus-visible {
   outline: none; border-color: var(--accent-300); box-shadow: 0 0 0 3px var(--accent-50);
 }
 
+/* ---------- 日/週 表示切替トグル ---------- */
+.view-toggle { display: inline-flex; background: var(--gray-100); border-radius: var(--r-full); padding: 3px; gap: 2px; }
+.view-toggle .vt-btn {
+  border: none; background: transparent; border-radius: var(--r-full); cursor: pointer;
+  font-size: 13px; font-weight: 700; color: var(--muted); padding: 5px 14px; min-width: 40px;
+  font-family: inherit;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.view-toggle .vt-btn:hover { color: var(--ink); }
+.view-toggle .vt-btn.active { background: var(--panel); color: var(--accent-ink); box-shadow: var(--e-1); }
+
+/* ---------- 週の活用ループ(先週のふりかえり) ---------- */
+.loop-card {
+  border: 1px solid var(--accent-100); border-radius: var(--r-lg);
+  background: linear-gradient(180deg, var(--accent-50), var(--panel) 70%);
+  padding: 10px 14px; margin-bottom: 14px;
+}
+.loop-head { font-size: 11.5px; font-weight: 800; letter-spacing: .03em; color: var(--accent); display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
+.loop-body { display: flex; flex-direction: column; gap: 5px; }
+.loop-item { display: flex; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.55; }
+.loop-label { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; color: var(--ink-2); background: var(--gray-100); border-radius: var(--r-sm); padding: 1px 7px; }
+.loop-text { color: var(--gray-700); white-space: pre-wrap; word-break: break-word; }
+
+/* ---------- 今日ビュー(日) ---------- */
+.day-panel { padding: 14px 16px 16px; }
+.day-switch { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; -webkit-overflow-scrolling: touch; }
+.day-chip {
+  flex: 1 0 auto; min-width: 60px; border: 1px solid var(--line); background: var(--panel);
+  border-radius: var(--r-md); padding: 7px 6px; cursor: pointer; font-family: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; line-height: 1.2;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.day-chip b { font-size: 13.5px; color: var(--ink); }
+.day-chip span { font-size: 10.5px; color: var(--muted); }
+.day-chip i { font-size: 9px; color: var(--danger); font-style: normal; }
+.day-chip.sat b { color: var(--accent); }
+.day-chip.muted b, .day-chip.muted span { color: var(--gray-400); }
+.day-chip.is-today { border-color: var(--accent-300); }
+.day-chip.is-today b { color: var(--accent-ink); }
+.day-chip:hover { border-color: var(--gray-300); }
+.day-chip.selected { border-color: var(--accent); background: var(--accent-50); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.day-title { font-size: var(--t-md); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.day-today-badge { font-size: 11px; font-weight: 700; color: #fff; background: var(--accent); border-radius: var(--r-full); padding: 2px 10px; }
+.day-banner { border-radius: var(--r-md); padding: 8px 12px; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.day-banner.hol { background: var(--danger-soft); color: #991b1b; }
+.day-banner.brk { background: #eff6ff; color: #075985; }
+.day-event { display: flex; gap: 8px; align-items: baseline; background: var(--warn-soft); border: 1px solid #fde68a; border-radius: var(--r-md); padding: 7px 12px; font-size: 13px; color: #92400e; margin-bottom: 12px; }
+.day-event .de-label { font-size: 10.5px; font-weight: 800; background: #fde68a; color: #92400e; border-radius: var(--r-sm); padding: 1px 7px; }
+
+.day-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.day-empty { color: var(--muted); font-size: 13px; padding: 12px; text-align: center; }
+.day-period {
+  display: flex; gap: 12px; align-items: stretch; border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 10px 12px; background: var(--panel); cursor: pointer;
+  min-height: 52px; transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.day-period:hover { border-color: var(--accent-200); box-shadow: var(--e-1); }
+.day-period:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.day-period.is-empty { background: var(--gray-50); border-style: dashed; }
+.day-period.now { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent), var(--e-1); }
+.day-period.next { border-color: var(--accent-200); }
+.dp-time { flex: 0 0 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-right: 1px solid var(--line); padding-right: 10px; }
+.dp-label { font-size: 14px; font-weight: 800; color: var(--ink); }
+.dp-clock { font-size: 10.5px; color: var(--muted); }
+.dp-now { font-size: 9.5px; font-weight: 800; color: #fff; background: var(--accent); border-radius: var(--r-full); padding: 1px 7px; }
+.dp-next { font-size: 9.5px; font-weight: 800; color: var(--accent-ink); background: var(--accent-100); border-radius: var(--r-full); padding: 1px 7px; }
+.dp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.dp-body .entry + .entry { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.dp-body .e-text { font-size: 13px; }
+.dp-body .e-plan-line { font-size: 11.5px; }
+.dp-empty { color: var(--gray-400); font-size: 13px; font-weight: 600; }
+
+.day-memo { margin-top: 14px; }
+.day-memo label { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink-2); margin-bottom: 5px; }
+.day-memo textarea {
+  width: 100%; min-height: 64px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  padding: 8px 10px; font-family: inherit; font-size: 14px; resize: vertical; background: var(--panel);
+}
+.day-memo textarea:focus { outline: none; border-color: var(--accent-300); box-shadow: 0 0 0 3px var(--accent-50); }
+
+/* 計画から変更ありの印(週グリッド・今日ビュー共通) */
+.e-flag.e-changed { color: var(--accent-ink); font-weight: 700; }
+
+@media (pointer: coarse) {
+  .view-toggle .vt-btn { min-height: 40px; }
+  .day-chip { min-height: 52px; }
+  .day-period { min-height: 60px; }
+}
+
 /* ---------- モーション抑制(OS設定を尊重) ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
