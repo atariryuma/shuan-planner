@@ -206,6 +206,11 @@ export function renderWeekView(root, ctx) {
           </div>
           <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
         </div>
+        ${s.printManagerBox ? `
+        <div>
+          <label for="wk-manager">指導・助言${infoHTML('管理職からの指導・助言を記録します。印刷の管理職欄に出ます')}</label>
+          <textarea id="wk-manager" placeholder="管理職コメントを記録">${esc(week.managerNote || '')}</textarea>
+        </div>` : ''}
       </div>
     </div>
     ${renderMiniStats(state, weekStart)}
@@ -786,6 +791,12 @@ function wireWeekInputs(root, weekStart, ctx) {
   root.querySelector('#wk-reflection').addEventListener('input', (ev) => {
     const w = store.getWeek(weekStart, true);
     w.reflection = ev.target.value;
+    store.commit();
+  });
+  const mgr = root.querySelector('#wk-manager');
+  if (mgr) mgr.addEventListener('input', (ev) => {
+    const w = store.getWeek(weekStart, true);
+    w.managerNote = ev.target.value;
     store.commit();
   });
   root.querySelectorAll('.daypat-select').forEach(sel => {

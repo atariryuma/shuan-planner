@@ -527,7 +527,7 @@ function renderFooter(state, week, weekStart) {
   noteBoxes.push(`<div class="pp-box pp-goals"><span class="box-label">今週のめあて・重点</span>${esc(week.goals || '').replace(/\n/g, '<br>')}</div>`);
   noteBoxes.push(`<div class="pp-box pp-reflection"><span class="box-label">反省・次週への課題</span>${esc(week.reflection || '').replace(/\n/g, '<br>')}</div>`);
   if (s.printManagerBox) {
-    noteBoxes.push(`<div class="pp-box pp-manager"><span class="box-label">指導・助言</span></div>`);
+    noteBoxes.push(`<div class="pp-box pp-manager"><span class="box-label">指導・助言</span>${esc(week.managerNote || '').replace(/\n/g, '<br>')}</div>`);
   }
 
   let hoursBox = '';

@@ -97,6 +97,7 @@ export function blankWeek(startDateStr) {
     dayPatterns: {},      // {dayIdx: patternId} 省略=通常日課
     goals: '',
     reflection: '',
+    managerNote: '',      // 管理職の指導・助言(押印欄と併せて印刷)
   };
 }
 
@@ -566,6 +567,7 @@ function migrate(data) {
     if (!w.dayPatterns || typeof w.dayPatterns !== 'object') w.dayPatterns = {};
     w.goals = String(w.goals ?? '');
     w.reflection = String(w.reflection ?? '');
+    w.managerNote = String(w.managerNote ?? '');
   }
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
   if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
