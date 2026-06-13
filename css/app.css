@@ -836,6 +836,29 @@ td.cell:focus-visible, .day-th:focus-visible {
   outline: none; border-color: var(--accent-300); box-shadow: 0 0 0 3px var(--accent-50);
 }
 
+/* ---------- 空状態(図＋次の一手を視覚的に) ---------- */
+.empty-state { text-align: center; padding: 32px 16px; }
+.empty-state .empty-ic { font-size: 44px; line-height: 1; margin-bottom: 10px; filter: saturate(.7); }
+.empty-state .empty-title { font-size: var(--t-md); font-weight: 700; margin: 0 0 6px; color: var(--ink); }
+.empty-state .empty-sub { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 auto 16px; max-width: 460px; }
+.empty-state .empty-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+/* ---------- アイコンの二重符号化(アイコン＋ラベルで即認識) ---------- */
+.panel h2 .h2-ic { margin-right: 8px; font-size: 17px; vertical-align: -1px; }
+.set-chip { display: inline-flex; align-items: center; gap: 5px; }
+.set-chip .chip-ic { font-size: 13px; line-height: 1; }
+.menu-item { display: flex; align-items: center; gap: 8px; }
+.menu-item .mi-ic { font-size: 14px; line-height: 1; flex: 0 0 auto; width: 18px; text-align: center; }
+
+/* ---------- 曜日の一括操作(アイコン＋説明の二段ボタン) ---------- */
+.day-ops { display: flex; flex-direction: column; gap: 8px; }
+.day-op { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 14px; }
+.day-op .op-ic { font-size: 20px; flex: 0 0 auto; line-height: 1; }
+.day-op .op-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.day-op .op-tx b { font-size: 14px; }
+.day-op .op-tx small { font-size: 11.5px; color: var(--muted); line-height: 1.4; white-space: normal; }
+.day-op.danger .op-tx b { color: var(--danger); }
+
 /* ---------- 日/週 表示切替トグル ---------- */
 .view-toggle { display: inline-flex; background: var(--gray-100); border-radius: var(--r-full); padding: 3px; gap: 2px; }
 .view-toggle .vt-btn {
@@ -917,8 +940,38 @@ td.cell:focus-visible, .day-th:focus-visible {
 }
 .day-memo textarea:focus { outline: none; border-color: var(--accent-300); box-shadow: 0 0 0 3px var(--accent-50); }
 
-/* 計画から変更ありの印(週グリッド・今日ビュー共通) */
-.e-flag.e-changed { color: var(--accent-ink); font-weight: 700; }
+/* ===== 視覚エンコード: 観点の色・進度ドット・状態マーク(色＋形/語で色覚に依存しない) ===== */
+
+/* 観点(知/思/態)を一貫した色に。文字(知/思/態)は常に併記するので色だけに頼らない。
+   色覚多様性に配慮し 青/紫/橙 の弁別しやすい3色を使う。 */
+[data-vp="知"] { --vp-bg: #dbeafe; --vp-ink: #1e40af; --vp-line: #93c5fd; }
+[data-vp="思"] { --vp-bg: #ede9fe; --vp-ink: #5b21b6; --vp-line: #c4b5fd; }
+[data-vp="態"] { --vp-bg: #fef3c7; --vp-ink: #92400e; --vp-line: #fcd34d; }
+.e-viewpoint[data-vp] { background: var(--vp-bg) !important; color: var(--vp-ink) !important; }
+/* 編集モーダルの観点セグメント: 選択中はその観点色で示す */
+.ov-vp button[data-vp].selected { background: var(--vp-bg); color: var(--vp-ink); box-shadow: inset 0 0 0 1.5px var(--vp-line), var(--e-1); }
+
+/* 単元進度ドット(●●○) */
+.unit-dots { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; }
+.unit-dots > i { width: 5px; height: 5px; border-radius: 50%; background: var(--gray-300); display: inline-block; }
+.unit-dots > i.on { background: var(--accent); }
+/* 長単元はミニバー */
+.unit-bar { margin-left: auto; width: 34px; height: 4px; border-radius: var(--r-full); background: var(--gray-200); overflow: hidden; display: inline-block; }
+.unit-bar > i { display: block; height: 100%; background: var(--accent); border-radius: var(--r-full); }
+
+/* 計画から変更ありの印(語を減らし、色付きドットで示す) */
+.e-changed-dot { color: var(--accent); font-size: 10px; line-height: 1; }
+
+/* 時数ダッシュボードのバー: 実施(緑実線)・予定(淡色)・標準(目標ライン)を重ねて一目で状態を示す */
+.hbar { position: relative; height: 14px; min-width: 120px; background: var(--gray-150); border-radius: var(--r-full); overflow: hidden; }
+.hbar-plan { position: absolute; left: 0; top: 0; height: 100%; background: var(--accent-200); border-radius: var(--r-full); }
+.hbar-done { position: absolute; left: 0; top: 0; height: 100%; background: #16a34a; border-radius: var(--r-full); }
+/* 予定が標準を超えるときは、超過が伝わるよう予定帯を赤系に */
+.hbar.is-over .hbar-plan { background: #fecaca; }
+.hbar.is-over .hbar-done { background: #dc2626; }
+/* 標準時数の目標ライン(ここに届けば標準達成、が一目で分かる) */
+.hbar-std { position: absolute; top: -1px; width: 2px; height: calc(100% + 2px); background: var(--gray-700); }
+.hbar-std::after { content: ''; position: absolute; top: -3px; left: -2px; border: 3px solid transparent; border-top-color: var(--gray-700); }
 
 @media (pointer: coarse) {
   .view-toggle .vt-btn { min-height: 40px; }

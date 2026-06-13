@@ -2,7 +2,7 @@
  * 戦略: 同一オリジンのGETは stale-while-revalidate(キャッシュ即返し+裏で更新)。
  * ファイルを更新したら VERSION を必ず上げること(上げないと旧キャッシュが配信され続ける)。
  */
-const VERSION = 'v2.19.0';
+const VERSION = 'v2.20.0';
 const CACHE = `shuan-planner-${VERSION}`;
 
 const PRECACHE = [

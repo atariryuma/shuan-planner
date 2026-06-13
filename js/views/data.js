@@ -14,7 +14,7 @@ export function renderDataView(root, ctx) {
   root.innerHTML = `
     <div class="data-page">
       <div class="panel">
-        <h2>この端末</h2>
+        <h2><span class="h2-ic">💾</span>この端末</h2>
         <p class="hint">${weekCount}週分・計画${planCount}件・約${(bytes / 1024).toFixed(0)}KB を、この端末に自動保存しています。長期休業の前にはエクスポートでファイル保存を。</p>
         <div class="data-actions">
           <button class="btn primary" id="data-export">エクスポート</button>
@@ -26,7 +26,7 @@ export function renderDataView(root, ctx) {
 
       ${ctx.gas.configured ? `
       <div class="panel">
-        <h2>Google</h2>
+        <h2><span class="h2-ic">☁️</span>Google</h2>
         <p class="hint">最終同期: ${lastSync ? fmtMDHM(lastSync) : 'まだ同期していません'}</p>
         <div class="data-actions">
           <button class="btn primary" id="gas-push">Googleへ保存</button>
@@ -40,25 +40,25 @@ export function renderDataView(root, ctx) {
         </ul>
       </div>` : `
       <div class="panel">
-        <h2>Google(未設定)</h2>
+        <h2><span class="h2-ic">☁️</span>Google(未設定)</h2>
         <p class="hint">設定 → Google連携 を行うと、端末間の同期・ドライブへのバックアップが使えます。</p>
         <button class="btn" id="data-goto-gas">設定を開く</button>
       </div>`}
 
       ${ctx.gas.configured ? `
       <div class="panel">
-        <h2>レポート</h2>
+        <h2><span class="h2-ic">📊</span>レポート</h2>
         <p class="hint">時数の集計をGoogleスプレッドシートに書き出します(教務・管理職への共有用)。</p>
         <div class="data-actions"><button class="btn" id="gas-report">時数レポート書き出し</button></div>
       </div>` : ''}
 
       <div class="panel">
-        <h2>このアプリについて</h2>
+        <h2><span class="h2-ic">ℹ️</span>このアプリについて</h2>
         <p class="hint">データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。児童生徒の個人名は入力しない運用を推奨します。</p>
       </div>
 
       <div class="panel data-danger">
-        <h2>危険な操作</h2>
+        <h2><span class="h2-ic">⚠️</span>危険な操作</h2>
         <p class="hint">この端末の週案・計画・設定をすべて消します。取り消せません。</p>
         <button class="btn danger" id="data-reset">全データを消去</button>
       </div>

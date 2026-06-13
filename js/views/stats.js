@@ -94,6 +94,29 @@ function scopesOf(s, hours) {
  * 専科で12学級を担当していても、提出時に「どの学級が標準に対してどこまで進んだか」を一望できる。
  * 各学級の主要教科(合算先を持たない教科)の実施済・予定計・標準を合算して出す。
  */
+/**
+ * 時数の状態を一目で示すバー。標準時数を目標ラインに、実施(実線)と予定(淡色)を重ねる。
+ * バーが目標ラインに届かない=標準に未達、ラインを越える=超過(淡色が赤)。数字を読まずに状態が分かる。
+ * 色＋位置(ライン)＋数値ツールチップで、色覚に依存しない。
+ */
+function hoursBar(done, total, std) {
+  if (!std) {
+    const max = Math.max(total, done, 1);
+    return `<div class="hbar" title="実施${fmtHours(done)} / 予定${fmtHours(total)}">
+      <div class="hbar-plan" style="width:${Math.min(total / max, 1) * 100}%"></div>
+      <div class="hbar-done" style="width:${Math.min(done / max, 1) * 100}%"></div>
+    </div>`;
+  }
+  const max = Math.max(total, std);
+  const stdPct = std / max * 100;
+  const over = total > std;
+  return `<div class="hbar ${over ? 'is-over' : ''}" title="実施${fmtHours(done)} / 予定${fmtHours(total)} / 標準${fmtHours(std)}">
+    <div class="hbar-plan" style="width:${total / max * 100}%"></div>
+    <div class="hbar-done" style="width:${done / max * 100}%"></div>
+    <div class="hbar-std" style="left:${stdPct}%"></div>
+  </div>`;
+}
+
 function renderClassSummary(state, hours, hoursDone, scopes) {
   const s = state.settings;
   const keys = new Set(s.subjects.map(x => x.key));
@@ -132,7 +155,7 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
         <td>${fmtHours(total)}</td>
         <td>${std || '—'}</td>
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
-        <td style="text-align:left;"><div class="bar-wrap"><div class="bar" style="width:${pct}%; background:#2563eb"></div></div></td>
+        <td style="text-align:left;">${hoursBar(done, total, std)}</td>
       </tr>`);
   }
   if (rows.length < 2) return ''; // 1学級分しか無ければ通常テーブルで十分
@@ -298,7 +321,7 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
         ${detail ? `<td>${pace != null ? fmtHours(pace) + ' /週' : '—'}</td>
         <td>${projected != null ? Math.round(projected) : '—'}</td>` : ''}
-        <td style="text-align:left;"><div class="bar-wrap"><div class="bar" style="width:${pct}%; background:${over ? '#dc2626' : esc(subj.color)}"></div></div></td>
+        <td style="text-align:left;">${hoursBar(done, total, std)}</td>
       </tr>`;
     // 専科・複式では「時数0で標準だけある行」を畳む(自分の教科1行を探させない)
     if (s.mode !== 'homeroom' && total === 0 && week === 0 && done === 0) zeroRows.push(row);

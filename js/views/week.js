@@ -220,22 +220,22 @@ export function renderWeekView(root, ctx) {
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
           ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
-            <button class="btn ghost" id="wk-generate" style="flex:1;">期間をまとめて作成</button>
+            <button class="btn ghost menu-item" id="wk-generate" style="flex:1;"><span class="mi-ic">📆</span>期間をまとめて作成</button>
             ${infoHTML('基本時間割と年間指導計画から、今週〜学期末などをまとめて自動作成します。祝日・長期休業・非授業日には授業を入れません。入力済みの週は上書きしません')}
           </span>` : ''}
-          <button class="btn ghost" id="wk-save-base">基本時間割に登録</button>
-          <button class="btn ghost" id="wk-import-events">年間行事の取り込み</button>
+          <button class="btn ghost menu-item" id="wk-save-base"><span class="mi-ic">📋</span>基本時間割に登録</button>
+          <button class="btn ghost menu-item" id="wk-import-events"><span class="mi-ic">🎌</span>年間行事の取り込み</button>
           ${s.mode !== 'senka' || gas ? '<div class="menu-sep" role="separator"></div>' : ''}
           ${s.mode !== 'senka' ? `<span style="display:flex; align-items:center;">
-            <button class="btn ghost" id="wk-kids-print" style="flex:1;">おたより印刷</button>
+            <button class="btn ghost menu-item" id="wk-kids-print" style="flex:1;"><span class="mi-ic">📰</span>おたより印刷</button>
             ${infoHTML('児童・保護者向けの来週の時間割。大きな字で印刷します')}
           </span>` : ''}
           ${gas ? `
-          <button class="btn ghost" id="wk-cal-push">カレンダーへ書き出し</button>
-          <button class="btn ghost" id="wk-sheet-push">シートへ書き出し</button>
-          <button class="btn ghost" id="wk-mail">メールで提出</button>` : ''}
+          <button class="btn ghost menu-item" id="wk-cal-push"><span class="mi-ic">📆</span>カレンダーへ書き出し</button>
+          <button class="btn ghost menu-item" id="wk-sheet-push"><span class="mi-ic">📊</span>シートへ書き出し</button>
+          <button class="btn ghost menu-item" id="wk-mail"><span class="mi-ic">✉️</span>メールで提出</button>` : ''}
           <div class="menu-sep" role="separator"></div>
-          <button class="btn ghost danger" id="wk-clear">週クリア</button>
+          <button class="btn ghost danger menu-item" id="wk-clear"><span class="mi-ic">🗑</span>週クリア</button>
         </div>
       </details>
     </div>
@@ -260,6 +260,19 @@ export function renderWeekView(root, ctx) {
 
 // ---------------------------------------------------------------- セル描画
 
+// 単元の進度を視覚化する。短単元(≦8時)は●●○ドット、長単元はミニバーで一目に。
+function unitProgressHTML(nth, total) {
+  if (!nth || !total || total < 2) return '';
+  const n = Math.max(0, Math.min(nth, total));
+  if (total <= 8) {
+    let dots = '';
+    for (let i = 1; i <= total; i++) dots += `<i class="${i <= n ? 'on' : ''}"></i>`;
+    return `<span class="unit-dots" title="単元 ${n}/${total}時" aria-label="単元 ${n}/${total}時">${dots}</span>`;
+  }
+  const pct = Math.round(n / total * 100);
+  return `<span class="unit-bar" title="単元 ${n}/${total}時" aria-label="単元 ${n}/${total}時"><i style="width:${pct}%"></i></span>`;
+}
+
 // 1コマ分の授業(entries)の中身HTML。週グリッドのセルと「今日ビュー」で共有する。
 function renderEntriesHTML(state, entries, ordinals) {
   const s = state.settings;
@@ -272,11 +285,15 @@ function renderEntriesHTML(state, entries, ordinals) {
     const guide = s.mode === 'fukushiki' && e.guide ? `<span class="guide-chip g-${e.guide}">${guideLabel(e.guide)}</span>` : '';
     // 空scopeに加えて「設定から削除済みの学級ID」も学級未設定として警告する
     // (集計のどのスコープにも入らず時数が無言で消えるため)
+    // 学級未設定は ⚠ で即伝達(色＋記号＋短い語で色覚に依存しない)
     const unsetClass = s.mode === 'senka' && e.subjectKey
       && (e.scope == null || e.scope === '' || !s.senkaClasses.some(c => c.id === e.scope))
-      ? `<span class="e-flag warn">学級未設定</span>` : '';
+      ? `<span class="e-flag warn" title="学級が未設定です">⚠学級</span>` : '';
+    // 計画から変更ありは色付きドットのみ(語を減らし、形と色で示す)
     const changed = e.override && Object.keys(e.override).length
-      ? `<span class="e-flag e-changed" title="計画から変更あり">●変更</span>` : '';
+      ? `<span class="e-changed-dot" title="計画から変更あり" aria-label="計画から変更あり">●</span>` : '';
+    // 単元の進度を●●○のドット(または長単元はミニバー)で一目に
+    const progress = !e.cancelled ? unitProgressHTML(details?.nth, details?.unitHours) : '';
     return `
       <div class="entry ${e.cancelled ? 'cancelled' : ''}">
         <div class="e-head">
@@ -284,10 +301,11 @@ function renderEntriesHTML(state, entries, ordinals) {
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
           ${guide}${frac}${unsetClass}${changed}
           ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
+          ${progress}
         </div>
         ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
         ${!e.cancelled && details?.activity ? `<div class="e-plan-line e-activity"><span>活</span>${esc(details.activity)}</div>` : ''}
-        ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan-line e-assessment"><span>評</span>${details.viewpoint ? `<b class="e-viewpoint">${esc(details.viewpoint)}</b>` : ''}${esc(details.assessment)}</div>` : ''}
+        ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan-line e-assessment"><span>評</span>${details.viewpoint ? `<b class="e-viewpoint" data-vp="${esc(details.viewpoint)}">${esc(details.viewpoint)}</b>` : ''}${esc(details.assessment)}</div>` : ''}
         ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
       </div>`;
   }).join('');
@@ -1070,11 +1088,11 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       const isOff = (store.settings.offDays || []).includes(dateStr);
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
-        <div style="display:flex; flex-direction:column; gap:8px;">
-          <button class="btn" data-act="cancel-all">全コマ中止</button>
-          ${d > 0 ? `<button class="btn" data-act="copy-prev">前日をコピー</button>` : ''}
-          <button class="btn" data-act="offday">${isOff ? '非授業日を解除' : '非授業日にする'}${infoHTML('非授業日にすると、基本時間割の流し込みや「まとめて作成」で授業が入りません(開校記念日・振替・学級閉鎖など)')}</button>
-          <button class="btn danger" data-act="clear">この日をクリア</button>
+        <div class="day-ops">
+          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">🚫</span><span class="op-tx"><b>休講にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
+          ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">📋</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
+          <button class="btn day-op" data-act="offday"><span class="op-ic">${isOff ? '↩️' : '🛑'}</span><span class="op-tx"><b>${isOff ? '非授業日を解除' : '非授業日にする'}</b><small>開校記念日・振替・学級閉鎖など。基本時間割の流し込みや「まとめて作成」で授業が入りません</small></span></button>
+          <button class="btn day-op danger" data-act="clear"><span class="op-ic">🗑</span><span class="op-tx"><b>この日をクリア</b><small>この日の入力をすべて削除します</small></span></button>
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
       `, (modal, close) => {

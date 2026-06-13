@@ -65,7 +65,16 @@ function renderPlanList(root, ctx) {
         <button class="btn primary" id="plan-new">＋ 作成</button>
         <button class="btn" id="plan-import">📥 取り込み</button>
       </div>
-      <div class="plan-list">${items || '<p class="hint">教科書会社サイトの年間指導計画(Excel)をコピーして「📥 取り込み」に貼り付けるのが早道です。</p>'}</div>
+      <div class="plan-list">${items || `
+        <div class="empty-state">
+          <div class="empty-ic">📚</div>
+          <p class="empty-title">まだ年間指導計画がありません</p>
+          <p class="empty-sub">登録すると、週案に単元名・ねらい・学習活動・評価規準が自動で入ります。<br>教科書会社サイトのExcelをコピーして「取り込み」に貼るのが早道です。</p>
+          <div class="empty-actions">
+            <button class="btn primary" id="plan-empty-import">📥 取り込みで始める</button>
+            <button class="btn" id="plan-empty-new">＋ 手で作成</button>
+          </div>
+        </div>`}</div>
     </div>
   `;
 
@@ -82,6 +91,8 @@ function renderPlanList(root, ctx) {
     ctx.rerender();
   };
   root.querySelector('#plan-import').onclick = () => openImportDialog(ctx);
+  root.querySelector('#plan-empty-import')?.addEventListener('click', () => openImportDialog(ctx));
+  root.querySelector('#plan-empty-new')?.addEventListener('click', () => root.querySelector('#plan-new').click());
   root.querySelectorAll('.plan-item').forEach(el => {
     const plan = state.plans.find(p => p.id === el.dataset.id);
     el.querySelector('[data-print]').onclick = async () => {

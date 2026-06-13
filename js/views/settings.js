@@ -12,14 +12,14 @@ export function renderSettingsView(root, ctx) {
 
   root.innerHTML = `
   <nav class="settings-nav" aria-label="設定の項目">
-    <button class="set-chip" data-goto="sp-basic">基本</button>
-    <button class="set-chip" data-goto="sp-mode">担任形態</button>
-    <button class="set-chip" data-goto="sp-schedule">時程</button>
-    <button class="set-chip" data-goto="sp-year">年間・学期</button>
-    <button class="set-chip" data-goto="sp-display">表示</button>
-    <button class="set-chip" data-goto="sp-subjects">教科</button>
-    <button class="set-chip" data-goto="sp-print">印刷</button>
-    <button class="set-chip" data-goto="sp-google">Google連携</button>
+    <button class="set-chip" data-goto="sp-basic"><span class="chip-ic">🏫</span>基本</button>
+    <button class="set-chip" data-goto="sp-mode"><span class="chip-ic">👤</span>担任形態</button>
+    <button class="set-chip" data-goto="sp-schedule"><span class="chip-ic">🕒</span>時程</button>
+    <button class="set-chip" data-goto="sp-year"><span class="chip-ic">📅</span>年間・学期</button>
+    <button class="set-chip" data-goto="sp-display"><span class="chip-ic">👁</span>表示</button>
+    <button class="set-chip" data-goto="sp-subjects"><span class="chip-ic">🎨</span>教科</button>
+    <button class="set-chip" data-goto="sp-print"><span class="chip-ic">🖨</span>印刷</button>
+    <button class="set-chip" data-goto="sp-google"><span class="chip-ic">☁️</span>Google連携</button>
   </nav>
   <div class="settings-grid cat-view">
 
