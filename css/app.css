@@ -472,6 +472,9 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .data-page .data-explain li { margin-bottom: 2px; }
 .data-page .data-danger { border-color: #fca5a5; }
 .data-page .data-danger h2 { color: var(--danger); }
+.data-page .app-id { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; }
+.data-page .app-id b { font-size: var(--t-md); letter-spacing: .02em; }
+.data-page .app-id span { font-size: 12px; color: var(--muted); }
 
 /* ---------- stats ---------- */
 table.stats-table { border-collapse: collapse; width: 100%; }
