@@ -172,7 +172,8 @@ td.cell.module-cell:hover { background: #eef6ff; }
 .entry .e-scope { font-size: 10.5px; color: var(--muted); font-weight: 600; }
 .entry .e-text { font-size: 11.5px; line-height: 1.4; margin-top: 2px; word-break: break-word; }
 .entry .e-text.manual { color: #1e3a8a; }
-.entry .e-plan-line {
+/* 簡潔表示: 学習活動・評価規準の行を隠す(本時のねらいまで。情報は編集画面・印刷に残る) */
+.week-grid.density-compact .e-plan-line { display: none; }
   display: flex; align-items: flex-start; gap: 3px; margin-top: 2px;
   color: #475569; font-size: 10.5px; line-height: 1.35; word-break: break-word;
 }

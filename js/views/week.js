@@ -16,6 +16,8 @@ export function renderWeekView(root, ctx) {
   const weekNo = weekNumberInFiscalYear(monday);
   const todayStr = fmtDate(new Date());
   const gas = ctx.gas.configured;
+  // 表示密度: compact=本時のねらいまで / detail=学習活動・評価規準も表示(既定)
+  const density = localStorage.getItem('shuan-week-density') === 'compact' ? 'compact' : 'detail';
 
   const dayHeads = [];
   let breakDays = 0;
@@ -146,6 +148,7 @@ export function renderWeekView(root, ctx) {
         <span class="week-no">第${weekNo}週</span>
       </span>
       <span class="spacer"></span>
+      <button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
       <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">🖌 連続入力</button>
       ${gas ? `<button class="btn" id="wk-calendar">📆 行事</button>` : ''}
       <button class="btn" id="wk-copy">前週コピー</button>
@@ -181,7 +184,7 @@ export function renderWeekView(root, ctx) {
     ${onboardCard}
     <div class="panel">
       <div class="week-grid-wrap">
-        <table class="week-grid ${paint.subject ? 'painting' : ''}">
+        <table class="week-grid ${paint.subject ? 'painting' : ''} ${density === 'compact' ? 'density-compact' : ''}">
           <thead>
             <tr><th class="corner"></th>${dayHeads.join('')}</tr>
             ${patternRow}
@@ -316,6 +319,16 @@ function wireNav(root, ctx, monday) {
   root.querySelector('#wk-today').onclick = () => ctx.setWeekStart(null);
   root.querySelector('#wk-date').onchange = (ev) => {
     if (ev.target.value) ctx.setWeekStart(ev.target.value);
+  };
+
+  // 簡潔/詳細の表示密度切替(学習活動・評価規準の行をまとめて表示/非表示)。再描画せずCSSで切替
+  root.querySelector('#wk-density').onclick = (ev) => {
+    const next = localStorage.getItem('shuan-week-density') === 'compact' ? 'detail' : 'compact';
+    localStorage.setItem('shuan-week-density', next);
+    root.querySelector('.week-grid')?.classList.toggle('density-compact', next === 'compact');
+    const btn = ev.currentTarget;
+    btn.textContent = next === 'detail' ? '詳細表示' : '簡潔表示';
+    btn.setAttribute('aria-pressed', String(next === 'detail'));
   };
 
   root.querySelector('#wk-apply-base').onclick = async () => {
