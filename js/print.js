@@ -361,6 +361,8 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
     const guideMark = s.mode === 'fukushiki' && e.guide
       ? (e.guide === 'direct' ? '◎' : e.guide === 'indirect' ? '○' : '△') : '';
     const cancelled = e.cancelled ? 'text-decoration: line-through; color:#555;' : '';
+    const activity = compactPrintText(details?.activity || '');
+    const assessment = compactPrintText(details?.assessment || '');
     return `
       <div class="pp-entry" style="${cancelled}">
         <div class="e-line1">
@@ -369,12 +371,17 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
           ${e.cancelled ? `<span class="e-scope">中止</span>` : ''}
         </div>
         ${text ? `<div class="e-text">${esc(text)}</div>` : ''}
-        ${!e.cancelled && details?.activity ? `<div class="e-plan"><b>活</b>${esc(details.activity)}</div>` : ''}
-        ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan e-eval"><b>評${details.viewpoint ? `(${esc(details.viewpoint)})` : ''}</b>${esc(details.assessment)}</div>` : ''}
+        ${!e.cancelled && activity ? `<div class="e-plan"><span class="e-plan-label">活</span><span class="e-plan-text">${esc(activity)}</span></div>` : ''}
+        ${!e.cancelled && (assessment || details?.viewpoint) ? `<div class="e-plan e-eval"><span class="e-plan-label">評${details.viewpoint ? `・${esc(details.viewpoint)}` : ''}</span><span class="e-plan-text">${esc(assessment)}</span></div>` : ''}
         ${e.note ? `<div class="e-note">※${esc(e.note)}</div>` : ''}
       </div>`;
   }).join('');
   return `<td class="pcell">${inner}</td>`;
+}
+
+function compactPrintText(text, maxLength = 34) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
 }
 
 function printScopeLabel(settings, scope) {
@@ -401,11 +408,12 @@ export function buildWeekPlanDetailModel(state, weekStart) {
         const { details } = resolveEntryPlanDetails(state, entry, ordinals);
         if (!details) continue;
         const subject = s.subjects.find(x => x.key === entry.subjectKey);
-        const key = `${details.planId || entry.subjectKey}|${details.unitId}|${entry.scope ?? ''}`;
+        const scope = printScopeLabel(s, entry.scope) || (details.grade ? `${details.grade}年` : '');
+        const key = `${details.planId || entry.subjectKey}|${details.unitId}`;
         if (!groups.has(key)) {
           groups.set(key, {
             subject: subject?.name || entry.subjectKey,
-            scope: printScopeLabel(s, entry.scope) || (details.grade ? `${details.grade}年` : ''),
+            scopes: [],
             textbook: details.textbook,
             unitName: details.unitName,
             unitHours: details.unitHours,
@@ -414,7 +422,9 @@ export function buildWeekPlanDetailModel(state, weekStart) {
             lessons: [],
           });
         }
+        if (scope && !groups.get(key).scopes.includes(scope)) groups.get(key).scopes.push(scope);
         groups.get(key).lessons.push({
+          scope,
           date: fmtMD(addDays(monday, day)),
           day: DAY_NAMES[day],
           period: period.type === 'module' ? period.label : `${period.label}校時`,
@@ -434,14 +444,17 @@ export function buildWeekPlanDetailModel(state, weekStart) {
   return [...groups.values()];
 }
 
-export function splitDetailLessons(lessons) {
+export function splitDetailLessons(lessons, overviewChars = 0) {
   const chunks = [];
   let chunk = [];
   let weight = 0;
+  // 実PDFでは単元概要+3行で紙面使用率約34%。中程度の行なら8行前後まで収められる。
+  // 単元概要が長い場合だけ上限を下げ、余白の浪費と過密の両方を避ける。
+  const maxWeight = Math.max(10, 16 - Math.ceil(overviewChars / 350));
   for (const lesson of lessons) {
     const chars = lesson.objective.length + lesson.activity.length + lesson.assessment.length + lesson.note.length;
     const itemWeight = Math.max(1, Math.ceil(chars / 150));
-    if (chunk.length && weight + itemWeight > 7) {
+    if (chunk.length && weight + itemWeight > maxWeight) {
       chunks.push(chunk);
       chunk = [];
       weight = 0;
@@ -460,8 +473,9 @@ function renderUnitOverview(group, continuation) {
     ['主体的に学習に取り組む態度', group.unitCriteria.attitude],
   ];
   return `<section class="pd-unit">
-    <h2>${esc(group.subject)}${group.scope ? `・${esc(group.scope)}` : ''}　${esc(group.unitName)}
+    <h2>${esc(group.subject)}　${esc(group.unitName)}
       <span>${group.unitHours}時間${group.textbook ? ` / ${esc(group.textbook)}` : ''}${continuation ? ' / 続き' : ''}</span></h2>
+    ${group.scopes.length ? `<div class="pd-target"><b>対象</b>${group.scopes.map(esc).join('・')}</div>` : ''}
     ${group.unitGoal ? `<div class="pd-goal"><b>単元の目標</b><span>${esc(group.unitGoal)}</span></div>` : ''}
     <table class="pd-criteria"><tbody>${criteria.map(([label, value]) =>
       `<tr><th>${label}</th><td>${esc(value || '—')}</td></tr>`).join('')}</tbody></table>
@@ -470,8 +484,9 @@ function renderUnitOverview(group, continuation) {
 
 function renderDetailLessonTable(lessons) {
   return `<table class="pd-lessons">
-    <thead><tr><th class="pd-when">日時</th><th class="pd-num">時</th><th>指導目標（本時のねらい）</th><th>学習活動</th><th>評価規準・観点</th></tr></thead>
+    <thead><tr><th class="pd-class">学級</th><th class="pd-when">日時</th><th class="pd-num">時</th><th>指導目標（本時のねらい）</th><th>学習活動</th><th>評価規準・観点</th></tr></thead>
     <tbody>${lessons.map(lesson => `<tr class="${lesson.cancelled ? 'pd-cancelled' : ''}">
+      <td>${esc(lesson.scope || '—')}</td>
       <td>${lesson.date}(${lesson.day})<br>${esc(lesson.period)}${lesson.cancelled ? '<br><b>中止</b>' : ''}</td>
       <td>${lesson.nth}</td>
       <td>${esc(lesson.objective || '—')}${lesson.manualText ? `<div class="pd-manual">週案記載: ${esc(lesson.manualText)}</div>` : ''}</td>
@@ -482,25 +497,28 @@ function renderDetailLessonTable(lessons) {
 }
 
 /** 週案本紙を崩さず、年間指導計画の全項目を単元別の補足ページへ出す。 */
-function renderPlanDetailPages(state, weekStart) {
+export function renderPlanDetailPages(state, weekStart) {
   const groups = buildWeekPlanDetailModel(state, weekStart);
   if (!groups.length) return [];
   const monday = parseDate(weekStart);
   const lastDay = addDays(monday, state.settings.saturday ? 5 : 4);
-  const pages = [];
+  const pageData = [];
   for (const group of groups) {
-    splitDetailLessons(group.lessons).forEach((lessons, index) => {
-      pages.push(`<div class="print-page pp-detail-page">
-        <header class="pd-header">
-          <div><span class="pd-title">今週の指導計画詳細</span><span class="pd-range">${fmtMD(monday)}〜${fmtMD(lastDay)}</span></div>
-          <div>${esc(state.settings.schoolName || '')}　${esc(state.settings.teacherName || '')}</div>
-        </header>
-        ${renderUnitOverview(group, index > 0)}
-        ${renderDetailLessonTable(lessons)}
-      </div>`);
+    const overviewChars = group.unitGoal.length
+      + Object.values(group.unitCriteria).reduce((sum, value) => sum + value.length, 0);
+    splitDetailLessons(group.lessons, overviewChars).forEach((lessons, index) => {
+      pageData.push({ group, lessons, continuation: index > 0 });
     });
   }
-  return pages;
+  return pageData.map(({ group, lessons, continuation }, index) =>
+    `<div class="print-page pp-detail-page">
+        <header class="pd-header">
+          <div><span class="pd-title">今週の指導計画詳細</span><span class="pd-range">${fmtMD(monday)}〜${fmtMD(lastDay)}</span></div>
+          <div class="pd-header-meta"><span>${esc(state.settings.schoolName || '')}　${esc(state.settings.teacherName || '')}</span><b>詳細 ${index + 1}/${pageData.length}</b></div>
+        </header>
+        ${renderUnitOverview(group, continuation)}
+        ${renderDetailLessonTable(lessons)}
+      </div>`);
 }
 
 function renderFooter(state, week, weekStart) {

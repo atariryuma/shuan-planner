@@ -15,7 +15,7 @@ globalThis.document = { dispatchEvent() {} };
 
 const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails } = await import('../js/store.js');
 const { buildPrintHoursModel, capSubjectColumns } = await import('../js/print-hours.js');
-const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons } = await import('../js/print.js');
+const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons, renderPlanDetailPages } = await import('../js/print.js');
 
 const WEEK = '2026-06-08';
 
@@ -202,7 +202,7 @@ test('weekly plan details preserve every annual-plan field', () => {
   assert.equal(detail.viewpointLabel, '思考・判断・表現');
   assert.equal(model.length, 1);
   assert.equal(model[0].textbook, 'テスト出版');
-  assert.equal(model[0].scope, '4年');
+  assert.deepEqual(model[0].scopes, ['4年']);
   assert.equal(model[0].lessons[0].objective, '閉じ込めた空気の性質を調べる。');
 });
 
@@ -244,4 +244,44 @@ test('long lesson details are divided before they overflow one page', () => {
 
   assert.ok(chunks.length > 1);
   assert.equal(chunks.flat().length, lessons.length);
+});
+
+test('senka detail print shares one unit overview across classes', () => {
+  const state = defaultState();
+  state.settings.mode = 'senka';
+  state.settings.senkaSubject = 'rika';
+  state.settings.senkaClasses = [
+    { id: '5-1', label: '5年1組', grade: 5 },
+    { id: '5-2', label: '5年2組', grade: 5 },
+  ];
+  state.plans.push({
+    id: 'plan-rika-5',
+    subjectKey: 'rika',
+    grade: 5,
+    units: [{
+      id: 'unit-growth',
+      name: '植物の発芽と成長',
+      hours: 2,
+      goal: '発芽と成長の条件を理解する。',
+      criteria: { knowledge: '理解している。', thinking: '考察している。', attitude: '進んで取り組む。' },
+      lessons: [
+        { objective: '条件を予想する。', activity: '話し合う。', assessment: '予想を表現する。', viewpoint: '思' },
+        { objective: '結果をまとめる。', activity: '比較する。', assessment: '関係付けている。', viewpoint: '知' },
+      ],
+    }],
+  });
+  addEntry(state, 0, 'p1', 'rika', '5-1');
+  addEntry(state, 0, 'p2', 'rika', '5-2');
+
+  const model = buildWeekPlanDetailModel(state, WEEK);
+  const pages = renderPlanDetailPages(state, WEEK);
+
+  assert.equal(model.length, 1);
+  assert.deepEqual(model[0].scopes, ['5年1組', '5年2組']);
+  assert.equal(model[0].lessons.length, 2);
+  assert.equal(pages.length, 1);
+  assert.match(pages[0], /5年1組/);
+  assert.match(pages[0], /5年2組/);
+  assert.match(pages[0], /詳細 1\/1/);
+  assert.equal((pages[0].match(/単元の目標/g) || []).length, 1);
 });

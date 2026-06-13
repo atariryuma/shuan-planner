@@ -124,13 +124,17 @@ table.pp-grid {
 .pp-entry .e-scope { font-size: calc(var(--pfs) - 1.5pt); font-weight: 700; white-space: nowrap; }
 .pp-entry .e-text { font-size: calc(var(--pfs) - 1pt); }
 .pp-entry .e-plan {
-  display: flex; gap: 0.8mm; margin-top: 0.25mm;
+  display: grid; grid-template-columns: 8mm minmax(0, 1fr);
+  align-items: start; gap: 0.8mm; margin-top: 0.35mm;
   font-size: calc(var(--pfs) - 2pt); color: #222; line-height: 1.2;
 }
-.pp-entry .e-plan b {
-  flex: 0 0 auto; border: 0.2mm solid #777; border-radius: 0.6mm;
-  padding: 0 0.4mm; font-size: calc(var(--pfs) - 2.5pt);
+.pp-entry .e-plan-label {
+  box-sizing: border-box; width: 8mm; min-height: 3.2mm;
+  border: 0.2mm solid #777; border-radius: 0.6mm;
+  padding: 0.15mm 0.3mm; text-align: center; white-space: nowrap;
+  font-size: calc(var(--pfs) - 2.5pt); font-weight: 700; line-height: 1.15;
 }
+.pp-entry .e-plan-text { min-width: 0; overflow-wrap: anywhere; }
 .pp-entry .e-eval { color: #5c2b16; }
 .pp-entry .e-note { font-size: calc(var(--pfs) - 2pt); color: #222; }
 
@@ -141,6 +145,8 @@ table.pp-grid {
   border-bottom: 0.5mm solid #000; padding-bottom: 1.5mm; margin-bottom: 3mm;
   font-size: 8pt;
 }
+.pd-header-meta { display: flex; align-items: flex-end; gap: 5mm; }
+.pd-header-meta b { font-size: 8pt; white-space: nowrap; }
 .pd-title { font-size: 14pt; font-weight: 700; letter-spacing: .12em; margin-right: 5mm; }
 .pd-range { font-size: 9pt; }
 .pd-unit h2 {
@@ -148,6 +154,11 @@ table.pp-grid {
   margin: 0 0 1.5mm; font-size: 11pt;
 }
 .pd-unit h2 span { font-size: 8pt; font-weight: 400; }
+.pd-target {
+  display: flex; gap: 2mm; align-items: baseline; margin: -0.5mm 0 1.5mm;
+  font-size: 7.5pt; color: #333;
+}
+.pd-target b { font-size: 7pt; border: 0.2mm solid #777; border-radius: 0.6mm; padding: 0 1mm; }
 .pd-goal { display: grid; grid-template-columns: 28mm 1fr; border: 0.3mm solid #000; margin-bottom: 1.5mm; font-size: 8pt; }
 .pd-goal b { background: #efefef; padding: 1mm 1.5mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .pd-goal span { padding: 1mm 1.5mm; }
@@ -161,8 +172,9 @@ table.pp-grid {
 .pd-lessons th { background: #efefef; font-size: 7.5pt; text-align: center; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 .pd-lessons td { font-size: 7.2pt; line-height: 1.4; }
 .pd-lessons .pd-when { width: 23mm; }
+.pd-lessons .pd-class { width: 20mm; }
 .pd-lessons .pd-num { width: 8mm; }
-.pd-lessons td:nth-child(2) { text-align: center; }
+.pd-lessons td:nth-child(1), .pd-lessons td:nth-child(3) { text-align: center; }
 .pd-vp { display: block; font-weight: 700; margin-bottom: 0.6mm; }
 .pd-manual { border-top: 0.2mm dotted #777; margin-top: 0.8mm; padding-top: 0.5mm; font-weight: 700; }
 .pd-note { border-top: 0.2mm dotted #777; margin-top: 0.8mm; padding-top: 0.5mm; font-size: 6.8pt; }
