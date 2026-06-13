@@ -12,46 +12,61 @@ export function renderDataView(root, ctx) {
   const lastSync = state.settings.gas.lastSync;
 
   root.innerHTML = `
-    <div class="settings-grid">
+    <div class="data-page">
       <div class="panel">
-        <h2>バックアップ</h2>
-        <p class="hint">
-          ${weekCount}週分・計画${planCount}件・約${(bytes / 1024).toFixed(0)}KB(この端末に自動保存)<br>
-          長期休業の前にはエクスポートを。
-        </p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <h2>この端末</h2>
+        <p class="hint">${weekCount}週分・計画${planCount}件・約${(bytes / 1024).toFixed(0)}KB を、この端末に自動保存しています。長期休業の前にはエクスポートでファイル保存を。</p>
+        <div class="data-actions">
           <button class="btn primary" id="data-export">エクスポート</button>
           <button class="btn" id="data-import-btn">インポート</button>
           <input type="file" id="data-import" accept=".json" style="display:none;" aria-hidden="true" tabindex="-1">
         </div>
+        <p class="hint data-sub">エクスポート=この端末のデータを1つのファイルに保存。インポート=そのファイルで現在のデータを置き換え。</p>
       </div>
 
       ${ctx.gas.configured ? `
       <div class="panel">
-        <h2>Google連携</h2>
-        <p class="hint">${lastSync ? `最終保存: ${fmtMDHM(lastSync)}` : 'まだ保存していません'}</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <h2>Google</h2>
+        <p class="hint">最終同期: ${lastSync ? fmtMDHM(lastSync) : 'まだ同期していません'}</p>
+        <div class="data-actions">
           <button class="btn primary" id="gas-push">Googleへ保存</button>
           <button class="btn" id="gas-pull">Googleから取得</button>
           <button class="btn" id="gas-drive">ドライブへバックアップ</button>
-          <button class="btn" id="gas-report">時数レポート書き出し</button>
         </div>
+        <ul class="hint data-sub data-explain">
+          <li><b>Googleへ保存</b>: 同期用データを更新(他の端末はこれを取得して揃う)。1か所だけ保持。</li>
+          <li><b>ドライブへバックアップ</b>: 日付つきの控えをドライブに残す(最新20世代)。復元用。</li>
+          <li><b>自動バックアップ</b>(設定): 保存のたびに上のバックアップも自動で取る。</li>
+        </ul>
+      </div>` : `
+      <div class="panel">
+        <h2>Google(未設定)</h2>
+        <p class="hint">設定 → Google連携 を行うと、端末間の同期・ドライブへのバックアップが使えます。</p>
+        <button class="btn" id="data-goto-gas">設定を開く</button>
+      </div>`}
+
+      ${ctx.gas.configured ? `
+      <div class="panel">
+        <h2>レポート</h2>
+        <p class="hint">時数の集計をGoogleスプレッドシートに書き出します(教務・管理職への共有用)。</p>
+        <div class="data-actions"><button class="btn" id="gas-report">時数レポート書き出し</button></div>
       </div>` : ''}
 
       <div class="panel">
         <h2>このアプリについて</h2>
-        <p class="hint" style="font-size:13px;">
-          データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。<br>
-          児童生徒の個人名は入力しない運用を推奨します。
-        </p>
+        <p class="hint">データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。児童生徒の個人名は入力しない運用を推奨します。</p>
       </div>
 
-      <div class="panel">
-        <h2 style="color:var(--danger)">初期化</h2>
+      <div class="panel data-danger">
+        <h2>危険な操作</h2>
+        <p class="hint">この端末の週案・計画・設定をすべて消します。取り消せません。</p>
         <button class="btn danger" id="data-reset">全データを消去</button>
       </div>
     </div>
   `;
+
+  const gotoGas = root.querySelector('#data-goto-gas');
+  if (gotoGas) gotoGas.onclick = () => { try { localStorage.setItem('shuan-settings-cat', 'sp-google'); } catch {} document.querySelector('.tab[data-tab="settings"]')?.click(); };
 
   root.querySelector('#data-export').onclick = () => exportJSON();
 

@@ -21,7 +21,7 @@ export function renderSettingsView(root, ctx) {
     <button class="set-chip" data-goto="sp-print">印刷</button>
     <button class="set-chip" data-goto="sp-google">Google連携</button>
   </nav>
-  <div class="settings-grid">
+  <div class="settings-grid cat-view">
 
     <div class="panel" id="sp-basic">
       <h2>基本情報</h2>
