@@ -105,6 +105,13 @@
 - 同期: GAS Webアプリ(text/plain POSTでCORSプリフライト回避)+ スプレッドシート
 - PWA: Service Worker(stale-while-revalidate)+ Webマニフェスト
 
+## 開発・設計資料
+
+- [エージェントガイド](AGENTS.md)
+- [全体要件・プロダクト設計](docs/product-design-spec.md)
+- [UIテキスト規約](docs/ui-text-rules.md)
+- [週案印刷の市場調査と設計方針](docs/print-market-research.md)
+
 ## ライセンス
 
 MIT License
