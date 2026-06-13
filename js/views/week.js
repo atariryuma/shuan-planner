@@ -393,7 +393,7 @@ function renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx,
     <h2 class="day-title">${fmtMD(date)}（${DAY_NAMES[dayViewIdx]}）${isToday ? '<span class="day-today-badge">今日</span>' : ''}</h2>
     ${banner}
     ${ev ? `<div class="day-event"><span class="de-label">行事</span>${esc(ev)}</div>` : ''}
-    <ol class="day-list">${items || '<li class="day-empty">この日に授業はありません</li>'}</ol>
+    <ol class="day-list">${items || '<li class="day-empty"><span class="de-ic">🍵</span>この日に授業はありません</li>'}</ol>
     <div class="day-memo">
       <label for="dp-memo">今日のメモ${infoHTML('自分用のメモ。すきま時間の記録にどうぞ。印刷されません')}</label>
       <textarea id="dp-memo" data-day="${dayViewIdx}" placeholder="気づき・持ち物・連絡など">${memo}</textarea>

@@ -1,6 +1,6 @@
 /** 年間指導計画ビュー: 一覧 ↔ 全画面編集(単元一覧+選択単元の各時カード)・CSV取込 */
 
-import { store, normalizeLesson } from '../store.js';
+import { store, normalizeLesson, VIEWPOINTS } from '../store.js';
 import { parseTable, detectColumns, buildUnitsFromColumns, unitsToCSV } from '../csv.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid } from '../utils.js';
@@ -207,7 +207,10 @@ function unitEditHTML(u) {
         <div class="field" style="flex:1;"><label>評価規準</label>
           <textarea name="assessment" rows="2" data-h="${i}">${esc(l.assessment)}</textarea></div>
         <div class="field hc-vp"><label>観点</label>
-          ${selectHTML('viewpoint', vpOptions, l.viewpoint, { attrs: `data-h="${i}" aria-label="${i + 1}時の観点"` })}</div>
+          <div class="ov-vp" data-h="${i}" role="group" aria-label="${i + 1}時の観点">
+            ${['知', '思', '態'].map(code => `<button type="button" data-vp="${code}" class="${l.viewpoint === code ? 'selected' : ''}" aria-pressed="${l.viewpoint === code}" title="${esc(VIEWPOINTS[code])}">${code}</button>`).join('')}
+            <button type="button" data-vp="" class="ov-vp-none ${l.viewpoint === '' ? 'selected' : ''}" aria-pressed="${l.viewpoint === ''}">なし</button>
+          </div></div>
       </div>
     </div>`).join('');
 
@@ -312,7 +315,17 @@ function wirePlanEditor(root, ctx, plan) {
     card.querySelector('[name="objective"]').addEventListener('input', (e) => { l.objective = e.target.value; save(); });
     card.querySelector('[name="activity"]').addEventListener('input', (e) => { l.activity = e.target.value; save(); });
     card.querySelector('[name="assessment"]').addEventListener('input', (e) => { l.assessment = e.target.value; save(); });
-    card.querySelector('[name="viewpoint"]').addEventListener('change', (e) => { l.viewpoint = e.target.value; save(); });
+    card.querySelectorAll('.ov-vp[data-h] [data-vp]').forEach(b => {
+      b.addEventListener('click', () => {
+        l.viewpoint = b.dataset.vp;
+        b.closest('.ov-vp').querySelectorAll('[data-vp]').forEach(x => {
+          const on = x.dataset.vp === l.viewpoint;
+          x.classList.toggle('selected', on);
+          x.setAttribute('aria-pressed', String(on));
+        });
+        save();
+      });
+    });
     // 充足率の数字を更新するため、textのchangeで一覧側を軽く更新
     card.querySelector('[name="objective"]').addEventListener('change', () => reRender());
     card.querySelector('[data-dup]').onclick = () => {

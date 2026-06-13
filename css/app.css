@@ -437,8 +437,8 @@ td.cell:hover .cell-clear { display: block; }
 .hour-card .hc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .hour-card .hc-no { font-weight: 700; color: var(--accent); }
 .hour-card .hc-ops { display: flex; gap: 1px; }
-.hour-card .hc-row { display: flex; gap: 10px; align-items: flex-end; }
-.hour-card .hc-vp { width: 72px; flex: 0 0 auto; }
+.hour-card .hc-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.hour-card .hc-vp { width: auto; flex: 0 0 auto; }
 .hour-card .hc-vp select { width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 6px; }
 @media (max-width: 760px) {
   .pe-body { grid-template-columns: 1fr; }
@@ -990,6 +990,17 @@ td.cell:focus-visible, .day-th:focus-visible {
 /* 標準時数の目標ライン(ここに届けば標準達成、が一目で分かる) */
 .hbar-std { position: absolute; top: -1px; width: 2px; height: calc(100% + 2px); background: var(--gray-700); }
 .hbar-std::after { content: ''; position: absolute; top: -3px; left: -2px; border: 3px solid transparent; border-top-color: var(--gray-700); }
+
+/* 時数バーの凡例(新しい可視化を一目で読み解けるように) */
+.hours-legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-2); margin: 0 0 12px; }
+.hours-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.hours-legend i { width: 16px; height: 10px; border-radius: 3px; display: inline-block; }
+.hours-legend .hl-done { background: #16a34a; }
+.hours-legend .hl-plan { background: var(--accent-200); }
+.hours-legend .hl-std { width: 2px; height: 12px; border-radius: 0; background: var(--gray-700); }
+.hours-legend .hl-note { color: var(--muted); }
+
+.day-empty .de-ic { font-size: 18px; margin-right: 6px; }
 
 @media (pointer: coarse) {
   .view-toggle .vt-btn { min-height: 40px; }

@@ -205,6 +205,18 @@ document.addEventListener('keydown', (ev) => {
   if (label) { toast(`${label}を元に戻しました`); rerender(); }
 });
 
+// ←/→ で前後の週へ(週案タブのみ・入力中やモーダル表示中は無効)
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+  if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+  if (ctx.currentTab !== 'week') return;
+  const t = document.activeElement;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  if (document.getElementById('modal-layer')?.childElementCount) return;
+  const btn = document.getElementById(ev.key === 'ArrowLeft' ? 'wk-prev' : 'wk-next');
+  if (btn) { ev.preventDefault(); btn.click(); }
+});
+
 // ---------------------------------------------------------------- 保存まわり
 
 const indicator = document.getElementById('save-indicator');

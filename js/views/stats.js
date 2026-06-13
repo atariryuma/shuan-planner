@@ -39,9 +39,19 @@ export function renderStatsView(root, ctx) {
         <button class="btn small" id="stats-csv">CSV保存</button>
         <button class="btn small" id="stats-print">印刷</button>
       </div>
+      ${sections ? `<div class="hours-legend" aria-hidden="true">
+        <span><i class="hl-done"></i>実施</span>
+        <span><i class="hl-plan"></i>予定</span>
+        <span><i class="hl-std"></i>標準</span>
+        <span class="hl-note">バーが標準ラインに届けば達成</span>
+      </div>` : ''}
       ${classSummary}
       ${progress}
-      ${sections || '<p class="hint">まだ授業の入力がありません。週案タブでコマをクリックして始めてください。</p>'}
+      ${sections || `<div class="empty-state">
+        <div class="empty-ic">📊</div>
+        <p class="empty-title">まだ集計するコマがありません</p>
+        <p class="empty-sub">週案タブでコマを入れると、ここに実施時数と標準時数への進捗が表示されます。</p>
+      </div>`}
     </div>
   `;
 
