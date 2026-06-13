@@ -1,31 +1,59 @@
-/** 年間指導計画ビュー: 計画の一覧・編集・CSV/Excel貼り付けインポート */
+/** 年間指導計画ビュー: 一覧 ↔ 全画面編集(単元一覧+選択単元の各時カード)・CSV取込 */
 
-import { store, normalizeLesson, VIEWPOINTS } from '../store.js';
+import { store, normalizeLesson } from '../store.js';
 import { parseTable, tableToUnits, unitsToCSV } from '../csv.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid } from '../utils.js';
 
-/** 各時(lesson)の入力状況: 指導目標が入っている時間数 */
+// 全画面編集の状態(編集中の計画ID・選択中の単元index)。null=一覧表示
+let editState = null;
+
+/** 各時の入力状況: 指導目標が入っている時間数 */
 function filledCount(u) {
   return (u.lessons || []).filter(l => (l.objective ?? l.text ?? '').trim()).length;
 }
 
+/** 単元の正規化(欠損補完)。編集対象は常にこの形にしておく */
+function normUnit(u) {
+  u = u && typeof u === 'object' ? u : {};
+  return {
+    id: u.id || uid(), name: u.name || '', hours: Math.max(1, Number(u.hours) || 1),
+    goal: u.goal || '',
+    criteria: { knowledge: u.criteria?.knowledge || '', thinking: u.criteria?.thinking || '', attitude: u.criteria?.attitude || '' },
+    lessons: (u.lessons || []).map(normalizeLesson),
+  };
+}
+
 export function renderPlansView(root, ctx) {
+  if (editState && store.state.plans.some(p => p.id === editState.planId)) {
+    renderPlanEditor(root, ctx);
+  } else {
+    editState = null;
+    renderPlanList(root, ctx);
+  }
+}
+
+// ---------------------------------------------------------------- 一覧
+
+function renderPlanList(root, ctx) {
   const state = store.state;
   const s = state.settings;
 
   const items = state.plans.map(p => {
     const subj = s.subjects.find(x => x.key === p.subjectKey);
     const total = p.units.reduce((a, u) => a + (Number(u.hours) || 0), 0);
+    const filled = p.units.reduce((a, u) => a + filledCount(u), 0);
+    const pct = total ? Math.round((filled / total) * 100) : 0;
     return `
       <div class="plan-item" data-id="${esc(p.id)}">
         <span class="subj-chip" style="background:${esc(subj?.color || '#767676')}">${esc(subj?.short || '?')}</span>
         <span class="p-subj">${esc(subj?.name || p.subjectKey)}${p.grade ? ` (${p.grade}年)` : ''}</span>
-        <span class="p-meta">${p.textbook ? esc(p.textbook) + ' / ' : ''}${p.units.length}単元・計${total}時間${p.startOffset ? ` / 既習${p.startOffset}コマ` : ''}</span>
+        <span class="p-meta">${p.textbook ? esc(p.textbook) + ' / ' : ''}${p.units.length}単元・計${total}時間<br>
+          <span class="p-fill"><span class="p-fill-bar"><span style="width:${pct}%; background:${esc(subj?.color || '#2563eb')}"></span></span>各時 ${filled}/${total}</span></span>
         <span class="spacer"></span>
         <button class="btn small" data-print title="単元指導計画を印刷">印刷</button>
-        <button class="btn small" data-edit>編集</button>
-        <button class="btn small danger" data-del>削除</button>
+        <button class="btn small primary" data-edit>編集</button>
+        <button class="btn small ghost danger" data-del aria-label="削除" title="削除">×</button>
       </div>`;
   }).join('');
 
@@ -41,7 +69,18 @@ export function renderPlansView(root, ctx) {
     </div>
   `;
 
-  root.querySelector('#plan-new').onclick = () => openPlanEditor(null, ctx);
+  root.querySelector('#plan-new').onclick = () => {
+    const s = store.settings;
+    const plan = {
+      id: uid(),
+      subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
+      grade: defaultGrade(s), textbook: '', startOffset: 0,
+      units: [normUnit({ name: '' })],
+    };
+    store.addPlan(plan);
+    editState = { planId: plan.id, unitIdx: 0 };
+    ctx.rerender();
+  };
   root.querySelector('#plan-import').onclick = () => openImportDialog(ctx);
   root.querySelectorAll('.plan-item').forEach(el => {
     const plan = state.plans.find(p => p.id === el.dataset.id);
@@ -51,7 +90,7 @@ export function renderPlansView(root, ctx) {
       printState.prepared = true;
       requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
     };
-    el.querySelector('[data-edit]').onclick = () => openPlanEditor(plan, ctx);
+    el.querySelector('[data-edit]').onclick = () => { editState = { planId: plan.id, unitIdx: 0 }; ctx.rerender(); };
     el.querySelector('[data-del]').onclick = async () => {
       const subjName = store.settings.subjects.find(x => x.key === plan.subjectKey)?.name || plan.subjectKey;
       const ok = await confirmDialog(
@@ -66,243 +105,224 @@ export function renderPlansView(root, ctx) {
   });
 }
 
-// ---------------------------------------------------------------- 計画エディタ
+// ---------------------------------------------------------------- 全画面エディタ
 
-function openPlanEditor(plan, ctx, presetUnits = null) {
+function renderPlanEditor(root, ctx) {
   const s = store.settings;
-  const isNew = !plan;
-  const original = plan;
-  if (isNew) {
-    plan = {
-      id: uid(),
-      // 専科は担当教科を既定に(週案の新規コマと同じ規則)
-      subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
-      grade: defaultGrade(s),
-      textbook: '',
-      startOffset: 0,
-      units: presetUnits || [],
-    };
-  } else {
-    // ドラフト(ディープコピー)を編集し、保存時にのみ書き戻す(キャンセルで確実にロールバック)
-    plan = JSON.parse(JSON.stringify(plan));
-  }
+  const plan = store.state.plans.find(p => p.id === editState.planId);
+  // 単元を正規化(編集中は常に新形式)
+  plan.units = (plan.units.length ? plan.units : [normUnit({ name: '' })]).map(normUnit);
+  if (editState.unitIdx >= plan.units.length) editState.unitIdx = plan.units.length - 1;
+  if (editState.unitIdx < 0) editState.unitIdx = 0;
+  const unit = plan.units[editState.unitIdx];
 
   const gradeMax = s.schoolType === 'junior' ? 3 : 6;
   const gradeOpts = Array.from({ length: gradeMax }, (_, i) => ({ value: i + 1, label: `${i + 1}年` }));
+  const subj = s.subjects.find(x => x.key === plan.subjectKey);
+  const total = plan.units.reduce((a, u) => a + u.hours, 0);
 
-  // 単元は正規化済みの形(goal/criteria/lessons)で扱う
-  plan.units = (plan.units || []).map(u => ({
-    id: u.id || uid(), name: u.name || '', hours: Number(u.hours) || 1,
-    goal: u.goal || '', criteria: { knowledge: u.criteria?.knowledge || '', thinking: u.criteria?.thinking || '', attitude: u.criteria?.attitude || '' },
-    lessons: (u.lessons || []).map(normalizeLesson),
-  }));
-
-  const unitsRows = () => plan.units.map((u, i) => {
+  const unitListHTML = plan.units.map((u, i) => {
     const filled = filledCount(u);
-    const hasDetail = u.goal || u.criteria.knowledge || u.criteria.thinking || u.criteria.attitude;
+    const detail = (u.goal || u.criteria.knowledge || u.criteria.thinking || u.criteria.attitude) ? '目標◯' : '目標—';
     return `
-    <tr data-unit="${i}">
-      <td class="num" style="color:var(--muted)">${i + 1}</td>
-      <td><input type="text" name="name" value="${esc(u.name)}" placeholder="単元名" aria-label="単元${i + 1}の単元名"></td>
-      <td class="num"><input type="number" name="hours" value="${esc(u.hours)}" min="1" step="1" aria-label="単元${i + 1}の時数"></td>
-      <td style="text-align:center;"><span class="hint">指導目標 ${filled}/${u.hours}${hasDetail ? ' ・目標/評価' : ''}</span></td>
-      <td class="ops">
-        <button class="btn small" data-detail title="各時の指導目標・学習活動・評価規準を編集">各時・評価</button>
-        <button class="btn small ghost" data-up aria-label="上へ" title="上へ">↑</button>
-        <button class="btn small ghost" data-down aria-label="下へ" title="下へ">↓</button>
-        <button class="btn small ghost danger" data-rm aria-label="削除" title="削除">×</button>
-      </td>
-    </tr>`;
+      <li class="plan-unit-item ${i === editState.unitIdx ? 'selected' : ''}" data-unit="${i}" tabindex="0" role="button" aria-label="単元${i + 1} ${esc(u.name || '(無題)')}">
+        <span class="pu-no">${i + 1}</span>
+        <span class="pu-body"><span class="pu-name">${esc(u.name || '(単元名なし)')}</span>
+          <span class="pu-meta">${u.hours}時 ・ 各時${filled}/${u.hours} ・ ${detail}</span></span>
+        <span class="pu-ops">
+          <button class="btn small ghost" data-up aria-label="上へ" title="上へ">↑</button>
+          <button class="btn small ghost" data-down aria-label="下へ" title="下へ">↓</button>
+          <button class="btn small ghost danger" data-rm aria-label="削除" title="削除">×</button>
+        </span>
+      </li>`;
   }).join('');
 
-  openModal(`
-    <h2>${isNew ? '計画の新規作成' : '計画の編集'}</h2>
-    <div class="plan-form-grid">
-      <div class="field"><label>教科</label>
-        ${selectHTML('subjectKey', s.subjects.map(x => ({ value: x.key, label: x.name })), plan.subjectKey)}
+  root.innerHTML = `
+    <div class="panel plan-editor">
+      <div class="pe-header">
+        <button class="btn" id="pe-back">← 一覧へ</button>
+        <span class="pe-title">${esc(subj?.name || plan.subjectKey)}${plan.grade ? ` ${plan.grade}年` : ''}<span class="hint"> ・ ${plan.units.length}単元 計${total}時間</span></span>
+        <span class="spacer"></span>
+        <button class="btn small" id="pe-csv">CSV保存</button>
+        <button class="btn small" id="pe-print">印刷</button>
       </div>
-      <div class="field"><label>学年</label>
-        ${selectHTML('grade', gradeOpts, plan.grade ?? '')}
-      </div>
-      <div class="field"><label>教科書・出典(任意)</label>
-        <input type="text" name="textbook" value="${esc(plan.textbook || '')}" placeholder="例: 大日本図書">
-      </div>
-      <div class="field"><label>既習コマ数${infoHTML('年度途中から使い始める場合、すでに授業済みのコマ数。進度の数え始めがその分ずれます')}</label>
-        <input type="number" name="startOffset" value="${esc(plan.startOffset || 0)}" min="0">
+
+      <details class="pe-basic">
+        <summary class="fold-label">計画の基本情報(教科・学年・教科書・既習)</summary>
+        <div class="plan-form-grid" style="margin-top:10px;">
+          <div class="field"><label>教科</label>${selectHTML('subjectKey', s.subjects.map(x => ({ value: x.key, label: x.name })), plan.subjectKey)}</div>
+          <div class="field"><label>学年</label>${selectHTML('grade', gradeOpts, plan.grade ?? '')}</div>
+          <div class="field"><label>教科書・出典(任意)</label><input type="text" name="textbook" value="${esc(plan.textbook || '')}" placeholder="例: 大日本図書"></div>
+          <div class="field"><label>既習コマ数${infoHTML('年度途中から使い始める場合、すでに授業済みのコマ数。進度の数え始めがその分ずれます')}</label>
+            <input type="number" name="startOffset" value="${esc(plan.startOffset || 0)}" min="0"></div>
+        </div>
+      </details>
+
+      <div class="pe-body">
+        <div class="pe-units">
+          <div class="pe-units-head"><h3>単元一覧</h3></div>
+          <ul class="plan-unit-list">${unitListHTML}</ul>
+          <button class="btn small" id="unit-add" style="margin-top:8px;">＋ 単元を追加</button>
+        </div>
+
+        <div class="pe-unit-edit" id="pe-unit-edit">
+          ${unitEditHTML(unit)}
+        </div>
       </div>
     </div>
-    <h3>単元一覧${infoHTML('「各時・評価」で、単元の目標・評価規準と、各時の指導目標／学習活動／評価規準を編集できます')}</h3>
-    <div class="table-scroll" style="max-height:46vh; overflow-y:auto;">
-      <table class="units-table">
-        <thead><tr><th style="width:34px">#</th><th>単元名</th><th style="width:64px">時数</th><th style="width:140px">内容</th><th style="width:200px"></th></tr></thead>
-        <tbody id="units-body">${unitsRows()}</tbody>
-      </table>
-    </div>
-    <button class="btn small" id="unit-add" style="margin-top:8px;">＋ 単元を追加</button>
-    <div class="modal-foot">
-      <button class="btn left" data-export>CSV保存</button>
-      <button class="btn" data-cancel>キャンセル</button>
-      <button class="btn primary" data-save>保存</button>
-    </div>
-  `, (modal, close) => {
-    // インラインの単元名・時数だけ読み取る(目標・評価・各時は単元詳細エディタが直接編集する)
-    const readForm = () => {
-      plan.subjectKey = modal.querySelector('[name="subjectKey"]').value;
-      plan.grade = Number(modal.querySelector('[name="grade"]').value) || null;
-      plan.textbook = modal.querySelector('[name="textbook"]').value.trim();
-      plan.startOffset = Math.max(0, Number(modal.querySelector('[name="startOffset"]').value) || 0);
-      modal.querySelectorAll('#units-body tr').forEach((tr) => {
-        const i = Number(tr.dataset.unit);
-        if (!plan.units[i]) return;
-        plan.units[i].name = tr.querySelector('[name="name"]').value.trim();
-        plan.units[i].hours = Math.max(1, Number(tr.querySelector('[name="hours"]').value) || 1);
-      });
-    };
+  `;
 
-    const refreshKeep = () => {
-      modal.querySelector('#units-body').innerHTML = unitsRows();
-      wireRows();
-    };
-
-    const wireRows = () => {
-      modal.querySelectorAll('#units-body tr').forEach((tr) => {
-        const i = Number(tr.dataset.unit);
-        tr.querySelector('[data-rm]').onclick = () => { readForm(); plan.units.splice(i, 1); refreshKeep(); };
-        tr.querySelector('[data-up]').onclick = () => { if (i > 0) { readForm(); swap(plan.units, i, i - 1); refreshKeep(); } };
-        tr.querySelector('[data-down]').onclick = () => { if (i < plan.units.length - 1) { readForm(); swap(plan.units, i, i + 1); refreshKeep(); } };
-        tr.querySelector('[data-detail]').onclick = () => {
-          readForm();
-          openUnitEditor(plan.units[i], () => refreshKeep());
-        };
-      });
-    };
-
-    wireRows();
-    modal.querySelector('#unit-add').onclick = () => {
-      readForm();
-      plan.units.push({ id: uid(), name: '', hours: 1, goal: '', criteria: { knowledge: '', thinking: '', attitude: '' }, lessons: [] });
-      refreshKeep();
-    };
-    modal.querySelector('[data-cancel]').onclick = close;
-    modal.querySelector('[data-export]').onclick = () => {
-      readForm();
-      downloadText(unitsToCSV(plan.units), `年間指導計画_${plan.subjectKey}.csv`);
-      toast('CSVを保存しました');
-    };
-    modal.querySelector('[data-save]').onclick = () => {
-      readForm();
-      const named = plan.units.filter(u => u.name);
-      if (!named.length) {
-        toast('単元名が未入力です', 'error');
-        modal.querySelector('#units-body [name="name"]')?.focus();
-        return;
-      }
-      plan.units = named;
-      if (isNew) {
-        store.addPlan(plan);
-      } else {
-        Object.assign(original, plan); // ドラフトを書き戻す
-        store.commit();
-      }
-      toast('計画を保存しました');
-      close();
-      ctx.rerender();
-    };
-  });
+  wirePlanEditor(root, ctx, plan);
 }
 
-// ---------------------------------------------------------------- 単元の詳細(目標・評価規準・各時)
-
-/**
- * 1単元の指導計画を編集する。単元の目標・評価規準(3観点)と、
- * 各時の 指導目標 / 学習活動 / 評価規準 / 観点 を表で編集する(正式な単元指導計画の構成)。
- * 保存すると渡された unit を直接書き換え、onSave で親一覧を更新する。
- */
-function openUnitEditor(unit, onSave) {
-  // 編集はドラフトで行い、保存時に書き戻す
-  const draft = {
-    name: unit.name || '', hours: Number(unit.hours) || 1, goal: unit.goal || '',
-    criteria: { knowledge: unit.criteria?.knowledge || '', thinking: unit.criteria?.thinking || '', attitude: unit.criteria?.attitude || '' },
-    lessons: (unit.lessons || []).map(normalizeLesson),
-  };
-  // 各時の行数は時数に合わせる(不足はパディング)
-  const syncLessons = (n) => { while (draft.lessons.length < n) draft.lessons.push(normalizeLesson({})); };
-  syncLessons(draft.hours);
-
+/** 選択中の単元の編集領域(単元名・時数・目標・評価規準・各時カード) */
+function unitEditHTML(u) {
   const vpOptions = [{ value: '', label: '—' }, { value: '知', label: '知' }, { value: '思', label: '思' }, { value: '態', label: '態' }];
-  const hourRows = () => draft.lessons.slice(0, Math.max(draft.hours, draft.lessons.length)).map((l, i) => `
-    <tr data-h="${i}" ${i >= draft.hours ? 'style="opacity:.5;"' : ''}>
-      <td class="num" style="color:var(--muted);">${i + 1}</td>
-      <td><textarea name="objective" rows="2" aria-label="${i + 1}時の指導目標">${esc(l.objective)}</textarea></td>
-      <td><textarea name="activity" rows="2" aria-label="${i + 1}時の学習活動">${esc(l.activity)}</textarea></td>
-      <td><textarea name="assessment" rows="2" aria-label="${i + 1}時の評価規準">${esc(l.assessment)}</textarea></td>
-      <td>${selectHTML('viewpoint', vpOptions, l.viewpoint, { attrs: `aria-label="${i + 1}時の観点"` })}</td>
-    </tr>`).join('');
+  const cards = u.lessons.slice(0, u.hours).map((l, i) => `
+    <div class="hour-card" data-h="${i}">
+      <div class="hc-head"><span class="hc-no">${i + 1}時</span>
+        <span class="hc-ops">
+          <button class="btn small ghost" data-dup title="この時を複製して下に追加">複製</button>
+          <button class="btn small ghost" data-hup aria-label="上へ" title="上へ">↑</button>
+          <button class="btn small ghost" data-hdown aria-label="下へ" title="下へ">↓</button>
+          <button class="btn small ghost danger" data-hrm aria-label="この時を削除" title="削除">×</button>
+        </span>
+      </div>
+      <div class="field"><label>指導目標(本時のねらい)</label>
+        <textarea name="objective" rows="2" data-h="${i}">${esc(l.objective)}</textarea></div>
+      <div class="field"><label>学習活動</label>
+        <textarea name="activity" rows="2" data-h="${i}">${esc(l.activity)}</textarea></div>
+      <div class="hc-row">
+        <div class="field" style="flex:1;"><label>評価規準</label>
+          <textarea name="assessment" rows="2" data-h="${i}">${esc(l.assessment)}</textarea></div>
+        <div class="field hc-vp"><label>観点</label>
+          ${selectHTML('viewpoint', vpOptions, l.viewpoint, { attrs: `data-h="${i}" aria-label="${i + 1}時の観点"` })}</div>
+      </div>
+    </div>`).join('');
 
-  openModal(`
-    <h2>単元の詳細</h2>
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
-      <div class="field" style="flex:1; min-width:180px;"><label>単元名</label>
-        <input type="text" name="uname" value="${esc(draft.name)}" placeholder="単元名"></div>
-      <div class="field" style="width:90px;"><label>時数</label>
-        <input type="number" name="uhours" value="${esc(draft.hours)}" min="1" step="1"></div>
+  return `
+    <div class="ue-top">
+      <div class="field" style="flex:1; min-width:160px;"><label>単元名</label>
+        <input type="text" name="uname" value="${esc(u.name)}" placeholder="単元名"></div>
+      <div class="field ue-hours"><label>時数</label>
+        <input type="number" name="uhours" value="${esc(u.hours)}" min="1" step="1"></div>
     </div>
     <div class="field"><label>単元の目標</label>
-      <textarea name="ugoal" rows="2" placeholder="この単元で身に付けさせたい力">${esc(draft.goal)}</textarea></div>
-    <h3>単元の評価規準${infoHTML('学習指導要領の3観点。国立教育政策研究所の参考資料に沿って記述します')}</h3>
-    <div class="field"><label>知識・技能</label>
-      <textarea name="ck" rows="2">${esc(draft.criteria.knowledge)}</textarea></div>
-    <div class="field"><label>思考・判断・表現</label>
-      <textarea name="ct" rows="2">${esc(draft.criteria.thinking)}</textarea></div>
-    <div class="field"><label>主体的に学習に取り組む態度</label>
-      <textarea name="ca" rows="2">${esc(draft.criteria.attitude)}</textarea></div>
-    <h3>各時の指導計画${infoHTML('観点: 知=知識・技能 / 思=思考・判断・表現 / 態=主体的に学習に取り組む態度')}</h3>
-    <div class="table-scroll" style="max-height:42vh; overflow-y:auto;">
-      <table class="units-table unit-hours-table">
-        <thead><tr><th style="width:28px">#</th><th>指導目標(本時のねらい)</th><th>学習活動</th><th>評価規準</th><th style="width:54px">観点</th></tr></thead>
-        <tbody id="hours-body">${hourRows()}</tbody>
-      </table>
-    </div>
-    <div class="modal-foot">
-      <button class="btn" data-cancel>キャンセル</button>
-      <button class="btn primary" data-save>保存</button>
-    </div>
-  `, (modal, close) => {
-    const readHours = () => {
-      modal.querySelectorAll('#hours-body tr').forEach((tr) => {
-        const i = Number(tr.dataset.h);
-        draft.lessons[i] = {
-          objective: tr.querySelector('[name="objective"]').value.trim(),
-          activity: tr.querySelector('[name="activity"]').value.trim(),
-          assessment: tr.querySelector('[name="assessment"]').value.trim(),
-          viewpoint: tr.querySelector('[name="viewpoint"]').value,
-        };
-      });
-    };
-    // 時数を変えたら各時の行数を追従(入力済みは保持)
-    modal.querySelector('[name="uhours"]').addEventListener('change', (ev) => {
-      readHours();
-      draft.hours = Math.max(1, Number(ev.target.value) || 1);
-      syncLessons(draft.hours);
-      modal.querySelector('#hours-body').innerHTML = hourRows();
-    });
-    modal.querySelector('[data-cancel]').onclick = close;
-    modal.querySelector('[data-save]').onclick = () => {
-      readHours();
-      unit.name = modal.querySelector('[name="uname"]').value.trim() || unit.name;
-      unit.hours = Math.max(1, Number(modal.querySelector('[name="uhours"]').value) || 1);
-      unit.goal = modal.querySelector('[name="ugoal"]').value.trim();
-      unit.criteria = {
-        knowledge: modal.querySelector('[name="ck"]').value.trim(),
-        thinking: modal.querySelector('[name="ct"]').value.trim(),
-        attitude: modal.querySelector('[name="ca"]').value.trim(),
-      };
-      // 時数ぶんだけ各時を保存(余分な末尾は捨てる)
-      unit.lessons = draft.lessons.slice(0, unit.hours).map(normalizeLesson);
-      close();
-      onSave?.();
+      <textarea name="ugoal" rows="2" placeholder="この単元で身に付けさせたい力">${esc(u.goal)}</textarea></div>
+    <details class="ue-criteria">
+      <summary class="fold-label">単元の評価規準(3観点)</summary>
+      <div class="field" style="margin-top:8px;"><label>知識・技能</label><textarea name="ck" rows="2">${esc(u.criteria.knowledge)}</textarea></div>
+      <div class="field"><label>思考・判断・表現</label><textarea name="ct" rows="2">${esc(u.criteria.thinking)}</textarea></div>
+      <div class="field"><label>主体的に学習に取り組む態度</label><textarea name="ca" rows="2">${esc(u.criteria.attitude)}</textarea></div>
+    </details>
+    <h3 class="ue-hours-h">各時の指導計画${infoHTML('観点: 知=知識・技能 / 思=思考・判断・表現 / 態=主体的に学習に取り組む態度')}</h3>
+    <div class="hour-cards">${cards}</div>
+    <button class="btn small" id="hour-add" style="margin-top:8px;">＋ 時を追加</button>`;
+}
+
+function wirePlanEditor(root, ctx, plan) {
+  const s = store.settings;
+  const unit = plan.units[editState.unitIdx];
+  const save = () => store.commit();
+  const reRender = () => ctx.rerender();
+  // 各時の行数を時数に合わせる(不足はパディング)
+  const syncLessons = (u) => { while (u.lessons.length < u.hours) u.lessons.push(normalizeLesson({})); };
+
+  root.querySelector('#pe-back').onclick = () => {
+    // 空の計画(単元名が1つも無い)は破棄して一覧へ
+    if (!plan.units.some(u => u.name.trim())) { store.removePlan(plan.id); }
+    editState = null;
+    ctx.rerender();
+  };
+  root.querySelector('#pe-print').onclick = async () => {
+    const { buildPlanPrintDOM, printState } = await import('../print.js');
+    buildPlanPrintDOM(plan.id);
+    printState.prepared = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+  };
+  root.querySelector('#pe-csv').onclick = () => {
+    downloadText(unitsToCSV(plan.units), `年間指導計画_${plan.subjectKey}.csv`);
+    toast('CSVを保存しました');
+  };
+
+  // 基本情報(textは即時保存。教科・学年は再描画でラベル更新)
+  root.querySelector('[name="subjectKey"]').addEventListener('change', (e) => { plan.subjectKey = e.target.value; save(); reRender(); });
+  root.querySelector('[name="grade"]').addEventListener('change', (e) => { plan.grade = Number(e.target.value) || null; save(); reRender(); });
+  root.querySelector('[name="textbook"]').addEventListener('input', (e) => { plan.textbook = e.target.value.trim(); save(); });
+  root.querySelector('[name="startOffset"]').addEventListener('change', (e) => { plan.startOffset = Math.max(0, Number(e.target.value) || 0); save(); });
+
+  // 単元一覧: 選択・並べ替え・削除
+  root.querySelectorAll('.plan-unit-item').forEach(li => {
+    const i = Number(li.dataset.unit);
+    const select = () => { editState.unitIdx = i; reRender(); };
+    li.querySelector('.pu-body').onclick = select;
+    li.querySelector('.pu-no').onclick = select;
+    li.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(); } });
+    li.querySelector('[data-up]').onclick = (e) => { e.stopPropagation(); if (i > 0) { swap(plan.units, i, i - 1); editState.unitIdx = i - 1; save(); reRender(); } };
+    li.querySelector('[data-down]').onclick = (e) => { e.stopPropagation(); if (i < plan.units.length - 1) { swap(plan.units, i, i + 1); editState.unitIdx = i + 1; save(); reRender(); } };
+    li.querySelector('[data-rm]').onclick = async (e) => {
+      e.stopPropagation();
+      if (plan.units.length <= 1) { toast('最後の単元は削除できません', 'error'); return; }
+      const ok = await confirmDialog(`単元「${plan.units[i].name || '(無題)'}」を削除しますか?`, { okLabel: '削除', danger: true });
+      if (!ok) return;
+      store.snapshot('単元の削除');
+      plan.units.splice(i, 1);
+      if (editState.unitIdx >= plan.units.length) editState.unitIdx = plan.units.length - 1;
+      save();
+      toast('単元を削除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); reRender(); } });
+      reRender();
     };
   });
+  root.querySelector('#unit-add').onclick = () => {
+    plan.units.push(normUnit({ name: '' }));
+    editState.unitIdx = plan.units.length - 1;
+    save(); reRender();
+  };
+
+  // 選択単元: 基本(即時保存)
+  const ue = root.querySelector('#pe-unit-edit');
+  ue.querySelector('[name="uname"]').addEventListener('input', (e) => { unit.name = e.target.value; save(); });
+  ue.querySelector('[name="uname"]').addEventListener('change', () => reRender()); // 一覧の名前を更新
+  ue.querySelector('[name="uhours"]').addEventListener('change', (e) => {
+    unit.hours = Math.max(1, Number(e.target.value) || 1);
+    syncLessons(unit);
+    save(); reRender();
+  });
+  ue.querySelector('[name="ugoal"]').addEventListener('input', (e) => { unit.goal = e.target.value; save(); });
+  ue.querySelector('[name="ck"]').addEventListener('input', (e) => { unit.criteria.knowledge = e.target.value; save(); });
+  ue.querySelector('[name="ct"]').addEventListener('input', (e) => { unit.criteria.thinking = e.target.value; save(); });
+  ue.querySelector('[name="ca"]').addEventListener('input', (e) => { unit.criteria.attitude = e.target.value; save(); });
+
+  // 各時カード: テキストは即時保存、構造変更は再描画
+  syncLessons(unit);
+  ue.querySelectorAll('.hour-card').forEach(card => {
+    const i = Number(card.dataset.h);
+    const l = unit.lessons[i];
+    card.querySelector('[name="objective"]').addEventListener('input', (e) => { l.objective = e.target.value; save(); });
+    card.querySelector('[name="activity"]').addEventListener('input', (e) => { l.activity = e.target.value; save(); });
+    card.querySelector('[name="assessment"]').addEventListener('input', (e) => { l.assessment = e.target.value; save(); });
+    card.querySelector('[name="viewpoint"]').addEventListener('change', (e) => { l.viewpoint = e.target.value; save(); });
+    // 充足率の数字を更新するため、textのchangeで一覧側を軽く更新
+    card.querySelector('[name="objective"]').addEventListener('change', () => reRender());
+    card.querySelector('[data-dup]').onclick = () => {
+      unit.lessons.splice(i + 1, 0, normalizeLesson({ ...l }));
+      unit.hours = Math.max(unit.hours, unit.lessons.length); // 複製で時数を増やす
+      save(); reRender();
+    };
+    card.querySelector('[data-hup]').onclick = () => { if (i > 0) { swap(unit.lessons, i, i - 1); save(); reRender(); } };
+    card.querySelector('[data-hdown]').onclick = () => { if (i < unit.lessons.length - 1) { swap(unit.lessons, i, i + 1); save(); reRender(); } };
+    card.querySelector('[data-hrm]').onclick = () => {
+      if (unit.hours <= 1) { toast('最後の時は削除できません', 'error'); return; }
+      unit.lessons.splice(i, 1);
+      unit.hours = Math.max(1, unit.hours - 1);
+      save(); reRender();
+    };
+  });
+  ue.querySelector('#hour-add').onclick = () => {
+    unit.lessons.push(normalizeLesson({}));
+    unit.hours = unit.lessons.length;
+    save(); reRender();
+  };
 }
 
 function defaultGrade(s) {
@@ -330,11 +350,11 @@ function openImportDialog(ctx) {
       対応形式(自動判定):<br>
       ① <b>単元名, 時数, 内容</b> の列を持つ表(1行=1単元。内容は「|」か改行区切りで各時に展開)<br>
       ② <b>単元名, 内容</b> の表(1行=1時間。同じ単元名の行をまとめて時数を数えます)<br>
-      ExcelやWebページの表は、範囲選択してコピー → 下の欄に貼り付けでOKです。
+      指導目標・学習活動・評価規準・観点の列があれば、それぞれに取り込みます。
     </p>
     <div class="field import-area">
       <label>Excelやスプレッドシートから貼り付け${infoHTML('Excel・スプレッドシートのセルを範囲コピーして貼り付け(タブ区切り)。CSVテキストも可')}</label>
-      <textarea name="paste" placeholder="単元名	時数	内容&#10;たし算とひき算	8	筆算のしかた|くり上がり…"></textarea>
+      <textarea name="paste" placeholder="単元名	時数	指導目標	学習活動	評価規準	観点"></textarea>
     </div>
     <div class="field">
       <label>またはCSVファイルを選択</label>
@@ -355,11 +375,20 @@ function openImportDialog(ctx) {
         const rows = parseTable(text);
         const { units, warnings } = tableToUnits(rows);
         const total = units.reduce((a, u) => a + u.hours, 0);
-        // 形式①/②はダイアログ側の説明に任せ、結果報告のみ(規約3・6: ダイアログの①②とAB表記を混ぜない)
         toast(`${units.length}単元・計${total}時間を読み取りました`);
         warnings.forEach(w => toast(w, 'error', 4000));
         close();
-        openPlanEditor(null, ctx, units.map(u => ({ ...u, id: uid() })));
+        // 取り込んだ単元で新規計画を作成し、そのまま全画面編集へ
+        const s = store.settings;
+        const plan = {
+          id: uid(),
+          subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
+          grade: defaultGrade(s), textbook: '', startOffset: 0,
+          units: units.map(normUnit),
+        };
+        store.addPlan(plan);
+        editState = { planId: plan.id, unitIdx: 0 };
+        ctx.rerender();
       } catch (e) {
         toast('読み取りエラー: ' + e.message, 'error', 5000);
       }

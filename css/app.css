@@ -286,6 +286,55 @@ td.cell:hover .cell-clear { display: block; }
 .plan-item .p-subj { font-weight: 700; }
 .plan-item .p-meta { color: var(--muted); font-size: 12.5px; }
 .plan-item .spacer { flex: 1; }
+.plan-item .p-fill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.p-fill-bar { display: inline-block; width: 80px; height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
+.p-fill-bar > span { display: block; height: 100%; }
+
+/* ---------- 年間指導計画 全画面エディタ ---------- */
+.plan-editor { display: flex; flex-direction: column; }
+.pe-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.pe-header .pe-title { font-weight: 700; font-size: 15px; }
+.pe-header .spacer { flex: 1; }
+.pe-basic { margin-bottom: 14px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.pe-basic > summary { cursor: pointer; font-weight: 600; }
+.pe-body { display: grid; grid-template-columns: minmax(220px, 300px) 1fr; gap: 16px; align-items: start; }
+.pe-units-head { display: flex; align-items: center; justify-content: space-between; }
+.pe-units-head h3 { margin: 0 0 8px; }
+.plan-unit-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.plan-unit-item {
+  display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; background: #fff; cursor: pointer;
+}
+.plan-unit-item.selected { border-color: var(--accent); background: var(--accent-soft); }
+.plan-unit-item .pu-no {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: #e5e7eb;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #374151;
+}
+.plan-unit-item.selected .pu-no { background: var(--accent); color: #fff; }
+.plan-unit-item .pu-body { flex: 1; min-width: 0; }
+.plan-unit-item .pu-name { display: block; font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-unit-item .pu-meta { display: block; color: var(--muted); font-size: 11px; }
+.plan-unit-item .pu-ops { flex: 0 0 auto; display: flex; gap: 1px; }
+
+.pe-unit-edit { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: #fff; }
+.pe-unit-edit .ue-top { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.pe-unit-edit .ue-hours { width: 90px; }
+.pe-unit-edit .field { margin-bottom: 10px; }
+.pe-unit-edit textarea { width: 100%; font-family: inherit; font-size: 13.5px; resize: vertical; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 6px; min-height: 38px; }
+.pe-unit-edit .ue-criteria { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
+.ue-hours-h { margin: 4px 0 8px; }
+.hour-cards { display: flex; flex-direction: column; gap: 10px; }
+.hour-card { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 12px; background: #fafbfc; }
+.hour-card .hc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.hour-card .hc-no { font-weight: 700; color: var(--accent); }
+.hour-card .hc-ops { display: flex; gap: 1px; }
+.hour-card .hc-row { display: flex; gap: 10px; align-items: flex-end; }
+.hour-card .hc-vp { width: 72px; flex: 0 0 auto; }
+.hour-card .hc-vp select { width: 100%; padding: 6px; border: 1px solid var(--line); border-radius: 6px; }
+@media (max-width: 760px) {
+  .pe-body { grid-template-columns: 1fr; }
+}
 
 /* 計画エディタの基本情報。固定4列だと最小幅が約550pxを超えスマホ幅で横にあふれるため、
    入る分だけ段組みする(モーダル約340px幅なら2列に折り返す) */
