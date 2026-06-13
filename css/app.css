@@ -458,6 +458,23 @@ td.cell.today-col:hover { background: #e8f3ff; }
 
 /* ---------- セル編集モーダル(v2) ---------- */
 .entry-editor { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+/* 教科・学級の選択サマリー(パレットは「変更」で開く) */
+.cell-select { margin-bottom: 10px; }
+.cell-select > summary { list-style: none; cursor: pointer; }
+.cell-select > summary::-webkit-details-marker { display: none; }
+.cell-select-summary {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fafbfc;
+}
+.cell-select[open] > .cell-select-summary { border-color: var(--accent); background: var(--accent-soft); }
+.cell-select-summary .sel-name { font-weight: 700; font-size: 14px; }
+.cell-select-summary .sel-name.muted { color: var(--muted); font-weight: 600; }
+.cell-select-summary .sel-scope { font-size: 13px; font-weight: 700; color: var(--accent); }
+.cell-select-summary .sel-scope.warn { color: var(--danger); }
+.cell-select-summary .change-tag {
+  margin-left: auto; font-size: 12px; font-weight: 700; color: var(--accent);
+  border: 1px solid var(--accent); border-radius: 6px; padding: 2px 8px;
+}
 .grade-head {
   display: flex; align-items: center; justify-content: space-between;
   font-weight: 700; font-size: 13.5px; margin-bottom: 8px;

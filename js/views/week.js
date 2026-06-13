@@ -1371,17 +1371,31 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
   // 既定値から変わっている項目があるときだけ「詳細」を開いておく
   const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled;
 
-  // 複式では学年別パレットを折りたたみ(共通パレットが主)
+  // 選択済みの教科・学級を先頭1行に出し、パレットは「変更」で開く(編集の常用導線を短く)
+  const subj = subjectOf(s, entry.subjectKey);
+  const scopeLabel = s.mode === 'senka' ? scopeLabelOf(s, entry.scope) : '';
+  const scopeSet = s.mode !== 'senka' || (entry.scope != null && entry.scope !== '' && s.senkaClasses.some(c => c.id === entry.scope));
+  const hasSelection = !!entry.subjectKey && scopeSet;
+  const selSummary = entry.subjectKey
+    ? `${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span><span class="sel-name">${esc(subj.name)}</span>` : ''}`
+      + (s.mode === 'senka' ? (scopeLabel ? `<span class="sel-scope">${esc(scopeLabel)}</span>` : `<span class="sel-scope warn">学級未設定</span>`) : '')
+    : '<span class="sel-name muted">教科を選ぶ</span>';
+
+  // 複式では学年別パレットを折りたたみ(共通パレットが主)。担任・専科は教科+学級を「変更」で開く
   const paletteBlock = s.mode === 'fukushiki'
     ? `<details ${entry.subjectKey ? '' : 'open'}><summary class="fold-label">この学年の教科を変える</summary>
         <div class="subject-palette" style="margin-top:6px;">${palette}</div></details>`
-    : `<div class="field"><label>教科</label><div class="subject-palette">${palette}</div></div>`;
+    : `<details class="cell-select" ${hasSelection ? '' : 'open'}>
+        <summary class="cell-select-summary">${selSummary}<span class="change-tag">変更</span></summary>
+        <div class="field" style="margin-top:8px;"><label>教科</label><div class="subject-palette">${palette}</div></div>
+        ${scopeField}
+      </details>`;
 
   return `
     <div data-entry="${idx}" class="entry-editor">
       ${gradeHead}
       ${paletteBlock}
-      ${scopeField}
+      ${s.mode === 'fukushiki' ? scopeField : ''}
       ${autoBlock}
       <div class="field">
         <label>内容 ${!entry.auto ? '<button class="btn small ghost" data-reset-auto>↺ 自動に戻す</button>' : ''}</label>
