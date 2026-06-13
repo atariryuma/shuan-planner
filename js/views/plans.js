@@ -1,7 +1,7 @@
 /** 年間指導計画ビュー: 一覧 ↔ 全画面編集(単元一覧+選択単元の各時カード)・CSV取込 */
 
 import { store, normalizeLesson } from '../store.js';
-import { parseTable, tableToUnits, unitsToCSV } from '../csv.js';
+import { parseTable, detectColumns, buildUnitsFromColumns, unitsToCSV } from '../csv.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid } from '../utils.js';
 
@@ -371,27 +371,87 @@ function openImportDialog(ctx) {
       const file = modal.querySelector('[name="file"]').files[0];
       if (!text.trim() && file) text = await file.text();
       if (!text.trim()) { toast('データがありません', 'error'); modal.querySelector('[name="paste"]').focus(); return; }
+      let rows;
+      try { rows = parseTable(text); if (!rows.length) throw new Error('データが空です'); } catch (e) { toast('読み取りエラー: ' + e.message, 'error', 5000); return; }
+      let det;
+      try { det = detectColumns(rows); } catch (e) { toast('読み取りエラー: ' + e.message, 'error', 5000); return; }
+      close();
+      openMappingDialog(ctx, rows, det);
+    };
+  });
+}
+
+/** 列の対応づけ(マッピング)を確認・修正して取り込む。教科書会社ごとの列構成差に対応 */
+function openMappingDialog(ctx, rows, det) {
+  const fields = [
+    { key: 'unit', label: '単元名', required: true },
+    { key: 'hours', label: '時数', hint: '空の場合は1行=1時間として数えます' },
+    { key: 'objective', label: '指導目標(本時のねらい)' },
+    { key: 'activity', label: '学習活動' },
+    { key: 'assessment', label: '評価規準' },
+    { key: 'viewpoint', label: '観点' },
+  ];
+  const colOptions = (sel) => `<option value="-1" ${sel === -1 ? 'selected' : ''}>(なし)</option>` +
+    det.header.map((h, i) => `<option value="${i}" ${sel === i ? 'selected' : ''}>${esc(h)}</option>`).join('');
+
+  const sampleRows = (det.hasHeader ? rows.slice(1) : rows).slice(0, 3);
+  const sampleTable = `
+    <table class="units-table" style="font-size:11px;">
+      <thead><tr>${det.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${sampleRows.map(r => `<tr>${det.header.map((_, i) => `<td>${esc((r[i] || '').slice(0, 24))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+
+  openModal(`
+    <h2>列の対応を確認</h2>
+    <p class="hint">貼り付けた表の各列を、アプリの項目に対応づけます(自動で推定済み。違っていれば直してください)。</p>
+    <div class="map-grid">
+      ${fields.map(f => `
+        <div class="field"><label>${f.label}${f.required ? ' <span style="color:var(--danger)">*</span>' : ''}${f.hint ? infoHTML(f.hint) : ''}</label>
+          <select data-map="${f.key}">${colOptions(det.cols[f.key])}</select></div>`).join('')}
+    </div>
+    <h3>先頭3行のプレビュー</h3>
+    <div class="table-scroll">${sampleTable}</div>
+    <p class="hint" id="map-result" style="margin-top:8px;"></p>
+    <div class="modal-foot">
+      <button class="btn" data-cancel>キャンセル</button>
+      <button class="btn primary" data-import>取り込む</button>
+    </div>
+  `, (modal, close) => {
+    const readCols = () => {
+      const c = {};
+      modal.querySelectorAll('[data-map]').forEach(sel => { c[sel.dataset.map] = Number(sel.value); });
+      return c;
+    };
+    const preview = () => {
+      const cols = readCols();
+      const el = modal.querySelector('#map-result');
+      if (cols.unit < 0) { el.textContent = '「単元名」の列を選んでください'; el.style.color = 'var(--danger)'; return null; }
       try {
-        const rows = parseTable(text);
-        const { units, warnings } = tableToUnits(rows);
+        const { units } = buildUnitsFromColumns(rows, det.hasHeader, cols);
         const total = units.reduce((a, u) => a + u.hours, 0);
-        toast(`${units.length}単元・計${total}時間を読み取りました`);
-        warnings.forEach(w => toast(w, 'error', 4000));
-        close();
-        // 取り込んだ単元で新規計画を作成し、そのまま全画面編集へ
-        const s = store.settings;
-        const plan = {
-          id: uid(),
-          subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
-          grade: defaultGrade(s), textbook: '', startOffset: 0,
-          units: units.map(normUnit),
-        };
-        store.addPlan(plan);
-        editState = { planId: plan.id, unitIdx: 0 };
-        ctx.rerender();
-      } catch (e) {
-        toast('読み取りエラー: ' + e.message, 'error', 5000);
-      }
+        el.textContent = `→ ${units.length}単元・計${total}時間 として取り込みます`;
+        el.style.color = '';
+        return units;
+      } catch (e) { el.textContent = e.message; el.style.color = 'var(--danger)'; return null; }
+    };
+    modal.querySelectorAll('[data-map]').forEach(sel => sel.addEventListener('change', preview));
+    preview();
+    modal.querySelector('[data-cancel]').onclick = close;
+    modal.querySelector('[data-import]').onclick = () => {
+      const units = preview();
+      if (!units) return;
+      close();
+      const s = store.settings;
+      const plan = {
+        id: uid(),
+        subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
+        grade: defaultGrade(s), textbook: '', startOffset: 0,
+        units: units.map(normUnit),
+      };
+      store.addPlan(plan);
+      editState = { planId: plan.id, unitIdx: 0 };
+      toast(`${units.length}単元を取り込みました`);
+      ctx.rerender();
     };
   });
 }

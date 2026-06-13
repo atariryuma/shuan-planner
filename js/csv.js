@@ -61,73 +61,83 @@ function findCol(header, names) {
 }
 
 /**
- * テーブルを単元リストへ変換。
- * 戻り値: { units: [{name, hours, lessons:[{text}]}], format: 'A'|'B', warnings: [] }
+ * 表の列構成を自動判定する。マッピングUIの既定値に使う。
+ * 戻り値: { hasHeader, header(表示用ラベル配列), columnCount, cols:{unit,hours,objective,activity,assessment,viewpoint}, warnings }
+ * 各colは0始まりの列index、無ければ -1。
  */
-export function tableToUnits(rows) {
+export function detectColumns(rows) {
   if (!rows.length) throw new Error('データが空です');
+  const columnCount = Math.max(...rows.map(r => r.length));
+  const headerRow = rows[0].map(c => String(c));
+  let unitCol = findCol(headerRow, UNIT_HEADERS);
+  const hasHeader = unitCol !== -1;
   const warnings = [];
-  let header = rows[0].map(c => String(c));
-  let unitCol = findCol(header, UNIT_HEADERS);
-  let hoursCol = findCol(header, HOURS_HEADERS);
-  let objCol = findCol(header, OBJECTIVE_HEADERS);
-  let actCol = findCol(header, ACTIVITY_HEADERS);
-  let assessCol = findCol(header, ASSESS_HEADERS);
-  let vpCol = findCol(header, VIEWPOINT_HEADERS);
-  let contentCol = findCol(header, CONTENT_HEADERS);
-  // 指導目標列が無ければ「内容/学習活動」を指導目標として使う(旧来の単一列の表)
-  if (objCol === -1) objCol = contentCol !== -1 ? contentCol : actCol;
-  let body = rows.slice(1);
-
-  // ヘッダー行が無い場合: 列数から推定(1列目=単元、2列目=数値なら時数、3列目=指導目標)
-  if (unitCol === -1) {
-    header = null;
-    body = rows;
-    unitCol = 0;
+  let cols;
+  if (hasHeader) {
+    let objCol = findCol(headerRow, OBJECTIVE_HEADERS);
+    const contentCol = findCol(headerRow, CONTENT_HEADERS);
+    const actCol = findCol(headerRow, ACTIVITY_HEADERS);
+    if (objCol === -1) objCol = contentCol !== -1 ? contentCol : actCol;
+    cols = {
+      unit: unitCol, hours: findCol(headerRow, HOURS_HEADERS),
+      objective: objCol, activity: actCol,
+      assessment: findCol(headerRow, ASSESS_HEADERS), viewpoint: findCol(headerRow, VIEWPOINT_HEADERS),
+    };
+  } else {
+    // ヘッダー無し: 1列目=単元、2列目が数値なら時数、3列目=指導目標
     const second = rows.map(r => r[1]).filter(v => v != null && v !== '');
     const numeric = second.length > 0 && second.every(v => !isNaN(parseFloat(v)));
-    hoursCol = numeric ? 1 : -1;
-    objCol = numeric ? 2 : 1;
-    actCol = assessCol = vpCol = -1;
-    warnings.push('1列目を単元名として読み取りました');
+    cols = { unit: 0, hours: numeric ? 1 : -1, objective: numeric ? 2 : 1, activity: -1, assessment: -1, viewpoint: -1 };
+    warnings.push('ヘッダー行がないため、列の対応を確認してください');
   }
+  const header = hasHeader ? headerRow : Array.from({ length: columnCount }, (_, i) => `列${i + 1}`);
+  return { hasHeader, header, columnCount, cols, warnings };
+}
 
+/** 明示した列対応で単元リストを組み立てる(マッピングUI・自動判定の共通エンジン) */
+export function buildUnitsFromColumns(rows, hasHeader, cols) {
+  const body = hasHeader ? rows.slice(1) : rows;
+  const at = (r, c) => (c != null && c >= 0 ? (r[c] || '') : '');
   const lessonFrom = (r, objText) => ({
-    objective: (objText != null ? objText : (objCol !== -1 ? r[objCol] : '') || '').trim(),
-    activity: (actCol !== -1 ? (r[actCol] || '') : '').trim(),
-    assessment: (assessCol !== -1 ? (r[assessCol] || '') : '').trim(),
-    viewpoint: vpCol !== -1 ? normViewpoint(r[vpCol]) : '',
+    objective: (objText != null ? objText : at(r, cols.objective)).trim(),
+    activity: at(r, cols.activity).trim(),
+    assessment: at(r, cols.assessment).trim(),
+    viewpoint: normViewpoint(at(r, cols.viewpoint)),
   });
-
   const units = [];
-  const formatA = hoursCol !== -1;
+  const formatA = cols.hours != null && cols.hours >= 0;
   if (formatA) {
-    // 1行=1単元。指導目標列が「|」区切りで各時に展開される(学習活動等は単元先頭時に入る)
     for (const r of body) {
-      const name = (r[unitCol] || '').trim();
+      const name = at(r, cols.unit).trim();
       if (!name) continue;
-      const hours = parseFloat(r[hoursCol]) || 1;
-      const objs = splitContents(objCol !== -1 ? (r[objCol] || '') : '');
+      const hours = parseFloat(at(r, cols.hours)) || 1;
+      const objs = splitContents(at(r, cols.objective));
       const lessons = objs.length ? objs.map((t, idx) => idx === 0 ? lessonFrom(r, t) : { objective: t, activity: '', assessment: '', viewpoint: '' })
         : [lessonFrom(r, '')];
       units.push({ name, hours, lessons });
     }
   } else {
-    // 1行=1時間。同名単元(または空欄=直前と同じ)をまとめる
     let cur = null;
     for (const r of body) {
-      const name = (r[unitCol] || '').trim();
-      if (name && (!cur || cur.name !== name)) {
-        cur = { name, hours: 0, lessons: [] };
-        units.push(cur);
-      }
+      const name = at(r, cols.unit).trim();
+      if (name && (!cur || cur.name !== name)) { cur = { name, hours: 0, lessons: [] }; units.push(cur); }
       if (!cur) continue;
       cur.hours += 1;
       cur.lessons.push(lessonFrom(r));
     }
   }
-  if (!units.length) throw new Error('単元を読み取れませんでした。1列目に単元名があるか確認してください。');
-  return { units, format: formatA ? 'A' : 'B', warnings };
+  if (!units.length) throw new Error('単元を読み取れませんでした。「単元名」の列対応を確認してください。');
+  return { units, format: formatA ? 'A' : 'B' };
+}
+
+/**
+ * テーブルを単元リストへ変換(自動判定)。
+ * 戻り値: { units, format: 'A'|'B', warnings: [] }
+ */
+export function tableToUnits(rows) {
+  const det = detectColumns(rows);
+  const { units, format } = buildUnitsFromColumns(rows, det.hasHeader, det.cols);
+  return { units, format, warnings: det.warnings };
 }
 
 function splitContents(raw) {

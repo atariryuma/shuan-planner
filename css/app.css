@@ -353,6 +353,8 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .units-table .drag-handle { cursor: grab; color: var(--muted); }
 
 .import-area textarea { width: 100%; min-height: 140px; font-family: Consolas, monospace; font-size: 12px; }
+.map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.map-grid select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 
 /* ---------- データ画面(保存先別) ---------- */
 .data-page { display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
