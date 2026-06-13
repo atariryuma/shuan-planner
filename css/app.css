@@ -118,10 +118,12 @@ html, body {
 .tabs { display: flex; gap: 2px; flex: 1; }
 .tab {
   position: relative;
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   border: none; background: none; padding: 8px 14px; cursor: pointer;
   font-size: 14px; color: var(--muted); border-radius: var(--r-sm);
   transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
+.tab .tab-ic { font-size: 14px; line-height: 1; }
 .tab:hover { color: var(--ink); background: var(--gray-100); }
 .tab.active { color: var(--accent); font-weight: 700; }
 .tab.active::after {
@@ -130,6 +132,19 @@ html, body {
   animation: tab-underline var(--dur-2) var(--ease-out);
 }
 @keyframes tab-underline { from { transform: scaleX(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 狭い画面ではヘッダーを1行に収め、今日の授業を見える高さに保つ
+   (ブランド名は隠しアイコンのみ・タブは横スクロール・保存表示と印刷ラベルは省く) */
+@media (max-width: 640px) {
+  .topbar { flex-wrap: nowrap; gap: 8px; padding: 6px 10px; }
+  .brand h1 { display: none; }
+  .tabs { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 0; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; padding: 8px 10px; }
+  .topbar-actions { flex: 0 0 auto; }
+  .save-indicator { display: none; }
+  .btn-label { display: none; }
+}
 
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 /* 小型文字のためWCAG 1.4.3の4.5:1を満たす濃さにする */
