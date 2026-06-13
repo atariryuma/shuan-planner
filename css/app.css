@@ -316,7 +316,10 @@ table.stats-table { border-collapse: collapse; width: 100%; }
 .stats-table .bar { height: 100%; background: var(--accent); border-radius: 4px; }
 
 /* ---------- settings ---------- */
-.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; align-items: start; }
+/* 設定は選択カテゴリだけを1カラムで表示する(同時多カード・横スクロールを避ける) */
+.settings-grid { display: block; max-width: 1000px; }
+.settings-grid > .panel { display: none; }
+.settings-grid > .panel.active-cat { display: block; }
 table.edit-table { border-collapse: collapse; width: 100%; }
 .edit-table th, .edit-table td { border: 1px solid var(--line); padding: 4px 6px; font-size: 13px; }
 .edit-table th { background: #f8fafc; font-weight: 600; }
@@ -573,7 +576,7 @@ details.menu .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; 
   padding: 5px 12px; font-size: 12.5px; cursor: pointer; font-family: inherit; color: var(--ink);
 }
 .set-chip:hover { border-color: var(--accent); color: var(--accent); }
-.settings-grid .panel { scroll-margin-top: 64px; } /* ジャンプ先が固定ヘッダーに隠れない */
+.set-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
 
 /* ガイドカードの完了ステップ */
 .oc-step.done { opacity: .6; }

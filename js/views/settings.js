@@ -327,16 +327,22 @@ function modeDetailHTML(s, gradeOpts) {
 function wireSettings(root, ctx) {
   const s = store.settings;
 
-  // 項目ナビ(長い設定ページ内のジャンプ)
+  // カテゴリ単一表示: 選択したカテゴリのパネルだけを表示する
+  const CAT_KEY = 'shuan-settings-cat';
+  const panels = [...root.querySelectorAll('.settings-grid > .panel')];
+  const validIds = panels.map(p => p.id);
+  const showCategory = (id) => {
+    if (!validIds.includes(id)) id = validIds[0];
+    localStorage.setItem(CAT_KEY, id);
+    panels.forEach(p => p.classList.toggle('active-cat', p.id === id));
+    root.querySelectorAll('.set-chip').forEach(c => c.classList.toggle('active', c.dataset.goto === id));
+    const det = root.querySelector('#' + id + ' details');
+    if (det) det.open = true; // Google連携は開いた状態で見せる
+  };
   root.querySelectorAll('.set-chip').forEach(chip => {
-    chip.onclick = () => {
-      const target = root.querySelector('#' + chip.dataset.goto);
-      if (!target) return;
-      const det = target.querySelector('details');
-      if (det) det.open = true; // 折りたたみ先(Google連携)は開いてから移動
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
+    chip.onclick = () => { showCategory(chip.dataset.goto); root.scrollTop = 0; window.scrollTo(0, 0); };
   });
+  showCategory(localStorage.getItem(CAT_KEY) || 'sp-basic');
 
   // 単純テキスト/数値(再描画不要)
   root.querySelectorAll('[data-set]').forEach(inp => {
