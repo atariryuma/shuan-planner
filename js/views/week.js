@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, termRanges } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, termRanges, VIEWPOINTS } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -1218,6 +1218,23 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       noteInput.addEventListener('input', () => { touch(); entry.note = noteInput.value; store.commit(); });
       noteInput.addEventListener('change', () => ctx.rerender());
 
+      // 項目別オーバーライド: ねらい/学習活動/評価規準を「このコマだけ」上書き
+      box.querySelectorAll('.ov-input').forEach(ta => {
+        ta.addEventListener('input', () => { touch(); setOverride(entry, ta.dataset.ov, ta.value); store.commit(); });
+        ta.addEventListener('change', () => { render(modal); ctx.rerender(); });
+      });
+      box.querySelectorAll('[data-ov-reset]').forEach(b => {
+        b.onclick = () => { touch(); setOverride(entry, b.dataset.ovReset, ''); store.commit(); render(modal); ctx.rerender(); };
+      });
+      box.querySelectorAll('[data-ov-vp] [data-vp]').forEach(b => {
+        b.onclick = () => {
+          touch();
+          const planVp = b.closest('[data-ov-vp]')?.dataset.planVp || '';
+          setOverrideViewpoint(entry, b.dataset.vp, planVp);
+          store.commit(); render(modal); ctx.rerender();
+        };
+      });
+
       const resetBtn = box.querySelector('[data-reset-auto]');
       if (resetBtn) resetBtn.onclick = () => {
         entry.text = ''; entry.auto = true;
@@ -1307,7 +1324,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const c = w?.cells?.[key];
     if (c) {
       c.entries = c.entries.filter(e =>
-        (e.subjectKey && !prefilled.has(e.id)) || (e.text && !e.auto) || e.note);
+        (e.subjectKey && !prefilled.has(e.id)) || (e.text && !e.auto) || e.note || e.override);
       if (!c.entries.length) delete w.cells[key];
     }
     if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
@@ -1322,6 +1339,26 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     // 再描画でDOMが入れ替わるため、編集していたセルへフォーカスを戻す(キーボード操作の連続性)
     document.querySelector(`td.cell[data-day="${dayIdx}"][data-period="${CSS.escape(periodId)}"]`)?.focus();
   }
+}
+
+// ねらい/学習活動/評価規準 の「このコマだけ上書き」を entry.override に反映する。
+// 空文字はキー削除(=計画に復帰)。何も残らなければ override=null。
+function setOverride(entry, key, value) {
+  const o = { ...(entry.override || {}) };
+  const v = String(value);
+  if (v.trim() === '') delete o[key];
+  else o[key] = v;
+  entry.override = Object.keys(o).length ? o : null;
+}
+
+// 観点(知/思/態)の上書き。同じ観点 or 計画と同じ観点を選んだら解除(計画に戻す)。
+function setOverrideViewpoint(entry, code, planViewpoint) {
+  const o = { ...(entry.override || {}) };
+  const cur = ('viewpoint' in o) ? o.viewpoint : (planViewpoint || '');
+  const next = (cur === code) ? '' : code;
+  if (!next || next === (planViewpoint || '')) delete o.viewpoint;
+  else o.viewpoint = next;
+  entry.override = Object.keys(o).length ? o : null;
 }
 
 function entryEditorHTML(state, entry, idx, period, ordinals) {
@@ -1363,21 +1400,56 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     ['主体的態度', details.unitCriteria.attitude],
   ].filter(([, value]) => value).map(([label, value]) =>
     `<div class="auto-plan-row"><dt>${label}</dt><dd>${esc(value)}</dd></div>`).join('') : '';
-  const autoBlock = details
-    ? `<div class="auto-preview auto-plan-preview">
-        <div class="auto-plan-title"><span class="label">${entry.auto ? '年間指導計画から自動反映' : '元の年間指導計画（週案は手動記載）'}</span><strong>${esc(details.unitName)}</strong>${details.unitHours > 1 ? `<span>${details.nth}/${details.unitHours}時</span>` : ''}</div>
-        ${details.objective ? `<div class="auto-plan-item"><b>本時のねらい</b><span>${esc(details.objective)}</span></div>` : ''}
-        ${details.activity ? `<div class="auto-plan-item"><b>学習活動</b><span>${esc(details.activity)}</span></div>` : ''}
-        ${details.assessment || details.viewpointLabel ? `<div class="auto-plan-item"><b>評価</b><span>${details.viewpointLabel ? `<em>${esc(details.viewpointLabel)}</em>` : ''}${esc(details.assessment)}</span></div>` : ''}
-        ${(details.unitGoal || criteriaRows) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
-          ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
-          ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}
-        </details>` : ''}
-      </div>`
-    : (entry.auto && resolved.text
-      ? `<div class="auto-preview"><span class="label">自動反映</span>${esc(resolved.text)}</div>`
-    : (entry.auto && !state.plans.length && idx === 0
-      ? `<div class="auto-preview muted">年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>` : ''));
+  // 構造化編集の対象。計画があれば details、無くても教科が決まっていれば空の枠を出して記録できるようにする。
+  const ed = details || (entry.subjectKey ? {
+    planless: true, unitName: '', unitHours: 0, nth: 0, unitGoal: '',
+    objective: '', activity: '', assessment: '', viewpoint: '',
+    planObjective: '', planActivity: '', planAssessment: '', planViewpoint: '',
+    overridden: { objective: false, activity: false, assessment: false, viewpoint: false },
+  } : null);
+
+  // 1項目分の編集フィールド。計画値はプレースホルダ(薄字)、上書き時のみ実値を表示＋「変更」バッジ。
+  const ovField = (key, label, planVal, effVal, isOv, extra = '') => `
+    <div class="ov-field${isOv ? ' is-ov' : ''}">
+      <div class="ov-flabel"><b>${label}</b>
+        ${isOv
+          ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>`
+          : (planVal ? '<span class="ov-asplan">計画どおり</span>' : '')}
+      </div>
+      <textarea class="ov-input" data-ov="${key}" rows="2"
+        placeholder="${esc(planVal || '（計画に記載なし・自由に記録できます）')}">${isOv ? esc(effVal) : ''}</textarea>
+      ${extra}
+    </div>`;
+
+  let autoBlock = '';
+  if (ed) {
+    const vp = ed.viewpoint || '';
+    const vpSeg = `<div class="ov-vp" data-ov-vp data-plan-vp="${esc(ed.planViewpoint || '')}" role="group" aria-label="観点">
+      ${['知', '思', '態'].map(code =>
+        `<button type="button" data-vp="${code}" class="${vp === code ? 'selected' : ''}" aria-pressed="${vp === code}" title="${esc(VIEWPOINTS[code])}">${code}</button>`).join('')}
+      <button type="button" data-vp="" class="ov-vp-none ${vp === '' ? 'selected' : ''}" aria-pressed="${vp === ''}">なし</button>
+    </div>`;
+    autoBlock = `<div class="ov-block">
+      <div class="ov-head">
+        ${ed.planless
+          ? '<span class="ov-kicker">本時の記録</span><span class="ov-sub">年間計画に未登録のコマ</span>'
+          : `<span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}`}
+        <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
+      </div>
+      ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
+      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity)}
+      ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
+        `<div class="ov-vprow"><span class="ov-vplabel">観点${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`)}
+      ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
+        ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
+        ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}
+      </details>` : ''}
+    </div>`;
+  } else if (entry.auto && resolved.text) {
+    autoBlock = `<div class="auto-preview"><span class="label">自動反映</span>${esc(resolved.text)}</div>`;
+  } else if (entry.auto && !state.plans.length && idx === 0) {
+    autoBlock = '<div class="auto-preview muted">年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>';
+  }
 
   // 既定値から変わっている項目があるときだけ「詳細」を開いておく
   const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled;
@@ -1402,16 +1474,22 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         ${scopeField}
       </details>`;
 
+  const manualField = `<div class="field">
+        <label>内容 ${!entry.auto ? '<button class="btn small ghost" data-reset-auto>↺ 自動に戻す</button>' : ''}</label>
+        <textarea name="text" placeholder="${esc(resolved.auto && resolved.text ? resolved.text : '')}">${entry.auto ? '' : esc(entry.text)}</textarea>
+      </div>`;
+  // 構造化編集がある場合、全文差し替えは「上級」として折りたたむ(主導線は項目別編集)
+  const manualBlock = ed
+    ? `<details class="manual-fold" ${!entry.auto ? 'open' : ''}><summary class="fold-label">1行表示を丸ごと書き換える（上級）${infoHTML('週案グリッドの1行表示を、年間計画と切り離して自由文に置き換えます。通常は上の項目編集で十分です')}</summary>${manualField}</details>`
+    : manualField;
+
   return `
     <div data-entry="${idx}" class="entry-editor">
       ${gradeHead}
       ${paletteBlock}
       ${s.mode === 'fukushiki' ? scopeField : ''}
       ${autoBlock}
-      <div class="field">
-        <label>内容 ${!entry.auto ? '<button class="btn small ghost" data-reset-auto>↺ 自動に戻す</button>' : ''}</label>
-        <textarea name="text" placeholder="${esc(resolved.auto && resolved.text ? resolved.text : '')}">${entry.auto ? '' : esc(entry.text)}</textarea>
-      </div>
+      ${manualBlock}
       <div class="field">
         <label>備考</label>
         <input type="text" name="note" value="${esc(entry.note || '')}">

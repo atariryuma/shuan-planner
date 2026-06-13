@@ -435,6 +435,61 @@ export function newEntry() {
     cancelled: false,  // 中止・未実施(時数・進度とも除外、表示は取り消し線)
     cancelledText: '', // 中止時点の予定内容のスナップショット(提出書類に「何が中止か」を残す)
     guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
+    override: null,    // 年間計画の本時項目を「このコマだけ」上書きした差分。形 {objective?,activity?,assessment?,viewpoint?}
+                       // 設定された項目のみ保持(計画全文は重複保存しない)。実施記録=計画との差分。
+  };
+}
+
+/**
+ * entry.override を正規化する。空文字・未知の観点は捨て、変更項目だけを残す。
+ * 何も残らなければ null(=計画どおり)を返す。viewpoint の空文字は「計画に従う」扱い。
+ */
+export function normalizeOverride(o) {
+  if (!o || typeof o !== 'object') return null;
+  const out = {};
+  for (const k of ['objective', 'activity', 'assessment']) {
+    const v = o[k];
+    if (v != null && String(v).trim() !== '') out[k] = String(v);
+  }
+  const vp = String(o.viewpoint ?? '');
+  if (['知', '思', '態'].includes(vp)) out.viewpoint = vp;
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * 計画の本時項目(objective/activity/assessment/viewpoint)に override を項目単位で重ね、
+ * 実効値・計画の元値・変更フラグをまとめて返す。week表示/編集/印刷で共通利用。
+ */
+export function mergeLessonOverride(planLesson, override) {
+  const base = {
+    objective: String(planLesson?.objective || ''),
+    activity: String(planLesson?.activity || ''),
+    assessment: String(planLesson?.assessment || ''),
+    viewpoint: String(planLesson?.viewpoint || ''),
+  };
+  const o = normalizeOverride(override) || {};
+  const eff = {
+    objective: o.objective ?? base.objective,
+    activity: o.activity ?? base.activity,
+    assessment: o.assessment ?? base.assessment,
+    viewpoint: o.viewpoint ?? base.viewpoint,
+  };
+  return {
+    objective: eff.objective,
+    activity: eff.activity,
+    assessment: eff.assessment,
+    viewpoint: eff.viewpoint,
+    viewpointLabel: VIEWPOINTS[eff.viewpoint] || '',
+    planObjective: base.objective,
+    planActivity: base.activity,
+    planAssessment: base.assessment,
+    planViewpoint: base.viewpoint,
+    overridden: {
+      objective: 'objective' in o,
+      activity: 'activity' in o,
+      assessment: 'assessment' in o,
+      viewpoint: 'viewpoint' in o,
+    },
   };
 }
 
@@ -558,7 +613,11 @@ function migrate(data) {
     w.cells = (w.cells && typeof w.cells === 'object') ? w.cells : {};
     for (const [ck, cell] of Object.entries(w.cells)) {
       if (!cell || !Array.isArray(cell.entries)) { delete w.cells[ck]; continue; }
-      cell.entries = cell.entries.filter(e => e && typeof e === 'object').map(e => ({ ...newEntry(), ...e, id: e.id || uid() }));
+      cell.entries = cell.entries.filter(e => e && typeof e === 'object').map(e => {
+        const ne = { ...newEntry(), ...e, id: e.id || uid() };
+        ne.override = normalizeOverride(ne.override); // 既存データは override 無し(=null)
+        return ne;
+      });
       if (!cell.entries.length) delete w.cells[ck];
     }
     if (!Array.isArray(w.events)) w.events = ['', '', '', '', '', ''];
@@ -714,7 +773,9 @@ export function resolveEntryText(state, entry, ordinals) {
   if (!info) return { text: entry.text || '', auto: true, info: null };
   if (info.exhausted) return { text: '(計画終了)', auto: true, info };
   const head = info.unitName ? `${info.unitName}` : '';
-  const sub = info.lessonText ? ` ${info.lessonText}` : '';
+  // 本時のねらいを override で差し替えていれば1行表示にも反映する(計画の元値はそのまま)
+  const effObjective = normalizeOverride(entry.override)?.objective ?? info.lessonText;
+  const sub = effObjective ? ` ${effObjective}` : '';
   const counter = info.unitHours > 1 ? `(${info.nth}/${info.unitHours})` : '';
   return { text: `${head}${counter}${sub}`.trim(), auto: true, info };
 }
@@ -734,9 +795,27 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
     plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
       || null;
   }
-  if (!info || info.exhausted || !info.unit) return { resolved, details: null };
+  if (!info || info.exhausted || !info.unit) {
+    // 計画が無い/終了したコマでも、override 単独で活動・評価を記録できるようにする。
+    const ov = normalizeOverride(entry.override);
+    if (!ov) return { resolved, details: null };
+    const merged = mergeLessonOverride(null, ov);
+    return {
+      resolved,
+      details: {
+        unitName: '', unitId: '', nth: 0, unitHours: 0,
+        planId: '', textbook: '',
+        grade: scopeGrade(state.settings, entry.scope) || null,
+        manualText: resolved.auto ? '' : resolved.text,
+        unitGoal: '', unitCriteria: { knowledge: '', thinking: '', attitude: '' },
+        planless: true, // 年間計画に紐づかない手記録(編集UIで見出しを変える)
+        ...merged,
+      },
+    };
+  }
   const lesson = normalizeLesson(info.lesson);
   const criteria = info.unit.criteria || {};
+  const merged = mergeLessonOverride(lesson, entry.override); // override を項目単位で重ねた実効値
   return {
     resolved,
     details: {
@@ -754,11 +833,8 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
         thinking: String(criteria.thinking || ''),
         attitude: String(criteria.attitude || ''),
       },
-      objective: lesson.objective,
-      activity: lesson.activity,
-      assessment: lesson.assessment,
-      viewpoint: lesson.viewpoint,
-      viewpointLabel: VIEWPOINTS[lesson.viewpoint] || '',
+      planless: false,
+      ...merged, // objective/activity/assessment/viewpoint(実効値)+ plan元値 + overridden フラグ
     },
   };
 }
