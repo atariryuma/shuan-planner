@@ -1307,15 +1307,18 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
-  // 語彙をエディタと統一: クリア=中身を空に / 授業なし=授業を外す / 空きに戻す=削除
-  if (hasEntries) acts.push({ ic: 'eraser', label: 'クリア（中身を空に）', run: () => clearCellContentQuick(weekStart, dayIdx, periodId, ctx) });
-  if (hasEntries) acts.push({ ic: 'memo', label: '授業なし', run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
+  // 破壊系は下にまとめて区切り線で分ける。語彙はエディタと統一(クリア=中身を空に / 削除=授業を消す)。赤は「削除」だけ。
+  if (hasEntries) acts.push({ sep: true });
+  if (hasEntries) acts.push({ ic: 'eraser', label: 'クリア', run: () => clearCellContentQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries) acts.push({ ic: 'trash', label: '削除', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (blocked) acts.push({ ic: 'trash', label: '空きに戻す', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
 
   const menu = document.createElement('div');
   menu.className = 'context-menu';
   menu.setAttribute('role', 'menu');
-  menu.innerHTML = acts.map((a, i) => `<button class="cm-item ${a.danger ? 'danger' : ''}" data-cm="${i}" role="menuitem">${icon(a.ic)}${a.label}</button>`).join('');
+  menu.innerHTML = acts.map((a, i) => a.sep
+    ? '<div class="cm-sep" role="separator"></div>'
+    : `<button class="cm-item ${a.danger ? 'danger' : ''}" data-cm="${i}" role="menuitem">${icon(a.ic)}${a.label}</button>`).join('');
   document.body.appendChild(menu);
   menu.style.left = Math.max(6, Math.min(x, window.innerWidth - menu.offsetWidth - 6)) + 'px';
   menu.style.top = Math.max(6, Math.min(y, window.innerHeight - menu.offsetHeight - 6)) + 'px';
@@ -1700,8 +1703,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const clearBtn = modal.querySelector('[data-clear-cell]');
     if (clearBtn) {
       const isLesson = !cellNow.blocked && cellNow.entries.length > 0;
-      clearBtn.innerHTML = isLesson ? `${icon('memo')}授業なし` : `${icon('trash')}空きに戻す`;
-      clearBtn.classList.toggle('danger', !isLesson); // 「空きに戻す」=削除のみ赤
+      // 授業中→「削除」(授業を消す)、予定・空き→「空きに戻す」。どちらも消す操作なので赤。
+      clearBtn.innerHTML = isLesson ? `${icon('trash')}削除` : `${icon('trash')}空きに戻す`;
+      clearBtn.classList.add('danger');
     }
     // 右上「⋯」(ロック/クリア/移動)は授業コマだけ。予定(blocked)・空きでは隠す。ロック表示も更新。
     const ocMenu = modal.querySelector('.oc-menu');
@@ -1919,7 +1923,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         <summary class="btn small ghost" aria-label="このコマの操作">⋯</summary>
         <div class="menu-items">
           <button class="btn ghost menu-item" data-oc-lock title="「計画に合わせて更新」しても上書きされません">${icon('lock')}ロック</button>
-          <button class="btn ghost menu-item" data-oc-clear title="本時のねらい・活動・評価を空に。教科・学級は残ります">${icon('eraser')}クリア（中身を空に）</button>
+          <button class="btn ghost menu-item" data-oc-clear title="本時のねらい・活動・評価を空に。教科・学級は残ります">${icon('eraser')}クリア</button>
           <button class="btn ghost menu-item" data-oc-move>${icon('refresh')}別の時間へ移動</button>
         </div>
       </details>
@@ -1974,8 +1978,8 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     modal.querySelector('[data-clear-cell]').onclick = () => {
       const c = store.getCell(weekStart, dayIdx, periodId);
       if (c && c.entries.length) {
-        // 授業を「授業なし(会議・委員会・予定など)」へ。モーダルは開いたままメモ編集に切替。
-        store.snapshot('授業なしにする');
+        // 削除=授業を消す→「授業なし」へ(流し込みで戻らない)。会議・委員会等を書きたければ書ける。
+        store.snapshot('授業を削除');
         makeMemo(); store.commit(); render(modal); ctx.rerender();
       } else {
         // 予定・空き → 完全に空きへ戻す(また流し込みで埋まる)

@@ -1005,6 +1005,7 @@ td.cell:focus-visible, .day-th:focus-visible {
 .cm-item.danger { color: var(--danger); }
 .cm-item.danger .ic { color: var(--danger); }
 .cm-item.danger:hover { background: var(--danger-soft); }
+.cm-sep { height: 1px; background: var(--line); margin: 4px 6px; }
 
 /* ---------- 曜日の一括操作(アイコン＋説明の二段ボタン) ---------- */
 .day-ops { display: flex; flex-direction: column; gap: 8px; }
