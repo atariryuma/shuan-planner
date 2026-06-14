@@ -1952,10 +1952,10 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     // 畳んだ状態でも活動・評価・観点を全文(読み)で表示=週案グリッドと一致させる。
     // 「編集」で展開して入力欄に切り替える(詳細画面なのに一覧より情報が減る不整合を避ける)。
     const lessonRead = (ed.activity || ed.assessment || ed.viewpoint)
-      ? `${ed.activity ? `<span class="ld-r"><b>活</b> ${esc(ed.activity)}</span>` : ''}${(ed.assessment || ed.viewpoint) ? `<span class="ld-r"><b>評</b> ${ed.viewpoint ? `<b class="e-viewpoint" data-vp="${esc(ed.viewpoint)}">${esc(ed.viewpoint)}</b> ` : ''}${esc(ed.assessment)}</span>` : ''}`
-      : '<span class="ld-r muted">学習活動・評価規準（未入力）</span>';
+      ? `${ed.activity ? `<div class="ld-row"><span class="ld-k">学習活動</span><span class="ld-v">${esc(ed.activity)}</span></div>` : ''}${(ed.assessment || ed.viewpoint) ? `<div class="ld-row"><span class="ld-k">評価規準</span><span class="ld-v">${ed.viewpoint ? `<b class="e-viewpoint" data-vp="${esc(ed.viewpoint)}">${esc(ed.viewpoint)}</b> ` : ''}${esc(ed.assessment)}</span></div>` : ''}`
+      : '<div class="ld-row"><span class="ld-v muted">学習活動・評価規準（タップで入力）</span></div>';
     const lessonDetail = `<details class="lesson-fold" ${lessonOpen ? 'open' : ''}>
-        <summary class="ld-summary"><span class="ld-read">${lessonRead}</span><span class="ld-editing">学習活動・評価規準・観点</span><span class="change-tag">編集</span></summary>
+        <summary class="ld-summary"><span class="ld-read">${lessonRead}</span><span class="ld-editing">学習活動・評価規準・観点</span><span class="ld-edit-tag">編集</span></summary>
         ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
         ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
           `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`, ed.autoBlanked.assessment)}
