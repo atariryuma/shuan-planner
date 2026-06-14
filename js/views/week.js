@@ -1602,6 +1602,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   const editKey = cellKey(dayIdx, periodId);
   const openCellJSON = JSON.stringify(store.state.weeks[weekStart]?.cells?.[editKey] ?? null);
   let discarded = false;
+  let closeModal = null; // 本文内ボタン(移動など)から閉じるために setup で受け取る
 
   // 専科で事前充填(担当教科入り)したエントリのid。ユーザー操作がないまま
   // 閉じた場合はcleanupで除去する(開いて閉じるだけで授業が登録されないように)
@@ -1678,8 +1679,13 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     } else {
       // 授業エディタ(空きコマも直接ここを開く)。会議・委員会等はフッター左「授業なし」で切替。
       const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
+      const locked = cellNow.entries.some(e => e.locked);
       inner = commonPalette + body
-        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
+        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
+        + `<div class="cell-meta-acts">
+            <button type="button" class="btn small ghost" data-lock-cell>${icon('lock')}${locked ? 'ロック解除' : '更新から守る'}</button>
+            <button type="button" class="btn small ghost" data-swap>${icon('refresh')}別の時間へ移動</button>
+          </div>`;
     }
     modal.querySelector('.cell-editor-body').innerHTML = inner;
     // フッター左ボタン(クリア位置)を状態で出し分け: 授業中→「授業なし」/予定・空き→「空きに戻す」
@@ -1880,6 +1886,19 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     modal.querySelector('[data-make-lesson]')?.addEventListener('click', () => {
       ensureLesson(); store.commit(); render(modal); ctx.rerender();
     });
+    // このコマの操作: ロック / 別の時間へ移動(本文下部。再描画されるのでwireEditorで毎回束ねる)
+    modal.querySelector('[data-lock-cell]')?.addEventListener('click', () => {
+      const c = store.getCell(weekStart, dayIdx, periodId);
+      if (!c?.entries?.length) return;
+      const on = !c.entries.some(e => e.locked);
+      store.snapshot(on ? 'コマをロック' : 'ロック解除');
+      c.entries.forEach(e => { e.locked = on; });
+      store.commit(); render(modal); ctx.rerender();
+    });
+    modal.querySelector('[data-swap]')?.addEventListener('click', () => {
+      ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
+      closeModal?.();
+    });
     const memoTa = modal.querySelector('[name="cellNote"]');
     if (memoTa) {
       memoTa.addEventListener('input', () => {
@@ -1905,28 +1924,13 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
       <button class="btn danger left" data-clear-cell></button>
-      <button class="btn" data-lock-cell>${icon('lock')}${(store.getCell(weekStart, dayIdx, periodId)?.entries || []).some(e => e.locked) ? 'ロック解除' : 'ロック'}</button>
-      <button class="btn" data-swap>⇄ 移動</button>
       <button class="btn ghost" data-revert>取り消す</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
   `, (modal, close) => {
+    closeModal = close;
     render(modal);
     modal.querySelector('[data-close]').onclick = () => close();
-    modal.querySelector('[data-lock-cell]').onclick = () => {
-      const c = store.getCell(weekStart, dayIdx, periodId);
-      if (!c?.entries?.length) return;
-      const on = !c.entries.some(e => e.locked);
-      store.snapshot(on ? 'コマをロック' : 'ロック解除');
-      c.entries.forEach(e => { e.locked = on; });
-      store.commit();
-      modal.querySelector('[data-lock-cell]').innerHTML = `${icon('lock')}${on ? 'ロック解除' : 'ロック'}`;
-      ctx.rerender();
-    };
-    modal.querySelector('[data-swap]').onclick = () => {
-      ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
-      close();
-    };
     // 取り消す: 開いた時点のセル状態へ戻して閉じる(編集を破棄)
     modal.querySelector('[data-revert]').onclick = () => {
       discarded = true;
