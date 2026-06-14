@@ -4,6 +4,7 @@ import { store, normalizeLesson, VIEWPOINTS } from '../store.js';
 import { parseTable, detectColumns, buildUnitsFromColumns, unitsToCSV } from '../csv.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid } from '../utils.js';
+import { icon } from '../icons.js';
 
 // 全画面編集の状態(編集中の計画ID・選択中の単元index)。null=一覧表示
 let editState = null;
@@ -62,17 +63,17 @@ function renderPlanList(root, ctx) {
       <h2>年間指導計画</h2>
       <p class="hint">単元を登録すると、週案に単元名・本時のねらい・学習活動・評価規準が自動で入ります。</p>
       <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
-        <button class="btn primary" id="plan-new">＋ 作成</button>
-        <button class="btn" id="plan-import">📥 取り込み</button>
+        <button class="btn primary" id="plan-new">${icon('plus')}作成</button>
+        <button class="btn" id="plan-import">${icon('download')}取り込み</button>
       </div>
       <div class="plan-list">${items || `
         <div class="empty-state">
-          <div class="empty-ic">📚</div>
+          <div class="empty-ic">${icon('book')}</div>
           <p class="empty-title">まだ年間指導計画がありません</p>
           <p class="empty-sub">登録すると、週案に単元名・ねらい・学習活動・評価規準が自動で入ります。<br>教科書会社サイトのExcelをコピーして「取り込み」に貼るのが早道です。</p>
           <div class="empty-actions">
-            <button class="btn primary" id="plan-empty-import">📥 取り込みで始める</button>
-            <button class="btn" id="plan-empty-new">＋ 手で作成</button>
+            <button class="btn primary" id="plan-empty-import">${icon('download')}取り込みで始める</button>
+            <button class="btn" id="plan-empty-new">${icon('plus')}手で作成</button>
           </div>
         </div>`}</div>
     </div>

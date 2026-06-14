@@ -153,12 +153,25 @@ html, body {
 
 /* ---------- buttons ---------- */
 .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink);
   padding: 7px 14px; border-radius: var(--r-sm); cursor: pointer; font-size: 14px;
   font-family: inherit; font-weight: 500;
   transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease),
     box-shadow var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
+
+/* モノクロ・ライン アイコン(currentColorで文字色に追従) */
+.ic { width: 1.15em; height: 1.15em; flex: 0 0 auto; }
+.btn .ic { width: 16px; height: 16px; }
+.tab .ic { width: 18px; height: 18px; }
+.brand .ic.brand-icon { width: 23px; height: 23px; color: var(--accent); }
+.set-chip .ic { width: 15px; height: 15px; }
+.panel h2 .ic { width: 18px; height: 18px; margin-right: 8px; vertical-align: -.2em; }
+.menu-item .ic { width: 17px; height: 17px; }
+.empty-state .empty-ic .ic { width: 46px; height: 46px; stroke-width: 1.4; color: var(--gray-400); }
+.day-noschool .dn-ic .ic, .day-empty .de-ic .ic { width: 40px; height: 40px; stroke-width: 1.4; }
+.day-op .op-ic .ic { width: 22px; height: 22px; }
 .btn:hover { background: var(--gray-100); border-color: var(--gray-300); }
 .btn:active { transform: translateY(.5px) scale(.99); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; box-shadow: var(--e-1); }
@@ -695,6 +708,7 @@ details.adv[open] .fold-label { color: var(--accent); }
   text-align: center;
 }
 .ob-logo { font-size: 40px; }
+.ob-logo .ic { width: 46px; height: 46px; color: var(--accent); stroke-width: 1.4; }
 .ob-card h1 { font-size: 20px; margin: 8px 0 2px; }
 .ob-sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; }
 .ob-q { text-align: left; margin-bottom: 20px; }

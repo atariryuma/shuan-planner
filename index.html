@@ -14,19 +14,19 @@
 <div id="app" class="app">
   <header class="topbar screen-only">
     <div class="brand" aria-label="ルーズリーフ">
-      <span class="brand-icon">📅</span>
+      <svg class="ic brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg>
     </div>
     <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="week" aria-current="page"><span class="tab-ic" aria-hidden="true">🗓</span><span class="tab-tx">週案</span></button>
-      <button class="tab" data-tab="plans"><span class="tab-ic" aria-hidden="true">📚</span><span class="tab-tx">年間計画</span></button>
-      <button class="tab" data-tab="stats"><span class="tab-ic" aria-hidden="true">📊</span><span class="tab-tx">時数集計</span></button>
-      <button class="tab" data-tab="settings"><span class="tab-ic" aria-hidden="true">⚙️</span><span class="tab-tx">設定</span></button>
-      <button class="tab" data-tab="data"><span class="tab-ic" aria-hidden="true">💾</span><span class="tab-tx">データ</span></button>
+      <button class="tab active" data-tab="week" aria-current="page"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg><span class="tab-tx">週案</span></button>
+      <button class="tab" data-tab="plans"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 3 8l9 4.5L21 8 12 3.5Z"/><path d="M3.4 12.4 12 16.9l8.6-4.5M3.4 16 12 20.5 20.6 16"/></svg><span class="tab-tx">年間計画</span></button>
+      <button class="tab" data-tab="stats"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 20V11M12 20V4M19.5 20v-6"/><path d="M3 20.5h18"/></svg><span class="tab-tx">時数集計</span></button>
+      <button class="tab" data-tab="settings"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h7"/><path d="M17 7h3"/><circle cx="14" cy="7" r="2.3"/><path d="M4 12h5"/><path d="M15 12h5"/><circle cx="12" cy="12" r="2.3"/><path d="M4 17h9"/><path d="M19 17h1"/><circle cx="16" cy="17" r="2.3"/></svg><span class="tab-tx">設定</span></button>
+      <button class="tab" data-tab="data"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg><span class="tab-tx">データ</span></button>
     </nav>
     <div class="topbar-actions">
       <span id="save-indicator" class="save-indicator" role="status">✓ 保存済み</span>
       <span class="split-btn">
-        <button id="btn-print" class="btn primary">🖨<span class="btn-label"> 印刷</span></button>
+        <button id="btn-print" class="btn primary"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8.5V3.5h10v5"/><path d="M7 18H5.5a2 2 0 0 1-2-2v-3.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2V16a2 2 0 0 1-2 2H17"/><rect x="7" y="14.5" width="10" height="6" rx="1"/></svg><span class="btn-label">印刷</span></button>
         <button id="btn-print-opts" class="btn primary opts" aria-label="印刷の設定">⚙</button>
       </span>
     </div>

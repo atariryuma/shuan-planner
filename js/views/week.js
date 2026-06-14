@@ -4,6 +4,7 @@ import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntr
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
+import { icon } from '../icons.js';
 
 export function renderWeekView(root, ctx) {
   const state = store.state;
@@ -213,31 +214,31 @@ export function renderWeekView(root, ctx) {
       </span>
       <span class="spacer"></span>
       ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
-      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">🖌 連続入力</button>` : ''}
-      ${gas ? `<button class="btn" id="wk-calendar">📆 行事</button>` : ''}
+      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">${icon('pencil')}連続入力</button>` : ''}
+      ${gas ? `<button class="btn" id="wk-calendar">${icon('calendar')}行事</button>` : ''}
       <button class="btn" id="wk-copy">前週コピー</button>
-      <button class="btn" id="wk-apply-base" ${store.hasBaseTimetable ? '' : 'disabled'}>📋 基本時間割</button>
+      <button class="btn" id="wk-apply-base" ${store.hasBaseTimetable ? '' : 'disabled'}>${icon('clipboard')}基本時間割</button>
       ${store.hasBaseTimetable ? '' : infoHTML('1週間分を入力して「⋯ → 基本時間割に登録」すると、毎週ワンタッチで呼び出せます')}
       <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
           ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
-            <button class="btn ghost menu-item" id="wk-generate" style="flex:1;"><span class="mi-ic">📆</span>期間をまとめて作成</button>
+            <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('calendar')}期間をまとめて作成</button>
             ${infoHTML('基本時間割と年間指導計画から、今週〜学期末などをまとめて自動作成します。祝日・長期休業・非授業日には授業を入れません。入力済みの週は上書きしません')}
           </span>` : ''}
-          <button class="btn ghost menu-item" id="wk-save-base"><span class="mi-ic">📋</span>基本時間割に登録</button>
-          <button class="btn ghost menu-item" id="wk-import-events"><span class="mi-ic">🎌</span>年間行事の取り込み</button>
+          <button class="btn ghost menu-item" id="wk-save-base">${icon('clipboard')}基本時間割に登録</button>
+          <button class="btn ghost menu-item" id="wk-import-events">${icon('flag')}年間行事の取り込み</button>
           ${s.mode !== 'senka' || gas ? '<div class="menu-sep" role="separator"></div>' : ''}
           ${s.mode !== 'senka' ? `<span style="display:flex; align-items:center;">
-            <button class="btn ghost menu-item" id="wk-kids-print" style="flex:1;"><span class="mi-ic">📰</span>おたより印刷</button>
+            <button class="btn ghost menu-item" id="wk-kids-print" style="flex:1;">${icon('doc')}おたより印刷</button>
             ${infoHTML('児童・保護者向けの来週の時間割。大きな字で印刷します')}
           </span>` : ''}
           ${gas ? `
-          <button class="btn ghost menu-item" id="wk-cal-push"><span class="mi-ic">📆</span>カレンダーへ書き出し</button>
-          <button class="btn ghost menu-item" id="wk-sheet-push"><span class="mi-ic">📊</span>シートへ書き出し</button>
-          <button class="btn ghost menu-item" id="wk-mail"><span class="mi-ic">✉️</span>メールで提出</button>` : ''}
+          <button class="btn ghost menu-item" id="wk-cal-push">${icon('calendar')}カレンダーへ書き出し</button>
+          <button class="btn ghost menu-item" id="wk-sheet-push">${icon('chart')}シートへ書き出し</button>
+          <button class="btn ghost menu-item" id="wk-mail">${icon('mail')}メールで提出</button>` : ''}
           <div class="menu-sep" role="separator"></div>
-          <button class="btn ghost danger menu-item" id="wk-clear"><span class="mi-ic">🗑</span>週クリア</button>
+          <button class="btn ghost danger menu-item" id="wk-clear">${icon('trash')}週クリア</button>
         </div>
       </details>
     </div>
@@ -395,8 +396,8 @@ function renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx,
   // 非授業日で授業が無ければ、空のコマ列でなく「休み」を明確に出す(授業がある=振替などは通常表示)
   const hasEntries = s.periods.some(p => week.cells?.[cellKey(dayViewIdx, p.id)]?.entries?.length);
   const listHTML = (nsReason && !hasEntries)
-    ? `<div class="day-noschool ns-${nsType}"><span class="dn-ic">${hol ? '🎌' : brk ? '🏖' : '🌿'}</span><b>${esc(nsReason)}</b><span class="dn-sub">この日は授業がありません</span></div>`
-    : `<ol class="day-list">${items || '<li class="day-empty"><span class="de-ic">🍵</span>この日に授業はありません</li>'}</ol>`;
+    ? `<div class="day-noschool ns-${nsType}"><span class="dn-ic">${icon(hol ? 'flag' : brk ? 'sun' : 'leaf')}</span><b>${esc(nsReason)}</b><span class="dn-sub">この日は授業がありません</span></div>`
+    : `<ol class="day-list">${items || `<li class="day-empty"><span class="de-ic">${icon('cup')}</span>この日に授業はありません</li>`}</ol>`;
 
   return `
     <div class="day-switch" role="tablist">${chips.join('')}</div>
@@ -1102,10 +1103,10 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div class="day-ops">
-          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">🚫</span><span class="op-tx"><b>休講にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
-          ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">📋</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
-          <button class="btn day-op" data-act="offday"><span class="op-ic">${isOff ? '↩️' : '🛑'}</span><span class="op-tx"><b>${isOff ? '非授業日を解除' : '非授業日にする'}</b><small>開校記念日・振替・学級閉鎖など。基本時間割の流し込みや「まとめて作成」で授業が入りません</small></span></button>
-          <button class="btn day-op danger" data-act="clear"><span class="op-ic">🗑</span><span class="op-tx"><b>この日をクリア</b><small>この日の入力をすべて削除します</small></span></button>
+          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>休講にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
+          ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">${icon('clipboard')}</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
+          <button class="btn day-op" data-act="offday"><span class="op-ic">${icon(isOff ? 'refresh' : 'stop')}</span><span class="op-tx"><b>${isOff ? '非授業日を解除' : '非授業日にする'}</b><small>開校記念日・振替・学級閉鎖など。基本時間割の流し込みや「まとめて作成」で授業が入りません</small></span></button>
+          <button class="btn day-op danger" data-act="clear"><span class="op-ic">${icon('trash')}</span><span class="op-tx"><b>この日をクリア</b><small>この日の入力をすべて削除します</small></span></button>
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
       `, (modal, close) => {

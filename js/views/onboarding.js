@@ -6,12 +6,13 @@
 import { store, defaultSubjects, defaultPeriods } from '../store.js';
 import { esc, uid } from '../utils.js';
 import { openModal, toast, infoHTML } from '../ui.js';
+import { icon } from '../icons.js';
 
 export function renderOnboarding(root, ctx) {
   root.innerHTML = `
   <div class="onboarding">
     <div class="ob-card">
-      <div class="ob-logo">📅</div>
+      <div class="ob-logo">${icon('calendar')}</div>
       <h1>はじめましょう</h1>
       <p class="ob-sub">2つ選ぶだけで始められます</p>
 

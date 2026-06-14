@@ -3,6 +3,7 @@
 import { store, computeHours, computeMonthlyHours, computeOrdinals, lessonFromPlan, fmtHours, standardHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
 import { weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
+import { icon } from '../icons.js';
 
 const MONTH_ORDER = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3];
 const DETAIL_KEY = 'shuan-stats-detail';
@@ -48,7 +49,7 @@ export function renderStatsView(root, ctx) {
       ${classSummary}
       ${progress}
       ${sections || `<div class="empty-state">
-        <div class="empty-ic">📊</div>
+        <div class="empty-ic">${icon('chart')}</div>
         <p class="empty-title">まだ集計するコマがありません</p>
         <p class="empty-sub">週案タブでコマを入れると、ここに実施時数と標準時数への進捗が表示されます。</p>
       </div>`}

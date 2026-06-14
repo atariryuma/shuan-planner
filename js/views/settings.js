@@ -3,6 +3,7 @@
 import { store, defaultPeriods, defaultSubjects, cellKey } from '../store.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid, parseDate, fmtMD, DAY_NAMES } from '../utils.js';
+import { icon } from '../icons.js';
 
 /** 非授業日の日付を「6/14(土)」形に整形 */
 function fmtOffday(d) {
@@ -18,14 +19,14 @@ export function renderSettingsView(root, ctx) {
 
   root.innerHTML = `
   <nav class="settings-nav" aria-label="設定の項目">
-    <button class="set-chip" data-goto="sp-basic"><span class="chip-ic">🏫</span>基本</button>
-    <button class="set-chip" data-goto="sp-mode"><span class="chip-ic">👤</span>担任形態</button>
-    <button class="set-chip" data-goto="sp-schedule"><span class="chip-ic">🕒</span>時程</button>
-    <button class="set-chip" data-goto="sp-year"><span class="chip-ic">📅</span>年間・学期</button>
-    <button class="set-chip" data-goto="sp-display"><span class="chip-ic">👁</span>表示</button>
-    <button class="set-chip" data-goto="sp-subjects"><span class="chip-ic">🎨</span>教科</button>
-    <button class="set-chip" data-goto="sp-print"><span class="chip-ic">🖨</span>印刷</button>
-    <button class="set-chip" data-goto="sp-google"><span class="chip-ic">☁️</span>Google連携</button>
+    <button class="set-chip" data-goto="sp-basic">${icon('school')}基本</button>
+    <button class="set-chip" data-goto="sp-mode">${icon('person')}担任形態</button>
+    <button class="set-chip" data-goto="sp-schedule">${icon('clock')}時程</button>
+    <button class="set-chip" data-goto="sp-year">${icon('calendar')}年間・学期</button>
+    <button class="set-chip" data-goto="sp-display">${icon('eye')}表示</button>
+    <button class="set-chip" data-goto="sp-subjects">${icon('swatches')}教科</button>
+    <button class="set-chip" data-goto="sp-print">${icon('printer')}印刷</button>
+    <button class="set-chip" data-goto="sp-google">${icon('cloud')}Google連携</button>
   </nav>
   <div class="settings-grid cat-view">
 
