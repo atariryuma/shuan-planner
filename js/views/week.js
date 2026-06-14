@@ -1203,16 +1203,23 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   menu.style.top = Math.max(6, Math.min(y, window.innerHeight - menu.offsetHeight - 6)) + 'px';
   menu.querySelectorAll('[data-cm]').forEach(b => { b.onclick = () => { const a = acts[Number(b.dataset.cm)]; closeCellContextMenu(); a.run(); }; });
 
-  const onDoc = (ev) => { if (!menu.contains(ev.target)) closeCellContextMenu(); };
+  // メニュー外クリックは「閉じるだけ」。clickをキャプチャ段階で消費し、下のセルへ貫通させない
+  // (mousedownで閉じると後続のclickがセルに届き編集モーダルが開いてしまうため)。
+  const onClick = (ev) => {
+    if (menu.contains(ev.target)) return; // メニュー項目のクリックはそのまま処理させる
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeCellContextMenu();
+  };
   const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); closeCellContextMenu(); } };
   closeCellContextMenu._cleanup = () => {
-    document.removeEventListener('mousedown', onDoc, true);
+    document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKey, true);
     window.removeEventListener('scroll', closeCellContextMenu, true);
     window.removeEventListener('resize', closeCellContextMenu);
   };
   setTimeout(() => {
-    document.addEventListener('mousedown', onDoc, true);
+    document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);
     window.addEventListener('scroll', closeCellContextMenu, true);
     window.addEventListener('resize', closeCellContextMenu);
