@@ -53,7 +53,15 @@
 }
 
 /* ---------- 週案グリッド ---------- */
-.pp-table-wrap { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* overflow:hidden だと border-collapse の外枠線(width:100%より約0.5px外)が
+ * クリップされ、右端(金)・下端の罫線が消える。overflow:clip + clip-margin で
+ * はみ出し(高さ超過)は抑えつつ、外枠線を描く余地を残す。 */
+.pp-table-wrap {
+  flex: 1 1 auto; min-height: 0;
+  overflow: hidden;          /* 非対応ブラウザ向けフォールバック */
+  overflow: clip;
+  overflow-clip-margin: 1mm;
+}
 table.pp-grid {
   width: 100%;
   height: 100%;
