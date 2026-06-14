@@ -543,7 +543,9 @@ details.menu .menu-items {
   box-shadow: var(--shadow); padding: 6px; display: flex; flex-direction: column; gap: 2px;
   min-width: 240px;
 }
-details.menu .menu-items .btn { text-align: left; }
+/* メニュー項目は左寄せ。.btn は inline-flex/justify-content:center なので
+   text-align だけでは効かない。justify-content:flex-start で確実に左へ。 */
+details.menu .menu-items .btn { text-align: left; justify-content: flex-start; }
 
 /* モーダル内の縦並び選択ボタン(時間割選択・まとめて作成など)は左寄せでメニューらしく。
    .btn 既定の中央寄せ(justify-content:center)だと、名前が中央に浮いて不格好になる。 */
@@ -921,7 +923,7 @@ td.cell:focus-visible, .day-th:focus-visible {
 
 /* ---------- 曜日の一括操作(アイコン＋説明の二段ボタン) ---------- */
 .day-ops { display: flex; flex-direction: column; gap: 8px; }
-.day-op { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 14px; }
+.day-op { display: flex; align-items: center; justify-content: flex-start; gap: 12px; text-align: left; padding: 10px 14px; }
 .day-op .op-ic { font-size: 20px; flex: 0 0 auto; line-height: 1; }
 .day-op .op-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .day-op .op-tx b { font-size: 14px; }
