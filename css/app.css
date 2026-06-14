@@ -862,31 +862,6 @@ td.cell:focus-visible, .day-th:focus-visible {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px;
   margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--accent-100);
 }
-/* 学習活動・評価規準・観点の畳み込み: 計画どおりは一覧(読む)、編集時だけ展開 */
-.lesson-fold { border: 1px solid var(--line); border-radius: var(--r-md); margin: 10px 0; background: var(--panel); }
-.lesson-fold > .ld-summary { list-style: none; cursor: pointer; display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; min-height: 38px; }
-.lesson-fold > .ld-summary::-webkit-details-marker { display: none; }
-.lesson-fold[open] > .ld-summary { border-bottom: 1px solid var(--line); align-items: center; }
-/* 畳んだとき=活動/評価/観点をラベル付きで全文表示(読み)。開いたとき=見出しに切替え、下に入力欄 */
-.ld-read { flex: 1 1 auto; min-width: 0; }
-.ld-row { display: flex; gap: 10px; align-items: baseline; }
-.ld-row + .ld-row { margin-top: 5px; }
-.ld-k { flex: 0 0 56px; font-size: 11px; font-weight: 700; color: var(--muted); }
-.ld-v { flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--ink); line-height: 1.5; overflow-wrap: anywhere; }
-.ld-v.muted { color: var(--muted); font-size: 12.5px; }
-.ld-read .ld-empty { color: var(--muted); }
-.ld-v .e-viewpoint { padding: 0 5px; border-radius: 4px; font-weight: 700; }
-.ld-editing { flex: 1 1 auto; font-size: 12.5px; font-weight: 600; color: var(--accent); }
-.lesson-fold:not([open]) .ld-editing { display: none; }
-.lesson-fold[open] .ld-read { display: none; }
-.ld-edit-tag {
-  flex: 0 0 auto; align-self: flex-start; font-size: 11px; font-weight: 700; color: var(--accent);
-  background: var(--accent-50); border: 1px solid var(--accent-200); border-radius: var(--r-full, 999px); padding: 2px 10px;
-}
-.lesson-fold[open] .ld-edit-tag { display: none; }
-.lesson-fold > .ov-field { padding: 0 10px; }
-.lesson-fold > .ov-field:first-of-type { margin-top: 8px; }
-.lesson-fold > .ov-field:last-of-type { padding-bottom: 10px; }
 .ov-head .ov-kicker {
   font-size: 10px; font-weight: 800; letter-spacing: .04em; color: var(--accent);
   text-transform: none;
@@ -917,7 +892,7 @@ td.cell:focus-visible, .day-th:focus-visible {
 .ov-input {
   width: 100%; border: 1px solid var(--line-strong); border-radius: var(--r-sm);
   padding: 7px 9px; font-size: 13.5px; font-family: inherit; line-height: 1.55;
-  background: var(--panel); color: var(--ink); resize: vertical; min-height: 40px;
+  background: var(--panel); color: var(--ink); resize: none; overflow: hidden; min-height: 38px;
   transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
 }
 .ov-input::placeholder { color: var(--gray-400); }

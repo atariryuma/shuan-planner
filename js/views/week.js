@@ -1722,7 +1722,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
       // 項目別オーバーライド: ねらい/学習活動/評価規準を「このコマだけ」上書き
       box.querySelectorAll('.ov-input').forEach(ta => {
-        ta.addEventListener('input', () => { touch(); setOverride(entry, ta.dataset.ov, ta.value); store.commit(); });
+        const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.max(ta.scrollHeight, 36) + 'px'; };
+        grow();
+        ta.addEventListener('input', () => { grow(); touch(); setOverride(entry, ta.dataset.ov, ta.value, ta.dataset.plan); store.commit(); });
         ta.addEventListener('change', () => { render(modal); ctx.rerender(); });
       });
       box.querySelectorAll('[data-ov-reset]').forEach(b => {
@@ -1864,10 +1866,11 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
 // ねらい/学習活動/評価規準 の「このコマだけ上書き」を entry.override に反映する。
 // 空文字はキー削除(=計画に復帰)。何も残らなければ override=null。
-function setOverride(entry, key, value) {
+function setOverride(entry, key, value, planVal = '') {
   const o = { ...(entry.override || {}) };
   const v = String(value);
-  if (v.trim() === '') delete o[key];
+  // 空、または計画と同じ値に戻したら override を消す=計画どおりに復帰(計画文を重複保存しない)
+  if (v.trim() === '' || v.trim() === String(planVal).trim()) delete o[key];
   else o[key] = v;
   entry.override = Object.keys(o).length ? o : null;
 }
@@ -1952,8 +1955,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>`
           : (autoBlank ? '' : (planVal ? '<span class="ov-asplan">計画どおり</span>' : ''))}
       </div>
-      <textarea class="ov-input" data-ov="${key}" rows="2"
-        placeholder="${esc(autoBlank ? (OV_PLACEHOLDERS[key] || '') : (planVal || OV_PLACEHOLDERS[key] || '（計画に記載なし・自由に記録できます）'))}">${isOv ? esc(effVal) : ''}</textarea>
+      <textarea class="ov-input" data-ov="${key}" data-plan="${esc(autoBlank ? '' : (planVal || ''))}" rows="2"
+        placeholder="${esc(OV_PLACEHOLDERS[key] || '（自由に記録できます）')}">${esc(effVal)}</textarea>
       ${extra}
     </div>`;
 
@@ -1965,22 +1968,9 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         `<button type="button" data-vp="${code}" class="${vp === code ? 'selected' : ''}" aria-pressed="${vp === code}" title="${esc(VIEWPOINTS[code])}">${code}</button>`).join('')}
       <button type="button" data-vp="" class="ov-vp-none ${vp === '' ? 'selected' : ''}" aria-pressed="${vp === ''}">なし</button>
     </div>`;
-    // 本時の内容(ねらい・学習活動・評価規準・観点)は1つのまとまり。
-    // 計画どおりなら全文をはっきり読める形で表示し、「編集」で入力欄に展開する。
-    // (詳細画面を開いたら、まず内容がはっきり読めるのが第一目的。ねらいも例外にしない=作法を統一)
-    const lessonOpen = ed.planless || ed.overridden.objective || ed.overridden.activity || ed.overridden.assessment
-      || ed.overridden.viewpoint || ed.autoBlanked.activity || ed.autoBlanked.assessment;
-    const readRow = (k, v) => `<div class="ld-row"><span class="ld-k">${k}</span><span class="ld-v">${v}</span></div>`;
-    const lessonRead = readRow('ねらい', ed.objective ? esc(ed.objective) : '<span class="ld-empty">（未入力）</span>')
-      + (ed.activity ? readRow('学習活動', esc(ed.activity)) : '')
-      + ((ed.assessment || ed.viewpoint) ? readRow('評価規準', `${ed.viewpoint ? `<b class="e-viewpoint" data-vp="${esc(ed.viewpoint)}">${esc(ed.viewpoint)}</b> ` : ''}${esc(ed.assessment)}`) : '');
+    // 本時の内容(ねらい・学習活動・評価規準・観点)。計画どおりなら欄に計画文が濃く出て、
+    // そのまま直接書き換えられる(開く=編集なので別の「編集」ボタンは置かない)。計画と同じに戻すと記録は消える。
     const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`;
-    const lessonContent = `<details class="lesson-fold" ${lessonOpen ? 'open' : ''}>
-        <summary class="ld-summary"><span class="ld-read">${lessonRead}</span><span class="ld-editing">本時の内容を編集</span><span class="ld-edit-tag">編集</span></summary>
-        ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
-        ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
-        ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment, vprow, ed.autoBlanked.assessment)}
-      </details>`;
     // 「この時間だけ別の単元の本時をやる」ピッカー(自転車操業対応)。計画に単元があるときだけ出す。
     const pinUnits = planForPick?.units || [];
     const pinControl = pinUnits.length ? (() => {
@@ -2008,7 +1998,9 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
       </div>
       ${pinControl}
-      ${lessonContent}
+      ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
+      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
+      ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment, vprow, ed.autoBlanked.assessment)}
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
         ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
         ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}
