@@ -193,12 +193,13 @@ export function wireInfoPopovers() {
 }
 
 /** confirm代替。Esc・背景クリックはキャンセル(false)として解決する */
-export function confirmDialog(message, { okLabel = 'OK', danger = false } = {}) {
+export function confirmDialog(message, { okLabel = 'OK', danger = false, hint = '' } = {}) {
   return new Promise((resolve) => {
     let result = false;
     openModal(`
       <h2>確認</h2>
       <p style="font-size:14px; line-height:1.7; white-space:pre-wrap;">${esc(message)}</p>
+      ${hint ? `<p class="hint" style="margin-top:-2px;">${esc(hint)}</p>` : ''}
       <div class="modal-foot">
         <button class="btn" data-act="cancel">キャンセル</button>
         <button class="btn ${danger ? 'danger' : 'primary'}" data-act="ok">${esc(okLabel)}</button>

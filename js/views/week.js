@@ -512,12 +512,14 @@ function wireNav(root, ctx, monday) {
     const apply = async (id) => {
       const cur = store.state.weeks[to];
       if (cur && Object.keys(cur.cells).length) {
-        const ok = await confirmDialog('この週の時間割を上書きしますか?', { okLabel: '上書き', danger: true });
+        const ok = await confirmDialog('この週に基本時間割を反映しますか?', { okLabel: '反映', hint: '手を入れたコマ(●変更・手入力・備考・中止)はそのまま残ります' });
         if (!ok) return;
       }
       store.snapshot('基本時間割の反映');
-      if (store.applyBaseTimetable(to, id)) {
-        toast('基本時間割を反映しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      const res = store.applyBaseTimetable(to, id);
+      if (res.placed || res.preserved) {
+        const kept = res.preserved ? `（手を入れた${res.preserved}コマは保持）` : '';
+        toast(`基本時間割を反映しました${kept}`, 'info', 2800, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
         ctx.rerender();
       }
     };
@@ -654,12 +656,13 @@ function wireNav(root, ctx, monday) {
     if (!store.state.weeks[from]) { toast('前週のデータがありません', 'error'); return; }
     const cur = store.state.weeks[to];
     if (cur && Object.keys(cur.cells).length) {
-      const ok = await confirmDialog('この週の時間割を上書きしますか?', { okLabel: '上書き', danger: true });
+      const ok = await confirmDialog('この週に前週をコピーしますか?', { okLabel: 'コピー', hint: '手を入れたコマ(●変更・手入力・備考・中止)はそのまま残ります' });
       if (!ok) return;
     }
     store.snapshot('前週コピー');
-    store.copyWeek(from, to);
-    toast('前週をコピーしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    const res = store.copyWeek(from, to);
+    const kept = res.preserved ? `（手を入れた${res.preserved}コマは保持）` : '';
+    toast(`前週をコピーしました${kept}`, 'info', 2800, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     ctx.rerender();
   };
 

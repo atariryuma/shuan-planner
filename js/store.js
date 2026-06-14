@@ -243,15 +243,22 @@ class Store {
    * コピー先に既にある行事・めあて・反省は保持する(置き換えるのはコマと日課パターン)。
    * 日課パターン(水曜=B日課など)は固定運用が多いため一緒に運ぶ。
    */
-  copyWeek(fromStart, toStart, { keepText = false } = {}) {
+  copyWeek(fromStart, toStart, { keepText = false, preserveEdits = true } = {}) {
     const src = this.state.weeks[fromStart];
-    if (!src) return false;
+    if (!src) return { ok: false, preserved: 0 };
     const dst = this.state.weeks[toStart] || blankWeek(toStart);
+    // 手を入れたコマ(●変更・全文手入力・備考・中止)は上書きせず残す
+    const kept = {};
+    if (preserveEdits && dst.cells) {
+      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
+    }
     dst.cells = cloneCells(src.cells, keepText);
+    let preserved = 0;
+    for (const [k, cell] of Object.entries(kept)) { dst.cells[k] = cell; preserved++; }
     dst.dayPatterns = { ...(src.dayPatterns || {}) };
     this.state.weeks[toStart] = dst;
     this.commit();
-    return true;
+    return { ok: true, preserved };
   }
 
   /**
@@ -285,12 +292,17 @@ class Store {
    * 既定では祝日・長期休業・非授業日のコマは入れない(skipNoSchool)。
    * fillEmptyOnly=true なら、既に入力済みのコマは上書きしない(まとめて作成で既存を守る)。
    */
-  applyBaseTimetable(weekStart, id = null, { skipNoSchool = true, fillEmptyOnly = false, commit = true } = {}) {
+  applyBaseTimetable(weekStart, id = null, { skipNoSchool = true, fillEmptyOnly = false, commit = true, preserveEdits = true } = {}) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
-    if (!base || !Object.keys(base.cells).length) return false;
+    if (!base || !Object.keys(base.cells).length) return { placed: 0, preserved: 0 };
     const monday = parseDate(weekStart);
     const w = this.getWeek(weekStart, true);
-    if (!fillEmptyOnly) { w.cells = {}; }      // 通常の反映は週を一旦まっさらにする
+    // 一旦まっさらにする反映でも、手を入れたコマ(●変更・手入力・備考・中止)は守る
+    const kept = {};
+    if (preserveEdits && !fillEmptyOnly) {
+      for (const [k, cell] of Object.entries(w.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
+    }
+    if (!fillEmptyOnly) { w.cells = {}; }      // 通常の反映は週を一旦まっさらにする(編集済みは後で戻す)
     w.dayPatterns = { ...(base.dayPatterns || {}) };
     const cloned = cloneCells(base.cells, false);
     let placed = 0;
@@ -298,12 +310,15 @@ class Store {
       const m = /^d(\d+)p/.exec(key);
       const dayIdx = m ? Number(m[1]) : 0;
       if (skipNoSchool && isNoSchoolDay(this.settings, fmtDate(addDays(monday, dayIdx)))) continue;
+      if (kept[key]) continue;                                       // 編集済みコマには置かない
       if (fillEmptyOnly && w.cells[key]?.entries?.length) continue; // 既存は守る
       w.cells[key] = cell;
       placed++;
     }
+    let preserved = 0;
+    for (const [k, cell] of Object.entries(kept)) { w.cells[k] = cell; preserved++; } // 編集済みを戻す
     if (commit) this.commit();
-    return placed > 0;
+    return { placed, preserved };
   }
 
   /**
@@ -511,6 +526,21 @@ export function normalizeLesson(l) {
 
 /** 観点コード→正式名称(印刷・表示用) */
 export const VIEWPOINTS = { 知: '知識・技能', 思: '思考・判断・表現', 態: '主体的に学習に取り組む態度' };
+
+/** このエントリにユーザーの手編集が入っているか(項目別上書き・全文手入力・備考・中止)。一括操作で守る判定に使う。 */
+export function isEntryEdited(e) {
+  if (!e) return false;
+  if (normalizeOverride(e.override)) return true;               // ●変更(項目別の上書き)
+  if (e.auto === false && e.text && e.text.trim()) return true; // 内容を全文手入力
+  if (e.note && e.note.trim()) return true;                     // 備考
+  if (e.cancelled) return true;                                 // 中止指定
+  return false;
+}
+
+/** セル内のいずれかのエントリが手編集済みなら true(=破壊的な一括操作から守る) */
+export function cellHasUserEdits(cell) {
+  return !!cell && Array.isArray(cell.entries) && cell.entries.some(isEntryEdited);
+}
 
 /** セル群を複製。keepText=falseなら手動内容・備考・中止フラグを初期化して自動反映に戻す */
 function cloneCells(cells, keepText) {
