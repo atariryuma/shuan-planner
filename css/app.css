@@ -227,6 +227,7 @@ table.week-grid {
 .week-grid thead .day-head .dow { font-size: 14.5px; font-weight: 700; }
 .week-grid thead .day-head .date { color: var(--muted); font-weight: 500; font-size: 12px; }
 .week-grid thead .day-head.sat .dow { color: #2563eb; }
+.week-grid thead .day-head.sun .dow { color: #dc2626; }
 .week-grid thead .day-head.holiday-mark .dow,
 .week-grid thead .day-head.holiday-mark .date { color: #dc2626; }
 .week-grid thead .day-head .hol-name,
@@ -950,6 +951,7 @@ td.cell:focus-visible, .day-th:focus-visible {
 .day-chip span { font-size: 10.5px; color: var(--muted); }
 .day-chip i { font-size: 9px; color: var(--danger); font-style: normal; }
 .day-chip.sat b { color: var(--accent); }
+.day-chip.sun b { color: #dc2626; }
 .day-chip.muted b, .day-chip.muted span { color: var(--gray-400); }
 .day-chip.is-today { border-color: var(--accent-300); }
 .day-chip.is-today b { color: var(--accent-ink); }

@@ -7,7 +7,7 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, termRanges, VIEWPOINTS } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, VIEWPOINTS } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
@@ -224,10 +224,11 @@ function renderPrintPage(state, weekStart, { innerW }) {
   const s = state.settings;
   const monday = parseDate(weekStart);
   const week = store.getWeek(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
+  const days = weekDayOffsets(s, week, monday); // 月〜金＋必要なら土/日(その週に授業・行事のある土日)
+  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
-  const lastDay = addDays(monday, dayCount - 1);
+  const lastDay = addDays(monday, days[days.length - 1]);
 
   // 肩書: 自由入力があれば最優先。なければ形態・学校種から自動
   const senkaSubjName = s.subjects.find(x => x.key === s.senkaSubject)?.name || '';
@@ -256,8 +257,8 @@ function renderPrintPage(state, weekStart, { innerW }) {
     </div>`;
 
   const table = s.printLayout === 'days'
-    ? renderTableDays(state, week, monday, dayCount, ordinals, innerW)
-    : renderTablePeriods(state, week, monday, dayCount, ordinals, innerW);
+    ? renderTableDays(state, week, monday, days, ordinals, innerW)
+    : renderTablePeriods(state, week, monday, days, ordinals, innerW);
 
   const footer = renderFooter(state, week, weekStart);
 
@@ -265,29 +266,32 @@ function renderPrintPage(state, weekStart, { innerW }) {
 }
 
 /** 縦=校時 × 横=曜日(週案簿型) */
-function renderTablePeriods(state, week, monday, dayCount, ordinals, innerW) {
+function renderTablePeriods(state, week, monday, days, ordinals, innerW) {
   const s = state.settings;
   const cornerW = 13;
-  const dayW = (innerW - cornerW) / dayCount;
-  const cols = `<colgroup><col style="width:${cornerW}mm">${Array.from({ length: dayCount }, () => `<col style="width:${dayW.toFixed(2)}mm">`).join('')}</colgroup>`;
+  const dayW = (innerW - cornerW) / days.length;
+  const cols = `<colgroup><col style="width:${cornerW}mm">${days.map(() => `<col style="width:${dayW.toFixed(2)}mm">`).join('')}</colgroup>`;
 
-  const head = `<tr><th style="width:${cornerW}mm"></th>${Array.from({ length: dayCount }, (_, d) => {
+  const head = `<tr><th style="width:${cornerW}mm"></th>${days.map(d => {
     const date = addDays(monday, d);
-    const hol = s.showHolidays ? holidayName(date) : null;
-    return `<th><span class="dow">${DAY_NAMES[d]}</span> <span class="date">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ''}</th>`;
+    const ds = fmtDate(date);
+    const reason = noSchoolReason(s, ds);           // 振替授業日はnull(授業日)
+    const hol = s.showHolidays && reason ? holidayName(date) : null;
+    const makeup = (s.classDays || []).includes(ds) && (holidayName(date) || ((d === 5 || d === 6))); // 本来休みを授業日に
+    return `<th><span class="dow">${DAY_NAMES[d]}</span> <span class="date">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : makeup ? `<span class="hol" style="background:#dcfce7;color:#15803d;">振替</span>` : ''}</th>`;
   }).join('')}</tr>`;
 
-  const eventsRow = `<tr class="pp-events"><td class="ph">行事</td>${Array.from({ length: dayCount }, (_, d) =>
+  const eventsRow = `<tr class="pp-events"><td class="ph">行事</td>${days.map(d =>
     `<td>${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>`).join('')}</tr>`;
 
   // 出欠メモ行(設定でON時)
   const attendanceRow = s.showAttendance
-    ? `<tr class="pp-events"><td class="ph">出欠</td>${Array.from({ length: dayCount }, (_, d) =>
+    ? `<tr class="pp-events"><td class="ph">出欠</td>${days.map(d =>
       `<td>${esc(week.attendance?.[d] || '')}</td>`).join('')}</tr>`
     : '';
 
   const rows = s.periods.map(p => {
-    const cells = Array.from({ length: dayCount }, (_, d) => renderPrintCell(state, week, d, p, ordinals)).join('');
+    const cells = days.map(d => renderPrintCell(state, week, d, p, ordinals)).join('');
     return `<tr>
       <td class="ph"><span class="p-label">${esc(p.label)}</span>
         ${s.printShowTimes && p.start ? `<span class="p-time">${esc(p.start)}<br>${esc(p.end || '')}</span>` : ''}</td>
@@ -298,7 +302,7 @@ function renderTablePeriods(state, week, monday, dayCount, ordinals, innerW) {
 }
 
 /** 縦=曜日 × 横=校時(Excel型)。右端に行事列 */
-function renderTableDays(state, week, monday, dayCount, ordinals, innerW) {
+function renderTableDays(state, week, monday, days, ordinals, innerW) {
   const s = state.settings;
   const cornerW = 14;
   const eventW = 34;
@@ -308,9 +312,9 @@ function renderTableDays(state, week, monday, dayCount, ordinals, innerW) {
   const head = `<tr><th></th>${s.periods.map(p =>
     `<th>${esc(p.label)}${s.printShowTimes && p.start ? `<br><span class="date">${esc(p.start)}</span>` : ''}</th>`).join('')}<th>行事・予定</th></tr>`;
 
-  const rows = Array.from({ length: dayCount }, (_, d) => {
+  const rows = days.map(d => {
     const date = addDays(monday, d);
-    const hol = s.showHolidays ? holidayName(date) : null;
+    const hol = s.showHolidays && noSchoolReason(s, fmtDate(date)) ? holidayName(date) : null;
     const cells = s.periods.map(p => renderPrintCell(state, week, d, p, ordinals)).join('');
     return `<tr>
       <td class="ph"><span class="p-label">${DAY_NAMES[d]}</span><span class="p-time">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : ''}</td>
@@ -397,10 +401,10 @@ export function buildWeekPlanDetailModel(state, weekStart) {
   const week = state.weeks[weekStart] || { cells: {} };
   const ordinals = computeOrdinals(state, weekStart);
   const monday = parseDate(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
+  const days = weekDayOffsets(s, week, monday); // 土日の授業も指導計画詳細に含める
   const groups = new Map();
 
-  for (let day = 0; day < dayCount; day++) {
+  for (const day of days) {
     for (const period of s.periods) {
       if (!effectivePeriod(s, week, day, period)) continue;
       const entries = week.cells?.[cellKey(day, period.id)]?.entries || [];
@@ -609,8 +613,9 @@ export function buildKidsPrintDOM(weekStart) {
   const s = state.settings;
   const monday = parseDate(weekStart);
   const week = store.getWeek(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
-  const lastDay = addDays(monday, dayCount - 1);
+  const days = weekDayOffsets(s, week, monday); // 土日に授業・行事のある週は土/日列も出す
+  const dayCount = days.length;
+  const lastDay = addDays(monday, days[days.length - 1]);
 
   let styleEl = document.getElementById('print-page-style');
   if (!styleEl) {
@@ -625,20 +630,20 @@ export function buildKidsPrintDOM(weekStart) {
   `;
 
   const cornerW = 14;
-  const dayW = (297 - 20 - cornerW) / dayCount;
-  const cols = `<colgroup><col style="width:${cornerW}mm">${Array.from({ length: dayCount }, () => `<col style="width:${dayW.toFixed(2)}mm">`).join('')}</colgroup>`;
+  const dayW = (297 - 20 - cornerW) / days.length;
+  const cols = `<colgroup><col style="width:${cornerW}mm">${days.map(() => `<col style="width:${dayW.toFixed(2)}mm">`).join('')}</colgroup>`;
 
-  const head = `<tr>${['<th></th>', ...Array.from({ length: dayCount }, (_, d) => {
+  const head = `<tr>${['<th></th>', ...days.map(d => {
     const date = addDays(monday, d);
-    const hol = s.showHolidays ? holidayName(date) : null;
+    const hol = s.showHolidays && noSchoolReason(s, fmtDate(date)) ? holidayName(date) : null;
     return `<th><span class="kp-dow">${DAY_NAMES[d]}</span> <span class="kp-date">${fmtMD(date)}</span>${hol ? `<br><span class="kp-hol">${esc(hol)}</span>` : ''}</th>`;
   })].join('')}</tr>`;
 
-  const eventsRow = `<tr><td class="kp-ph">よてい</td>${Array.from({ length: dayCount }, (_, d) =>
+  const eventsRow = `<tr><td class="kp-ph">よてい</td>${days.map(d =>
     `<td class="kp-event">${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>`).join('')}</tr>`;
 
   const rows = s.periods.map(p => {
-    const cells = Array.from({ length: dayCount }, (_, d) => {
+    const cells = days.map(d => {
       if (!effectivePeriod(s, week, d, p)) return `<td class="kp-cell kp-off"></td>`;
       const cell = week.cells?.[cellKey(d, p.id)];
       let entries = (cell?.entries || []).filter(e => e.subjectKey && !e.cancelled);

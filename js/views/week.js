@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, termRanges, VIEWPOINTS } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -30,7 +30,9 @@ export function renderWeekView(root, ctx) {
   const monday = parseDate(weekStart);
   autoMaterializeWeek(weekStart); // 空き週なら基本時間割＋計画を自動配置(毎週の反映操作を不要に)
   const week = store.getWeek(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
+  // その週に表示する曜日(月〜金＋必要なら土/日)。土日に授業・行事・振替授業日がある週だけ土日列が出る
+  const days = weekDayOffsets(s, week, monday);
+  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
   const todayStr = fmtDate(new Date());
@@ -39,26 +41,28 @@ export function renderWeekView(root, ctx) {
   const density = localStorage.getItem('shuan-week-density') === 'compact' ? 'compact' : 'detail';
 
   const dayHeads = [];
-  const noSchoolDays = []; // 各曜日の非授業情報 {reason,type} | null。グリッドの列を視覚的に区別する
+  const noSchoolDays = {}; // 各曜日(d)の非授業情報 {reason,type} | null。day番号キー(土日=5,6も入るため位置配列にしない)
   let breakDays = 0;
   let breakLabel = '';
-  for (let d = 0; d < dayCount; d++) {
+  for (const d of days) {
     const date = addDays(monday, d);
     const ds = fmtDate(date);
-    const isClassDay = (s.classDays || []).includes(ds); // 振替授業日: 祝日・休業を上書きして授業日に
+    const isClassDay = (s.classDays || []).includes(ds); // 振替授業日: 祝日・休業・週末を上書きして授業日に
     const rawHol = s.showHolidays ? holidayName(date) : null;
     const rawBrk = breakNameOf(s, ds);
     const isOff = !isClassDay && (s.offDays || []).includes(ds); // 任意の非授業日
     const hol = isClassDay ? null : rawHol;
     const brk = isClassDay ? null : rawBrk;
-    noSchoolDays.push(hol ? { reason: hol, type: 'holiday' } : brk ? { reason: brk, type: 'break' } : isOff ? { reason: '休業日', type: 'off' } : null);
+    noSchoolDays[d] = hol ? { reason: hol, type: 'holiday' } : brk ? { reason: brk, type: 'break' } : isOff ? { reason: '休業日', type: 'off' } : null;
     if (brk) { breakDays++; breakLabel = brk; }
-    const makeup = isClassDay && (rawHol || rawBrk) ? (rawHol || rawBrk) : ''; // 本来は休みだが授業日にしている日
+    // 本来は休み(祝日・休業・週末)だが授業日にしている日
+    const rawWeekend = d === 6 ? '日曜' : (d === 5 ? '土曜' : '');
+    const makeup = isClassDay ? (rawHol || rawBrk || rawWeekend) : '';
     const isToday = ds === todayStr;
     dayHeads.push(`
       <th class="day-th" data-day="${d}" title="クリックで一括操作" tabindex="0" role="button"
           aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作${makeup ? ' 振替授業日' : ''}">
-        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk || isOff ? 'in-break' : ''} ${makeup ? 'makeup-day' : ''}">
+        <div class="day-head ${d === 5 ? 'sat' : ''} ${d === 6 ? 'sun' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk || isOff ? 'in-break' : ''} ${makeup ? 'makeup-day' : ''}">
           <span class="dow">${DAY_NAMES[d]}<span class="day-caret">▾</span></span>
           <span class="date">${fmtMD(date)}</span>
           ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : isOff ? `<span class="brk-name">休業日</span>` : makeup ? `<span class="makeup-name" title="本来は${esc(makeup)}">振替授業</span>` : ''}
@@ -68,7 +72,7 @@ export function renderWeekView(root, ctx) {
   const breakBanner = breakDays === dayCount
     ? `<div class="mode-banner" style="background:#f0f9ff; border-color:#7dd3fc; color:#075985;">${esc(breakLabel)}の週です</div>` : '';
   const todayIdx = (() => {
-    for (let d = 0; d < dayCount; d++) if (fmtDate(addDays(monday, d)) === todayStr) return d;
+    for (const d of days) if (fmtDate(addDays(monday, d)) === todayStr) return d;
     return -1;
   })();
 
@@ -78,10 +82,10 @@ export function renderWeekView(root, ctx) {
   if (viewMode !== 'day' && viewMode !== 'week') {
     viewMode = window.matchMedia && window.matchMedia('(max-width: 640px)').matches ? 'day' : 'week';
   }
-  // 今日ビューで選択中の曜日。範囲外/未設定なら今日、無ければ先頭。
+  // 今日ビューで選択中の曜日。表示対象外/未設定なら今日、無ければ先頭。
   let dayViewIdx = ctx.dayViewIdx;
-  if (typeof dayViewIdx !== 'number' || dayViewIdx < 0 || dayViewIdx >= dayCount) {
-    dayViewIdx = todayIdx >= 0 ? todayIdx : 0;
+  if (typeof dayViewIdx !== 'number' || !days.includes(dayViewIdx)) {
+    dayViewIdx = todayIdx >= 0 ? todayIdx : days[0];
   }
   ctx.dayViewIdx = dayViewIdx;
 
@@ -89,7 +93,7 @@ export function renderWeekView(root, ctx) {
   let patternRow = '';
   if (s.periodPatterns.length) {
     const cells = [];
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       const cur = week.dayPatterns?.[d] || '';
       cells.push(`<td style="padding:2px 4px;">${selectHTML('daypat', [
         { value: '', label: '通常' },
@@ -103,7 +107,7 @@ export function renderWeekView(root, ctx) {
   let dayNotesRow = '';
   if (s.showDayNotes) {
     const cells = [];
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       cells.push(`<td style="background:#f0fdf4;"><textarea class="event-input daynote-input" data-day="${d}" rows="1"
         style="color:#166534;" placeholder="" aria-label="${DAY_NAMES[d]}曜のメモ">${esc(week.dayNotes?.[d] || '')}</textarea></td>`);
     }
@@ -111,7 +115,7 @@ export function renderWeekView(root, ctx) {
   }
 
   const eventCells = [];
-  for (let d = 0; d < dayCount; d++) {
+  for (const d of days) {
     eventCells.push(`<td ${d === todayIdx ? 'class="today-col"' : ''}><textarea class="event-input" data-day="${d}" rows="1"
       placeholder="" aria-label="${DAY_NAMES[d]}曜の行事">${esc(week.events?.[d] || '')}</textarea></td>`);
   }
@@ -120,7 +124,7 @@ export function renderWeekView(root, ctx) {
   let attendanceRow = '';
   if (s.showAttendance) {
     const cells = [];
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       cells.push(`<td style="background:#fdf4ff;"><textarea class="event-input attendance-input" data-day="${d}" rows="1"
         style="color:#86198f;" placeholder="" aria-label="${DAY_NAMES[d]}曜の出欠">${esc(week.attendance?.[d] || '')}</textarea></td>`);
     }
@@ -129,7 +133,7 @@ export function renderWeekView(root, ctx) {
 
   const bodyRows = s.periods.map(p => {
     const cells = [];
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       cells.push(renderCell(state, week, d, p, ordinals, ctx, d === todayIdx, noSchoolDays[d]));
     }
     const coefTxt = p.type === 'module'
@@ -216,7 +220,7 @@ export function renderWeekView(root, ctx) {
     </div>`;
 
   const dayPanel = `<div class="panel day-panel">
-      ${renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx, ordinals, ctx)}
+      ${renderDayPanelHTML(state, week, monday, days, dayViewIdx, todayIdx, ordinals, ctx)}
     </div>
     <div class="panel">${weekNotesHTML}</div>`;
 
@@ -228,7 +232,7 @@ export function renderWeekView(root, ctx) {
       <button class="btn" id="wk-today">今週</button>
       <button class="btn" id="wk-next" aria-label="次の週">▶</button>
       <input type="date" id="wk-date" value="${weekStart}" aria-label="表示する週の日付">
-      <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, dayCount - 1))}
+      <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, days[days.length - 1]))}
         <span class="week-no">第${weekNo}週</span>
       </span>
       <span class="view-toggle" role="group" aria-label="表示の切り替え">
@@ -375,19 +379,16 @@ function periodTimeStatus(periods, isToday) {
 }
 
 // 今日ビュー: 選択中の1日を縦リストで表示。すきま時間に1タップで記録する導線。
-function renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx, ordinals, ctx) {
+function renderDayPanelHTML(state, week, monday, days, dayViewIdx, todayIdx, ordinals, ctx) {
   const s = state.settings;
   const date = addDays(monday, dayViewIdx);
   const isToday = dayViewIdx === todayIdx;
 
   const chips = [];
-  for (let d = 0; d < dayCount; d++) {
+  for (const d of days) {
     const dt = addDays(monday, d);
-    const hol = s.showHolidays ? holidayName(dt) : null;
-    const brk = breakNameOf(s, fmtDate(dt));
-    const off = (s.offDays || []).includes(fmtDate(dt));
-    const tag = hol || brk || (off ? '休' : '');
-    chips.push(`<button class="day-chip ${d === dayViewIdx ? 'selected' : ''} ${d === todayIdx ? 'is-today' : ''} ${d === 5 ? 'sat' : ''} ${tag ? 'muted' : ''}" data-daysel="${d}" role="tab" aria-selected="${d === dayViewIdx}">
+    const tag = noSchoolReason(s, fmtDate(dt)) || ''; // 振替授業日は授業日(タグなし)
+    chips.push(`<button class="day-chip ${d === dayViewIdx ? 'selected' : ''} ${d === todayIdx ? 'is-today' : ''} ${d === 5 ? 'sat' : ''} ${d === 6 ? 'sun' : ''} ${tag ? 'muted' : ''}" data-daysel="${d}" role="tab" aria-selected="${d === dayViewIdx}">
       <b>${DAY_NAMES[d]}</b><span>${fmtMD(dt)}</span>${tag ? `<i>${esc(tag)}</i>` : ''}
     </button>`);
   }
@@ -781,8 +782,8 @@ function wireNav(root, ctx, monday) {
   if (calBtn) calBtn.onclick = async () => {
     try {
       toast('取得中…');
-      const dayCount = store.settings.saturday ? 6 : 5;
-      const res = await ctx.gas.events(fmtDate(monday), fmtDate(addDays(monday, dayCount - 1)), store.settings.gas.calendarIds || []);
+      // 土日の行事(運動会・日曜参観等)も取り込む。週末の行事が入るとその列が自動で出る
+      const res = await ctx.gas.events(fmtDate(monday), fmtDate(addDays(monday, 6)), store.settings.gas.calendarIds || []);
       if (res.errors?.length) {
         toast('一部のカレンダーを読めません: ' + res.errors.join(' / '), 'error', 6000);
       }
@@ -792,7 +793,7 @@ function wireNav(root, ctx, monday) {
       let dup = 0; // 既に行事欄にある予定(再取り込み)は件数に数えない
       for (const ev of res.events || []) {
         const idx = Math.round((parseDate(ev.date) - monday) / 86400000);
-        if (idx < 0 || idx >= dayCount) continue;
+        if (idx < 0 || idx > 6) continue;
         const line = (ev.time ? ev.time + ' ' : '') + ev.title;
         if (!week.events[idx]) { week.events[idx] = line; n++; }
         else if (!week.events[idx].includes(ev.title)) { week.events[idx] += '\n' + line; n++; }
@@ -859,12 +860,8 @@ function openEventsImport(ctx) {
       }
       if (!events.length) { toast('日付+行事名の行が見つかりません', 'error', 4500); return; }
 
-      // 土日(土曜授業OFF時は土曜も)の行事は取り込み対象外。無言で捨てると
-      // 運動会等が消えたことに印刷時まで気づけないため、件数を事前に明示する
-      const dayCount = store.settings.saturday ? 6 : 5;
-      const weekendCount = events.filter(e => ((parseDate(e.date).getDay() + 6) % 7) >= dayCount).length;
-      const weekendNote = weekendCount
-        ? `\n${store.settings.saturday ? '日曜' : '土日'}分の${weekendCount}件は取り込み対象外です。` : '';
+      // 土日の行事(運動会・日曜参観等)も取り込む。週末の行事が入ると、その週だけ土/日の列が出る
+      const weekendNote = '';
 
       // プレビューは年込みで表示(取り込み先のズレに気づけるように)。日付はゼロ詰めなし(規約7)
       const fmtPreviewDate = (dateStr) => { const d = parseDate(dateStr); return `${d.getFullYear()}/${fmtMD(d)}`; };
@@ -879,8 +876,7 @@ function openEventsImport(ctx) {
       let dup = 0; // 既に行事欄にある行事(再取り込み)は件数に数えない
       for (const ev of events) {
         const d = parseDate(ev.date);
-        const idx = (d.getDay() + 6) % 7;
-        if (idx >= dayCount) continue; // 日曜・(土曜OFF時の土曜)はスキップ
+        const idx = (d.getDay() + 6) % 7; // 月=0..日=6
         const w = store.getWeek(fmtDate(mondayOf(d)), true);
         if (!w.events[idx]) { w.events[idx] = ev.title; applied++; }
         else if (!w.events[idx].includes(ev.title)) { w.events[idx] += '\n' + ev.title; applied++; }

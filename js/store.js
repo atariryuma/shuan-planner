@@ -1075,6 +1075,31 @@ export function isNoSchoolDay(settings, dateStr) {
   return !!noSchoolReason(settings, dateStr);
 }
 
+/**
+ * その週に表示する曜日のオフセット配列(0=月..6=日)。
+ * 月〜金は常に表示。土は「土曜あり」設定 or 振替授業日 or その日に授業・行事がある週。
+ * 日は振替授業日 or その日に授業・行事がある週だけ。普段の週は土日を出さない。
+ * 週グリッド・印刷・カレンダー出力で共通利用し、土日の授業(日曜参観・運動会等)を一貫して扱う。
+ */
+export function weekDayOffsets(settings, week, monday) {
+  const days = [0, 1, 2, 3, 4];
+  const used = (d) => {
+    const ds = fmtDate(addDays(monday, d));
+    if ((settings.classDays || []).includes(ds)) return true; // 振替授業日
+    if (!week) return false;
+    if (week.events && String(week.events[d] || '').trim()) return true;       // 行事(運動会等)
+    if (week.attendance && String(week.attendance[d] || '').trim()) return true;
+    for (const p of settings.periods) {
+      const c = week.cells && week.cells[cellKey(d, p.id)];
+      if (c && c.entries && c.entries.length) return true;                      // 授業コマ
+    }
+    return false;
+  };
+  if (settings.saturday || used(5)) days.push(5);
+  if (used(6)) days.push(6);
+  return days;
+}
+
 /** 非授業日の理由ラベル(なければ null)。表示にも使う */
 export function noSchoolReason(settings, dateStr) {
   // 振替授業日(明示の授業日)は祝日・休業・週末より優先して「授業日」とする

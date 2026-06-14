@@ -4,7 +4,7 @@
  * 週案のドメイン知識(教科・進度・時数)はすべてフロントに置く。
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, scopeKey, fmtHours, standardHoursFor, breakNameOf } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, computeHours, computeMonthlyHours, doneRefWeek, scopeKey, fmtHours, standardHoursFor, breakNameOf, weekDayOffsets } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, weekNumberInFiscalYear, fiscalYearOf, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { subjectOf, fracLabel } from './views/week.js';
@@ -51,12 +51,13 @@ export function buildCalendarEvents(weekStart) {
   const s = state.settings;
   const week = store.getWeek(weekStart);
   const monday = parseDate(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
+  const days = weekDayOffsets(s, week, monday);
+  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const events = [];
   let skipped = 0;
 
-  for (let d = 0; d < dayCount; d++) {
+  for (const d of days) {
     const date = fmtDate(addDays(monday, d));
     for (const p of s.periods) {
       const eff = effectivePeriod(s, week, d, p);
@@ -78,7 +79,7 @@ export function buildCalendarEvents(weekStart) {
       events.push({ date, start: eff.start, end: eff.end, title, detail });
     }
   }
-  return { events, skipped, from: weekStart, to: fmtDate(addDays(monday, dayCount - 1)) };
+  return { events, skipped, from: weekStart, to: fmtDate(addDays(monday, days[days.length - 1])) };
 }
 
 // ---------------------------------------------------------------- メール提出
@@ -89,10 +90,11 @@ export function buildWeekEmail(weekStart) {
   const s = state.settings;
   const week = store.getWeek(weekStart);
   const monday = parseDate(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
+  const days = weekDayOffsets(s, week, monday);
+  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
-  const lastDay = addDays(monday, dayCount - 1);
+  const lastDay = addDays(monday, days[days.length - 1]);
 
   const modeLabel = s.mode === 'fukushiki'
     ? `${s.fukushikiGrades[0]}・${s.fukushikiGrades[1]}年${s.className || ''}(複式)`
@@ -102,28 +104,29 @@ export function buildWeekEmail(weekStart) {
   const th = 'border:1px solid #999; padding:4px 6px; font-size:12px; background-color:#eef2f7; color:#222222; font-weight:bold;';
 
   let head = `<tr><th style="${th}"></th>`;
-  for (let d = 0; d < dayCount; d++) {
+  for (const d of days) {
     const hol = s.showHolidays ? holidayName(addDays(monday, d)) : null;
     head += `<th style="${th}">${DAY_NAMES[d]} ${fmtMD(addDays(monday, d))}${hol ? `<br><span style="color:#cc0000; font-size:10px;">${esc(hol)}</span>` : ''}</th>`;
   }
   head += '</tr>';
 
   let eventsRow = `<tr><th style="${th}">行事</th>`;
-  for (let d = 0; d < dayCount; d++) {
+  for (const d of days) {
     eventsRow += `<td style="${td} background-color:#fffbeb;">${esc(week.events?.[d] || '').replace(/\n/g, '<br>')}</td>`;
   }
   eventsRow += '</tr>';
 
   // 祝日・長期休業の日は空白サマリーの母数に入れない(授業のない日を未入力扱いで管理職に列挙しない)
-  const offDay = Array.from({ length: dayCount }, (_, d) =>
-    !!((s.showHolidays && holidayName(addDays(monday, d))) || breakNameOf(s, fmtDate(addDays(monday, d)))));
+  // d は実際の曜日番号(土日=5,6も入る)なので位置配列でなくday番号キーにする
+  const offDay = {};
+  for (const d of days) offDay[d] = !!((s.showHolidays && holidayName(addDays(monday, d))) || breakNameOf(s, fmtDate(addDays(monday, d))));
 
   let body = '';
   let filled = 0;
   const blanks = [];
   for (const p of s.periods) {
     body += `<tr><th style="${th}">${esc(p.label)}</th>`;
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       const eff = effectivePeriod(s, week, d, p);
       const text = eff ? cellText(state, week, d, p, ordinals) : '—';
       if (eff && p.type === 'lesson' && !offDay[d]) {
@@ -200,10 +203,10 @@ export function buildWeekEmail(weekStart) {
 
   // テキスト版にもタブ区切りの表を入れる(HTML非対応メーラー対策)
   const textRows = [title, `${s.schoolName || ''} ${modeLabel} ${s.teacherName || ''}`, summary, ''];
-  textRows.push(['', ...Array.from({ length: dayCount }, (_, d) => `${DAY_NAMES[d]}${fmtMD(addDays(monday, d))}`)].join('\t'));
+  textRows.push(['', ...days.map(d => `${DAY_NAMES[d]}${fmtMD(addDays(monday, d))}`)].join('\t'));
   for (const p of s.periods) {
     const row = [p.label];
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       const eff = effectivePeriod(s, week, d, p);
       row.push(eff ? cellText(state, week, d, p, ordinals, { withNote: false }).replace(/\n/g, ' / ') : '—');
     }
@@ -232,16 +235,17 @@ export function buildWeekSheet(weekStart) {
   const s = state.settings;
   const week = store.getWeek(weekStart);
   const monday = parseDate(weekStart);
-  const dayCount = s.saturday ? 6 : 5;
+  const days = weekDayOffsets(s, week, monday);
+  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
 
-  const header = [''].concat(Array.from({ length: dayCount }, (_, d) => `${DAY_NAMES[d]} ${fmtMD(addDays(monday, d))}`));
+  const header = [''].concat(days.map(d => `${DAY_NAMES[d]} ${fmtMD(addDays(monday, d))}`));
   const rows = [];
-  rows.push(['行事'].concat(Array.from({ length: dayCount }, (_, d) => week.events?.[d] || '')));
+  rows.push(['行事'].concat(days.map(d => week.events?.[d] || '')));
   for (const p of s.periods) {
     const row = [p.label];
-    for (let d = 0; d < dayCount; d++) {
+    for (const d of days) {
       const eff = effectivePeriod(s, week, d, p);
       row.push(eff ? cellText(state, week, d, p, ordinals) : '—');
     }
@@ -251,7 +255,7 @@ export function buildWeekSheet(weekStart) {
   if (week.goals) footer.push([`めあて・重点: ${week.goals}`]);
   if (week.reflection) footer.push([`反省: ${week.reflection}`]);
 
-  const lastDay = addDays(monday, dayCount - 1);
+  const lastDay = addDays(monday, days[days.length - 1]);
   return {
     sheetName: `週案 ${monday.getMonth() + 1}月${monday.getDate()}日週`, // シート名に「/」は使えないため月日表記
     title: `週指導計画 ${monday.getFullYear()}年${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日(第${weekNo}週) ${s.schoolName || ''} ${s.teacherName || ''}`,
