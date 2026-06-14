@@ -854,13 +854,18 @@ td.cell:focus-visible, .day-th:focus-visible {
 }
 /* 学習活動・評価規準・観点の畳み込み: 計画どおりは一覧(読む)、編集時だけ展開 */
 .lesson-fold { border: 1px solid var(--line); border-radius: var(--r-md); margin: 10px 0; background: var(--panel); }
-.lesson-fold > .ld-summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 8px 10px; min-height: 38px; }
+.lesson-fold > .ld-summary { list-style: none; cursor: pointer; display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; min-height: 38px; }
 .lesson-fold > .ld-summary::-webkit-details-marker { display: none; }
-.lesson-fold[open] > .ld-summary { border-bottom: 1px solid var(--line); }
-.ld-glance { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); }
-.ld-glance .ld-g b { color: var(--muted); font-weight: 700; margin-right: 3px; }
-.ld-glance .ld-g + .ld-g::before { content: '／'; color: var(--line-strong); margin: 0 7px; }
-.ld-glance .muted { color: var(--muted); }
+.lesson-fold[open] > .ld-summary { border-bottom: 1px solid var(--line); align-items: center; }
+/* 畳んだとき=活動/評価/観点を全文表示(読み)。開いたとき=見出しに切替え、下に入力欄 */
+.ld-read { flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.ld-read .ld-r { display: block; overflow-wrap: anywhere; }
+.ld-read .ld-r b { color: var(--muted); font-weight: 700; }
+.ld-read .muted { color: var(--muted); }
+.ld-editing { flex: 1 1 auto; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.lesson-fold:not([open]) .ld-editing { display: none; }
+.lesson-fold[open] .ld-read { display: none; }
+.lesson-fold .change-tag { flex: 0 0 auto; align-self: center; }
 .lesson-fold > .ov-field { padding: 0 10px; }
 .lesson-fold > .ov-field:first-of-type { margin-top: 8px; }
 .lesson-fold > .ov-field:last-of-type { padding-bottom: 10px; }
