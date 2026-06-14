@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, termRanges, VIEWPOINTS } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, termRanges, VIEWPOINTS } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -44,19 +44,24 @@ export function renderWeekView(root, ctx) {
   let breakLabel = '';
   for (let d = 0; d < dayCount; d++) {
     const date = addDays(monday, d);
-    const hol = s.showHolidays ? holidayName(date) : null;
-    const brk = breakNameOf(s, fmtDate(date));
-    const isOff = (s.offDays || []).includes(fmtDate(date)); // 任意の非授業日
+    const ds = fmtDate(date);
+    const isClassDay = (s.classDays || []).includes(ds); // 振替授業日: 祝日・休業を上書きして授業日に
+    const rawHol = s.showHolidays ? holidayName(date) : null;
+    const rawBrk = breakNameOf(s, ds);
+    const isOff = !isClassDay && (s.offDays || []).includes(ds); // 任意の非授業日
+    const hol = isClassDay ? null : rawHol;
+    const brk = isClassDay ? null : rawBrk;
     noSchoolDays.push(hol ? { reason: hol, type: 'holiday' } : brk ? { reason: brk, type: 'break' } : isOff ? { reason: '休業日', type: 'off' } : null);
     if (brk) { breakDays++; breakLabel = brk; }
-    const isToday = fmtDate(date) === todayStr;
+    const makeup = isClassDay && (rawHol || rawBrk) ? (rawHol || rawBrk) : ''; // 本来は休みだが授業日にしている日
+    const isToday = ds === todayStr;
     dayHeads.push(`
       <th class="day-th" data-day="${d}" title="クリックで一括操作" tabindex="0" role="button"
-          aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作">
-        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk || isOff ? 'in-break' : ''}">
+          aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作${makeup ? ' 振替授業日' : ''}">
+        <div class="day-head ${d === 5 ? 'sat' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk || isOff ? 'in-break' : ''} ${makeup ? 'makeup-day' : ''}">
           <span class="dow">${DAY_NAMES[d]}<span class="day-caret">▾</span></span>
           <span class="date">${fmtMD(date)}</span>
-          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : isOff ? `<span class="brk-name">休業日</span>` : ''}
+          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : isOff ? `<span class="brk-name">休業日</span>` : makeup ? `<span class="makeup-name" title="本来は${esc(makeup)}">振替授業</span>` : ''}
         </div>
       </th>`);
   }
@@ -1127,13 +1132,26 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       const date = addDays(monday, d);
       const dateStr = fmtDate(date);
       const label = `${fmtMD(date)}(${DAY_NAMES[d]})`;
+      // 日種別の対称トグル: 通常日↔非授業日(offDay)、祝日/休業/週末↔振替授業日(classDay)
+      const isClassDay = (store.settings.classDays || []).includes(dateStr);
       const isOff = (store.settings.offDays || []).includes(dateStr);
+      const noSchoolR = noSchoolReason(store.settings, dateStr); // classDay考慮済み(振替ならnull)
+      let dayToggle;
+      if (isClassDay) {
+        dayToggle = { act: 'classday', icon: 'refresh', title: '振替授業日を解除', desc: 'この日を本来の休み(祝日・休業など)に戻します' };
+      } else if (isOff) {
+        dayToggle = { act: 'offday', icon: 'refresh', title: '非授業日を解除', desc: 'この日を授業日に戻します' };
+      } else if (noSchoolR) {
+        dayToggle = { act: 'classday', icon: 'book', title: '授業日にする(振替)', desc: `${noSchoolR}ですが授業日として扱います。基本時間割の自動配置・時数集計の対象になります` };
+      } else {
+        dayToggle = { act: 'offday', icon: 'stop', title: '非授業日にする', desc: '開校記念日・振替休業・学級閉鎖など。自動配置や「まとめて作成」で授業が入りません' };
+      }
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div class="day-ops">
           <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>休講にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
           ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">${icon('clipboard')}</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
-          <button class="btn day-op" data-act="offday"><span class="op-ic">${icon(isOff ? 'refresh' : 'stop')}</span><span class="op-tx"><b>${isOff ? '非授業日を解除' : '非授業日にする'}</b><small>開校記念日・振替・学級閉鎖など。基本時間割の流し込みや「まとめて作成」で授業が入りません</small></span></button>
+          <button class="btn day-op" data-act="${dayToggle.act}"><span class="op-ic">${icon(dayToggle.icon)}</span><span class="op-tx"><b>${dayToggle.title}</b><small>${dayToggle.desc}</small></span></button>
           <button class="btn day-op danger" data-act="clear"><span class="op-ic">${icon('trash')}</span><span class="op-tx"><b>この日をクリア</b><small>この日の入力をすべて削除します</small></span></button>
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
@@ -1146,6 +1164,13 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
               const nowOff = store.toggleOffDay(dateStr);
               close();
               toast(nowOff ? '非授業日にしました' : '非授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleOffDay(dateStr); ctx.rerender(); } });
+              ctx.rerender();
+              return;
+            }
+            if (act === 'classday') {
+              const nowClass = store.toggleClassDay(dateStr);
+              close();
+              toast(nowClass ? '振替授業日にしました' : '振替授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleClassDay(dateStr); ctx.rerender(); } });
               ctx.rerender();
               return;
             }

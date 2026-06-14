@@ -64,6 +64,7 @@ export function defaultSettings(schoolType = 'elementary') {
     uiScale: 'normal',        // 画面の文字サイズ: normal | large
     breaks: [],               // 長期休業 [{name, from:'YYYY-MM-DD', to:'YYYY-MM-DD'}](必要ペース計算・表示に使用)
     offDays: [],              // 任意の非授業日 ['YYYY-MM-DD'](開校記念日・振替・学級閉鎖など。授業を自動挿入しない)
+    classDays: [],            // 任意の授業日(振替授業日) ['YYYY-MM-DD']。祝日・休業・週末でも授業日扱いにする(offDaysの対称)
     showAttendance: false,    // 出欠メモ行(週案・印刷)
     stampBoxes: ['校長', '教頭', '担任'],
     printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
@@ -367,10 +368,24 @@ class Store {
   toggleOffDay(dateStr) {
     const s = this.settings;
     s.offDays = Array.isArray(s.offDays) ? s.offDays : [];
+    s.classDays = Array.isArray(s.classDays) ? s.classDays : [];
     const i = s.offDays.indexOf(dateStr);
-    if (i >= 0) s.offDays.splice(i, 1); else s.offDays.push(dateStr);
+    if (i >= 0) s.offDays.splice(i, 1);
+    else { s.offDays.push(dateStr); s.classDays = s.classDays.filter(d => d !== dateStr); } // 排他
     this.commit();
     return i < 0; // true=非授業日にした
+  }
+
+  /** 任意の日を授業日(振替授業日)にする/解除する。祝日・休業・週末でも授業日扱いにする(offDaysの対称) */
+  toggleClassDay(dateStr) {
+    const s = this.settings;
+    s.classDays = Array.isArray(s.classDays) ? s.classDays : [];
+    s.offDays = Array.isArray(s.offDays) ? s.offDays : [];
+    const i = s.classDays.indexOf(dateStr);
+    if (i >= 0) s.classDays.splice(i, 1);
+    else { s.classDays.push(dateStr); s.offDays = s.offDays.filter(d => d !== dateStr); } // 排他
+    this.commit();
+    return i < 0; // true=振替授業日にした
   }
 
   // -------- plans
@@ -686,6 +701,12 @@ function migrate(data) {
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
   if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
   if (!Array.isArray(data.settings.offDays)) data.settings.offDays = [];
+  if (!Array.isArray(data.settings.classDays)) data.settings.classDays = [];
+  // offDaysとclassDaysは排他(両方に入っているとどちらの意図か曖昧)。classDays(明示の授業日)を優先
+  if (data.settings.classDays.length && data.settings.offDays.length) {
+    const cd = new Set(data.settings.classDays);
+    data.settings.offDays = data.settings.offDays.filter(d => !cd.has(d));
+  }
   // 「道徳」→正式名称「特別の教科 道徳」へ(提出書類に略式名が出ないように。独自に改名済みなら触らない)
   for (const sub of data.settings.subjects) {
     if (sub.key === 'dotoku' && sub.name === '道徳') sub.name = '特別の教科 道徳';
@@ -1056,6 +1077,8 @@ export function isNoSchoolDay(settings, dateStr) {
 
 /** 非授業日の理由ラベル(なければ null)。表示にも使う */
 export function noSchoolReason(settings, dateStr) {
+  // 振替授業日(明示の授業日)は祝日・休業・週末より優先して「授業日」とする
+  if ((settings.classDays || []).includes(dateStr)) return null;
   const d = parseDate(dateStr);
   const dow = d.getDay(); // 0=日, 6=土
   if (dow === 0) return '日曜';

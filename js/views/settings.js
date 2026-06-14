@@ -167,6 +167,15 @@ export function renderSettingsView(root, ctx) {
         <input type="date" id="offday-add-date" aria-label="追加する非授業日の日付">
         <button class="btn small" id="offday-add">＋ 追加</button>
       </div>
+
+      <h3>振替授業日${infoHTML('日曜参観の振替で月曜に授業をした等、祝日・休業・週末でも「授業日」にする日。週案タブで曜日見出し→「授業日にする(振替)」でも設定できます。基本時間割の自動配置・時数集計の対象になります')}</h3>
+      ${(s.classDays || []).length ? `<div class="offday-list">
+        ${(s.classDays || []).slice().sort().map(d => `<span class="offday-chip classday"><span class="oc-d">${esc(fmtOffday(d))}</span><button class="oc-x" data-classrm="${esc(d)}" aria-label="${esc(fmtOffday(d))}を解除" title="解除">×</button></span>`).join('')}
+      </div>` : '<p class="hint">まだありません。週案タブの曜日見出し→「授業日にする(振替)」でも設定できます。</p>'}
+      <div class="inline" style="margin-top:10px; max-width:260px;">
+        <input type="date" id="classday-add-date" aria-label="追加する振替授業日の日付">
+        <button class="btn small" id="classday-add">＋ 追加</button>
+      </div>
     </div>
 
     <div class="panel" id="sp-display">
@@ -673,6 +682,23 @@ function wireSettings(root, ctx) {
     if (!d) { toast('日付を選んでください', 'error'); return; }
     if ((s.offDays || []).includes(d)) { toast('すでに登録済みです', 'info'); return; }
     store.toggleOffDay(d); // 未登録なので追加になる
+    ctx.rerender();
+  };
+
+  // 振替授業日(classDays)の一覧管理
+  root.querySelectorAll('[data-classrm]').forEach(b => {
+    b.onclick = () => {
+      store.toggleClassDay(b.dataset.classrm); // 既存なので解除になる
+      ctx.rerender();
+      toast('振替授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleClassDay(b.dataset.classrm); ctx.rerender(); } });
+    };
+  });
+  root.querySelector('#classday-add').onclick = () => {
+    const inp = root.querySelector('#classday-add-date');
+    const d = inp.value;
+    if (!d) { toast('日付を選んでください', 'error'); return; }
+    if ((s.classDays || []).includes(d)) { toast('すでに登録済みです', 'info'); return; }
+    store.toggleClassDay(d); // 未登録なので追加になる
     ctx.rerender();
   };
 

@@ -236,6 +236,12 @@ table.week-grid {
 }
 .week-grid thead .day-head .hol-name { background: #fbd0d0; color: #b91c1c; }
 .week-grid thead .day-head .brk-name { background: #cfe0fa; color: #075985; }
+/* 振替授業日: 本来は休みだが授業日にした日。授業日として通常表示しつつ由来を示す */
+.week-grid thead .day-head .makeup-name {
+  display: inline-block; margin-top: 2px; font-size: 10px; font-weight: 700; line-height: 1.5;
+  padding: 0 7px; border-radius: var(--r-full); white-space: nowrap;
+  background: #dcfce7; color: #15803d;
+}
 .week-grid thead .day-head.in-break .dow,
 .week-grid thead .day-head.in-break .date { color: #64748b; }
 .week-grid .pattern-row td { background: #fafafa; }
@@ -1073,6 +1079,9 @@ td.cell:focus-visible, .day-th:focus-visible {
 .offday-chip .oc-d { font-weight: 600; color: var(--ink-2); }
 .offday-chip .oc-x { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; border-radius: var(--r-full); width: 22px; height: 22px; }
 .offday-chip .oc-x:hover { color: var(--danger); background: var(--danger-soft); }
+/* 振替授業日チップは「授業日」なので緑系で区別(非授業日チップと取り違えない) */
+.offday-chip.classday { background: #dcfce7; border-color: #bbf7d0; }
+.offday-chip.classday .oc-d { color: #15803d; }
 
 /* ---------- Apple仕上げ: iOSスイッチ・押下・ボトムシート ---------- */
 
