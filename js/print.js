@@ -7,7 +7,7 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, VIEWPOINTS } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, VIEWPOINTS, cellIsBlocked } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
@@ -30,8 +30,8 @@ function isIOS() {
 }
 
 /**
- * 印刷オプションのモーダル。毎週変えるのは「期間」だけなので、
- * 書式(向き・レイアウト等)は折りたたみに収める。設定への保存は書式を変更した時のみ。
+ * 印刷オプションのモーダル。期間は最上段。書式(向き・レイアウト等)は既定で開いて
+ * すぐ見えるようにする(折りたためる)。設定への保存は書式を変更した時のみ。
  */
 export function openPrintDialog(ctx) {
   const s = store.settings;
@@ -44,7 +44,7 @@ export function openPrintDialog(ctx) {
         <option value="term">学期</option>
         <option value="year">年度(入力済みの全週)</option>
       </select></div>
-    <details class="adv">
+    <details class="adv" open>
       <summary class="fold-label">書式(設定と共通)</summary>
       <div class="print-options" style="margin-top:8px;">
         <div class="field"><label>用紙の向き</label>
@@ -345,7 +345,12 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
   let entries = cell?.entries || [];
   const cf = printClassFilter(s);
   if (cf) entries = entries.filter(e => (e.scope ?? '') === cf); // 学級別印刷: 対象学級のコマだけ
-  if (!entries.length) return `<td class="pcell"></td>`;
+  if (!entries.length) {
+    // 予定(非授業): 会議・面談・出張などをコマ内にメモとして印刷
+    return cellIsBlocked(cell)
+      ? `<td class="pcell pcell-note">${esc(cell.note || '授業なし')}</td>`
+      : `<td class="pcell"></td>`;
+  }
 
   // 複式: 両学年が完全に同じ授業(合同)なら1段に統合して印刷
   let mergedLabel = '';

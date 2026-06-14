@@ -248,22 +248,25 @@ export function renderWeekView(root, ctx) {
 
   root.innerHTML = `
     <div class="week-nav">
-      <button class="btn" id="wk-prev" aria-label="前の週">◀</button>
-      <button class="btn" id="wk-today">今週</button>
-      <button class="btn" id="wk-next" aria-label="次の週">▶</button>
-      <input type="date" id="wk-date" value="${weekStart}" aria-label="表示する週の日付">
+      <div class="wn-move">
+        <button class="btn" id="wk-prev" aria-label="前の週">◀</button>
+        <button class="btn" id="wk-today">今週</button>
+        <button class="btn" id="wk-next" aria-label="次の週">▶</button>
+      </div>
       <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, days[days.length - 1]))}
         <span class="week-no">第${weekNo}週</span>
       </span>
-      <span class="view-toggle" role="group" aria-label="表示の切り替え">
-        <button class="vt-btn ${viewMode === 'day' ? 'active' : ''}" id="wk-view-day" aria-pressed="${viewMode === 'day'}" title="今日の授業だけを縦に表示(スマホ・すきま記録向き)">日</button>
-        <button class="vt-btn ${viewMode === 'week' ? 'active' : ''}" id="wk-view-week" aria-pressed="${viewMode === 'week'}" title="1週間をまとめて表示">週</button>
-      </span>
+      <input type="date" id="wk-date" value="${weekStart}" aria-label="表示する週の日付">
       <span class="spacer"></span>
-      ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
-      ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置(もう一度で消去・Escで終了)">${icon('pencil')}まとめて配置</button>` : ''}` : ''}
-      ${!store.hasBaseTimetable ? infoHTML('まず「設定 → 基本時間割」で骨組み（毎週の教科の並び）を作ると、週を開くだけで前週からの進度を引き継いで自動で流し込みます') : ''}
-      <details class="menu">
+      <div class="wn-actions">
+        <span class="view-toggle" role="group" aria-label="表示の切り替え">
+          <button class="vt-btn ${viewMode === 'day' ? 'active' : ''}" id="wk-view-day" aria-pressed="${viewMode === 'day'}" title="今日の授業だけを縦に表示(スマホ・すきま記録向き)">日</button>
+          <button class="vt-btn ${viewMode === 'week' ? 'active' : ''}" id="wk-view-week" aria-pressed="${viewMode === 'week'}" title="1週間をまとめて表示">週</button>
+        </span>
+        ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
+        ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置(もう一度で消去・Escで終了)">${icon('pencil')}まとめて配置</button>` : ''}` : ''}
+        ${!store.hasBaseTimetable ? infoHTML('まず「設定 → 基本時間割」で骨組み（毎週の教科の並び）を作ると、週を開くだけで前週からの進度を引き継いで自動で流し込みます') : ''}
+        <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
           <div class="menu-group-label">週の操作</div>
@@ -291,6 +294,7 @@ export function renderWeekView(root, ctx) {
           <button class="btn ghost danger menu-item" id="wk-clear">${icon('trash')}週クリア</button>
         </div>
       </details>
+      </div>
     </div>
     ${autoFillHint}
     ${breakBanner}
@@ -549,9 +553,14 @@ function wireNav(root, ctx, monday) {
   root.querySelector('#wk-prev').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, -7)));
   root.querySelector('#wk-next').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, 7)));
   root.querySelector('#wk-today').onclick = () => ctx.setWeekStart(null);
-  root.querySelector('#wk-date').onchange = (ev) => {
+  const dateInput = root.querySelector('#wk-date');
+  dateInput.onchange = (ev) => {
     if (ev.target.value) ctx.setWeekStart(ev.target.value);
   };
+  // 狭い画面では日付入力を隠し、週タイトルのタップで日付ピッカーを開く(ヘッダー圧迫を避ける)
+  root.querySelector('.week-title')?.addEventListener('click', () => {
+    try { dateInput.showPicker(); } catch { dateInput.focus(); }
+  });
 
   // 日/週ビューの切替(選択を端末に記憶し再描画)
   const setView = (mode) => () => { localStorage.setItem('shuan-week-view', mode); ctx.rerender(); };

@@ -86,6 +86,15 @@ table.pp-grid {
   -webkit-print-color-adjust: exact;
 }
 
+/* 予定(非授業): 会議・面談などのメモ。授業と区別する薄いグレー。 */
+.pp-grid td.pcell-note {
+  color: #555;
+  font-size: calc(var(--pfs) - 1pt);
+  background: #f4f4f4;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
 .pp-grid .ph {
   background: #efefef;
   print-color-adjust: exact;

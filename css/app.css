@@ -207,12 +207,25 @@ html, body {
 
 /* ---------- week navigation ---------- */
 .week-nav {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-bottom: 12px;
 }
-.week-nav .week-title { font-size: 17px; font-weight: 700; min-width: 270px; }
+.week-nav .wn-move { display: flex; align-items: center; gap: 6px; }
+.week-nav .wn-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.week-nav .week-title { font-size: 17px; font-weight: 700; white-space: nowrap; }
 .week-nav .week-no { color: var(--muted); font-weight: 500; font-size: 13.5px; margin-left: 8px; }
 .week-nav .spacer { flex: 1; }
 .week-nav input[type="date"] { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; }
+/* 狭い画面: 1行目=◀今週▶＋週タイトル / 2行目=表示切替＋⋯ の2行に整理。
+   日付ピッカーはタイトルのタップで開く(ヘッダーを圧迫しない)。 */
+@media (max-width: 560px) {
+  .week-nav { gap: 8px; }
+  .week-nav .wn-move { order: 1; }
+  .week-nav .week-title { order: 2; flex: 1; font-size: 16px; cursor: pointer; }
+  .week-nav .week-title::after { content: "▾"; font-size: 11px; color: var(--muted); margin-left: 4px; }
+  .week-nav input[type="date"] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+  .week-nav .spacer { display: none; }
+  .week-nav .wn-actions { order: 3; margin-left: auto; }
+}
 
 /* ---------- week grid ---------- */
 .week-grid-wrap { overflow-x: auto; }
