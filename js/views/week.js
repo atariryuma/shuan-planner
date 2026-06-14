@@ -335,6 +335,7 @@ function renderEntriesHTML(state, entries, ordinals) {
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
           ${guide}${frac}${unsetClass}${changed}
           ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
+          ${!e.cancelled && e.endUnit ? `<span class="e-flag" style="color:#15803d;" title="この時間で単元を終え、次のコマから次の単元へ">単元終</span>` : ''}
           ${progress}
         </div>
         ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
@@ -1641,6 +1642,10 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       const ncChk = box.querySelector('[name="noCount"]');
       ncChk.onchange = () => { touch(); entry.noCount = ncChk.checked; store.commit(); ctx.rerender(); };
 
+      // この時間で単元を終える(残りの計画コマを飛ばして次の単元へ)
+      const euChk = box.querySelector('[name="endUnit"]');
+      if (euChk) euChk.onchange = () => { touch(); entry.endUnit = euChk.checked; store.commit(); ctx.rerender(); };
+
       const cancelChk = box.querySelector('[name="cancelled"]');
       cancelChk.onchange = () => {
         touch();
@@ -1825,6 +1830,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           : `<span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}`}
         <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
       </div>
+      ${(!ed.planless && ed.overridden.objective && ((!ed.overridden.activity && ed.planActivity) || (!ed.overridden.assessment && ed.planAssessment)))
+        ? `<div class="ov-mismatch">${icon('warning')}<span>ねらいを変更しています。学習活動・評価規準は<b>計画のまま</b>です。授業に合わせて直すか、そのままでよければ触らなくてOKです。</span></div>` : ''}
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
       ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity)}
       ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
@@ -1841,7 +1848,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
   }
 
   // 既定値から変わっている項目があるときだけ「詳細」を開いておく
-  const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled;
+  const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled || entry.endUnit;
 
   // 選択済みの教科・学級を先頭1行に出し、パレットは「変更」で開く(編集の常用導線を短く)
   const subj = subjectOf(s, entry.subjectKey);
@@ -1896,6 +1903,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         </div>
         <div class="checkline"><input type="checkbox" name="advance" id="adv-${idx}" ${effAdvance ? 'checked' : ''}>
           <label for="adv-${idx}">進度を進める</label>${infoHTML('年間指導計画の「何時間目か」を1つ進めます。ドリル等で単元を進めないときはオフに')}</div>
+        ${details && details.unitHours > 1 && details.nth < details.unitHours ? `<div class="checkline"><input type="checkbox" name="endUnit" id="eu-${idx}" ${entry.endUnit ? 'checked' : ''}>
+          <label for="eu-${idx}">この時間で単元を終える</label>${infoHTML(`予定より早く単元が終わったとき。残りの計画コマ(${details.unitHours - details.nth}コマ)を飛ばして、次のコマから次の単元に進みます`)}</div>` : ''}
         <div class="checkline"><input type="checkbox" name="noCount" id="nc-${idx}" ${entry.noCount ? 'checked' : ''}>
           <label for="nc-${idx}">時数に数えない</label>${infoHTML('教育課程外の朝活動・テスト監督などに')}</div>
         <div class="checkline"><input type="checkbox" name="cancelled" id="cl-${idx}" ${entry.cancelled ? 'checked' : ''}>

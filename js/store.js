@@ -489,6 +489,7 @@ export function newEntry() {
     fraction: 1,       // 分数時数: このコマに占める割合(1, 2/3, 1/2, 1/3)
     cancelled: false,  // 中止・未実施(時数・進度とも除外、表示は取り消し線)
     cancelledText: '', // 中止時点の予定内容のスナップショット(提出書類に「何が中止か」を残す)
+    endUnit: false,    // この時間で単元を終える(残りの計画コマを飛ばし、次のコマから次の単元へ)
     guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
     override: null,    // 年間計画の本時項目を「このコマだけ」上書きした差分。形 {objective?,activity?,assessment?,viewpoint?}
                        // 設定された項目のみ保持(計画全文は重複保存しない)。実施記録=計画との差分。
@@ -800,7 +801,18 @@ export function computeOrdinals(state, refWeekStart) {
           const k = scopeKey(e.subjectKey, e.scope);
           const n = counters.get(k) || 0;
           ordinals.set(e.id, n);
-          counters.set(k, n + 1);
+          let next = n + 1;
+          // 「この時間で単元を終える」: 現在の単元の残りコマ分だけカウンタを飛ばし、次のコマから次の単元へ
+          if (e.endUnit) {
+            const grade = scopeGrade(settings, e.scope);
+            const plan = state.plans.find(pl => pl.subjectKey === e.subjectKey && (pl.grade == null || pl.grade === grade));
+            const info = plan ? lessonFromPlan(plan, n) : null;
+            if (info && !info.exhausted && info.unitHours > 0) {
+              const remaining = info.unitHours - info.nth; // info.nth は1始まり。残り=単元時数-現在の時
+              if (remaining > 0) next += remaining;
+            }
+          }
+          counters.set(k, next);
         }
       }
     }
