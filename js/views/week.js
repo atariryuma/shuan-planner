@@ -1950,8 +1950,6 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           : `<span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}`}
         <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
       </div>
-      ${(!ed.planless && (ed.autoBlanked.activity || ed.autoBlanked.assessment))
-        ? `<div class="ov-mismatch">${icon('warning')}<span>ねらいを変更したので、学習活動・評価規準は<b>空にしました</b>。授業に合わせて記入してください（ねらいを「↺ 計画に戻す」と元の計画に戻ります）。</span></div>` : ''}
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
       ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
       ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
