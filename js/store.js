@@ -510,6 +510,7 @@ export function newEntry() {
     cancelledText: '', // 中止時点の予定内容のスナップショット(提出書類に「何が中止か」を残す)
     endUnit: false,    // この時間で単元を終える(残りの計画コマを飛ばし、次のコマから次の単元へ)
     guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
+    pin: null,         // この時間だけ別の単元の本時をやる {unitId, nth}|null。自動の順番から外して差し込む(自転車操業対応)
     override: null,    // 年間計画の本時項目を「このコマだけ」上書きした差分。形 {objective?,activity?,assessment?,viewpoint?}
                        // 設定された項目のみ保持(計画全文は重複保存しない)。実施記録=計画との差分。
   };
@@ -823,6 +824,7 @@ export function computeOrdinals(state, refWeekStart) {
         if (!cell) continue;
         for (const e of cell.entries) {
           if (!e.subjectKey || e.cancelled) continue;
+          if (e.pin) continue; // この時間だけ別単元(差し込み)は自動カウンタを動かさない=他コマの順番は不変
           const isModule = p.type === 'module';
           const advances = e.advance === null || e.advance === undefined ? !isModule : !!e.advance;
           if (!advances) continue;
@@ -879,6 +881,21 @@ export function lessonFromPlan(plan, ordinal) {
 }
 
 /**
+ * entry.pin({unitId, nth}) で指定された単元の本時を直接取り出す(自動の順番を無視)。
+ * lessonFromPlan と同じ形を返す。単元が削除済みなら null(自動/手記録へフォールバック)。
+ */
+export function lessonFromPin(plan, pin) {
+  if (!plan || !pin || !pin.unitId) return null;
+  const unit = (plan.units || []).find(u => String(u.id) === String(pin.unitId));
+  if (!unit) return null;
+  const h = Math.max(1, Math.round(unit.hours || unit.lessons?.length || 1));
+  const nth = Math.min(Math.max(1, Math.round(pin.nth || 1)), h); // 1..h にクランプ
+  const lesson = unit.lessons?.[nth - 1] || null;
+  const objective = lesson ? (lesson.objective ?? lesson.text ?? '') : '';
+  return { unitName: unit.name, lessonText: objective, lesson, unit, nth, unitHours: h, exhausted: false };
+}
+
+/**
  * エントリの表示テキストを解決する。
  * 手動入力(auto=false)はそのまま。自動は計画から「単元名 (n/m) 内容」を構成。
  */
@@ -887,7 +904,8 @@ export function resolveEntryText(state, entry, ordinals) {
   const grade = scopeGrade(state.settings, entry.scope);
   const plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
     || null;
-  const info = plan ? lessonFromPlan(plan, ordinals.get(entry.id)) : null;
+  // pin があれば自動の順番を無視して指定単元の本時を出す(この時間だけ別の単元)
+  const info = plan ? (entry.pin ? lessonFromPin(plan, entry.pin) : lessonFromPlan(plan, ordinals.get(entry.id))) : null;
   if (!info) return { text: entry.text || '', auto: true, info: null };
   if (info.exhausted) return { text: '(計画終了)', auto: true, info };
   const head = info.unitName ? `${info.unitName}` : '';
@@ -907,7 +925,7 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
     const grade = scopeGrade(state.settings, entry.scope);
     plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
       || null;
-    info = plan ? lessonFromPlan(plan, ordinals.get(entry.id)) : null;
+    info = plan ? (entry.pin ? lessonFromPin(plan, entry.pin) : lessonFromPlan(plan, ordinals.get(entry.id))) : null;
   } else if (info) {
     const grade = scopeGrade(state.settings, entry.scope);
     plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))

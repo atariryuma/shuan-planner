@@ -406,6 +406,17 @@ td.cell:hover .cell-clear { display: block; }
   display: inline-block; margin-right: 5px; border-radius: 4px; padding: 0 5px;
   background: #ffedd5; color: #9a3412; font-style: normal; font-size: 10px; font-weight: 700;
 }
+/* この時間だけ別の単元(pin)ピッカー */
+.unit-pick { margin: 0 0 10px; }
+.unit-pick > .up-summary { list-style: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: 6px; }
+.unit-pick > .up-summary::-webkit-details-marker { display: none; }
+.unit-pick > .up-summary::before { content: '▸'; color: var(--muted); }
+.unit-pick[open] > .up-summary::before { content: '▾'; }
+.unit-pick .up-badge { background: #ede9fe; color: #6d28d9; font-weight: 700; font-size: 10.5px; border-radius: var(--r-full, 999px); padding: 1px 8px; }
+.unit-pick .up-body { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+.unit-pick .up-label { font-size: 11px; font-weight: 700; color: var(--muted); }
+.unit-pick .up-body select { flex: 1 1 160px; min-width: 120px; }
+
 .auto-unit-details { margin-top: 5px; border-top: 1px solid #bfdbfe; padding-top: 5px; }
 .auto-unit-details summary { cursor: pointer; color: #1d4ed8; font-weight: 700; font-size: 11px; }
 .auto-criteria { margin: 4px 0 0; }

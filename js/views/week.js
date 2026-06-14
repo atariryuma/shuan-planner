@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS, scopeGrade } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -347,6 +347,7 @@ function renderEntriesHTML(state, entries, ordinals) {
     // 計画から変更ありは色付きドットのみ(語を減らし、形と色で示す)
     const changed = e.override && Object.keys(e.override).length
       ? `<span class="e-changed-dot" title="計画から変更あり" aria-label="計画から変更あり">●</span>` : '';
+    const pinned = e.pin ? `<span class="e-flag" style="color:#7c3aed;" title="この時間だけ別の単元(差し込み)">別単元</span>` : '';
     // 単元の進度を●●○のドット(または長単元はミニバー)で一目に
     const progress = !e.cancelled ? unitProgressHTML(details?.nth, details?.unitHours) : '';
     return `
@@ -354,7 +355,7 @@ function renderEntriesHTML(state, entries, ordinals) {
         <div class="e-head">
           ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
-          ${guide}${frac}${unsetClass}${changed}
+          ${guide}${frac}${unsetClass}${changed}${pinned}
           ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           ${!e.cancelled && e.endUnit ? `<span class="e-flag" style="color:#15803d;" title="この時間で単元を終え、次のコマから次の単元へ">単元終</span>` : ''}
           ${progress}
@@ -1673,6 +1674,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
           touch();
           entry.subjectKey = b.dataset.subj === entry.subjectKey ? '' : b.dataset.subj;
           if (entry.auto) entry.text = '';
+          entry.pin = null; // 教科を変えたら別単元ピンは無効(別教科の単元になるため)
           store.commit();
           render(modal);
           ctx.rerender();
@@ -1734,6 +1736,19 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
           store.commit(); render(modal); ctx.rerender();
         };
       });
+
+      // この時間だけ別の単元の本時をやる(pin)
+      const pinUnitSel = box.querySelector('[name="pinUnit"]');
+      if (pinUnitSel) pinUnitSel.onchange = () => {
+        touch();
+        entry.pin = pinUnitSel.value ? { unitId: pinUnitSel.value, nth: 1 } : null;
+        store.commit(); render(modal); ctx.rerender();
+      };
+      const pinLessonSel = box.querySelector('[name="pinLesson"]');
+      if (pinLessonSel) pinLessonSel.onchange = () => {
+        touch();
+        if (entry.pin) { entry.pin = { ...entry.pin, nth: Number(pinLessonSel.value) || 1 }; store.commit(); render(modal); ctx.rerender(); }
+      };
 
       const resetBtn = box.querySelector('[data-reset-auto]');
       if (resetBtn) resetBtn.onclick = () => {
@@ -1878,6 +1893,11 @@ const OV_PLACEHOLDERS = {
 function entryEditorHTML(state, entry, idx, period, ordinals) {
   const s = state.settings;
   const { resolved, details } = resolveEntryPlanDetails(state, entry, ordinals);
+  // この時間だけ別の単元の本時をやる(pin)用: 教科・学年に対応する計画と、pin中の単元
+  const planForPick = entry.subjectKey
+    ? state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === scopeGrade(s, entry.scope)))
+    : null;
+  const pinUnit = entry.pin && planForPick ? (planForPick.units || []).find(u => String(u.id) === String(entry.pin.unitId)) : null;
   const isModule = period?.type === 'module';
   const effAdvance = entry.advance == null ? !isModule : !!entry.advance;
 
@@ -1960,6 +1980,25 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
           `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`, ed.autoBlanked.assessment)}
       </details>`;
+    // 「この時間だけ別の単元の本時をやる」ピッカー(自転車操業対応)。計画に単元があるときだけ出す。
+    const pinUnits = planForPick?.units || [];
+    const pinControl = pinUnits.length ? (() => {
+      const unitOpts = `<option value="">自動（計画の順番どおり）</option>`
+        + pinUnits.map(u => `<option value="${esc(u.id)}" ${entry.pin && String(entry.pin.unitId) === String(u.id) ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+      let lessonSel = '';
+      if (pinUnit) {
+        const h = Math.max(1, Math.round(pinUnit.hours || pinUnit.lessons?.length || 1));
+        const opts = Array.from({ length: h }, (_, i) => {
+          const o = pinUnit.lessons?.[i]?.objective || pinUnit.lessons?.[i]?.text || '';
+          return `<option value="${i + 1}" ${(entry.pin.nth || 1) === i + 1 ? 'selected' : ''}>${i + 1}時${o ? '：' + esc(String(o).slice(0, 16)) : ''}</option>`;
+        }).join('');
+        lessonSel = `<label class="up-label">本時</label><select name="pinLesson">${opts}</select>`;
+      }
+      return `<details class="unit-pick" ${entry.pin ? 'open' : ''}>
+        <summary class="up-summary">${entry.pin ? `<span class="up-badge">別の単元</span>${esc(pinUnit ? pinUnit.name : '(削除された単元)')}` : 'この時間だけ別の単元にする'}${infoHTML('天候・準備の都合などで、この時間だけ計画の順番と違う単元の本時をやるとき。他のコマの進度(順番)は動きません')}</summary>
+        <div class="up-body"><label class="up-label">単元</label><select name="pinUnit">${unitOpts}</select>${lessonSel}</div>
+      </details>`;
+    })() : '';
     autoBlock = `<div class="ov-block">
       <div class="ov-head">
         ${ed.planless
@@ -1967,6 +2006,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           : `<span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}`}
         <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
       </div>
+      ${pinControl}
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
       ${lessonDetail}
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
