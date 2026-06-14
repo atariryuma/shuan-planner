@@ -214,15 +214,16 @@ export function renderWeekView(root, ctx) {
       </span>
       <span class="spacer"></span>
       ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
-      <button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">${icon('pencil')}連続入力</button>` : ''}
-      <button class="btn" id="wk-apply-base" ${store.hasBaseTimetable ? '' : 'disabled'}>${icon('clipboard')}基本時間割</button>
-      ${store.hasBaseTimetable ? '' : infoHTML('1週間分を入力して「⋯ → 基本時間割に登録」すると、毎週ワンタッチで呼び出せます')}
+      ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">${icon('pencil')}連続入力</button>` : ''}` : ''}
+      ${!store.hasBaseTimetable ? infoHTML('コマをクリックして1週間分を入力し「⋯ → 基本時間割に登録」すると、毎週自動で呼び出せます') : ''}
       <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
+          ${store.hasBaseTimetable && viewMode === 'week' ? `<button class="btn ghost menu-item ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}">${icon('pencil')}連続入力</button>` : ''}
           <button class="btn ghost menu-item" id="wk-copy">${icon('clipboard')}前週をコピー</button>
           ${gas ? `<button class="btn ghost menu-item" id="wk-calendar">${icon('calendar')}この週に行事を取り込み</button>` : ''}
           <div class="menu-sep" role="separator"></div>
+          ${store.hasBaseTimetable ? `<button class="btn ghost menu-item" id="wk-apply-base">${icon('clipboard')}基本時間割を反映${infoHTML('この週を基本時間割で埋めます。手を入れたコマ(●変更・手入力・備考・中止)はそのまま残ります')}</button>` : ''}
           ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
             <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('calendar')}期間をまとめて作成</button>
             ${infoHTML('基本時間割と年間指導計画から、今週〜学期末などをまとめて自動作成します。祝日・長期休業・非授業日には授業を入れません。入力済みの週は上書きしません')}
@@ -506,7 +507,8 @@ function wireNav(root, ctx, monday) {
     btn.setAttribute('aria-pressed', String(next === 'detail'));
   });
 
-  root.querySelector('#wk-apply-base').onclick = async () => {
+  const _applyBaseBtn = root.querySelector('#wk-apply-base');
+  if (_applyBaseBtn) _applyBaseBtn.onclick = async () => {
     const to = fmtDate(monday);
     const bases = store.state.baseTimetables;
     const apply = async (id) => {
