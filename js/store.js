@@ -288,19 +288,37 @@ class Store {
     const list = this.state.baseTimetables;
     const cells = cloneCells(src.cells, false);
     const dayPatterns = { ...(src.dayPatterns || {}) }; // 曜日の日課割当(水曜=B日課等)も一緒に登録
+    const at = Date.now();
     if (name) {
       const existing = list.find(b => b.name === name);
-      if (existing) { existing.cells = cells; existing.dayPatterns = dayPatterns; }
-      else if (list.length < 3) list.push({ id: uid(), name, cells, dayPatterns });
+      if (existing) { existing.cells = cells; existing.dayPatterns = dayPatterns; existing.savedAt = at; }
+      else if (list.length < 3) list.push({ id: uid(), name, cells, dayPatterns, savedAt: at });
       else return false;
     } else if (list.length) {
       list[0].cells = cells;
       list[0].dayPatterns = dayPatterns;
+      list[0].savedAt = at;
     } else {
-      list.push({ id: uid(), name: '基本', cells, dayPatterns });
+      list.push({ id: uid(), name: '基本', cells, dayPatterns, savedAt: at });
     }
     this.commit();
     return true;
+  }
+
+  /** 基本時間割の名前を変更 */
+  renameBaseTimetable(id, name) {
+    const b = (this.state.baseTimetables || []).find(x => x.id === id);
+    if (!b || !String(name || '').trim()) return false;
+    b.name = String(name).trim();
+    this.commit();
+    return true;
+  }
+
+  /** 基本時間割を削除 */
+  removeBaseTimetable(id) {
+    const before = (this.state.baseTimetables || []).length;
+    this.state.baseTimetables = (this.state.baseTimetables || []).filter(x => x.id !== id);
+    if (this.state.baseTimetables.length !== before) this.commit();
   }
 
   /**

@@ -976,6 +976,34 @@ td.cell:focus-visible, .day-th:focus-visible {
 .day-chip i { font-size: 9px; color: var(--danger); font-style: normal; }
 .day-chip.sat b { color: var(--accent); }
 .day-chip.sun b { color: #dc2626; }
+
+/* 基本時間割マネージャ(見る・反映・名前変更・削除) */
+.bt-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+.bt-card { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 12px; background: var(--panel); }
+.bt-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.bt-card-head strong { font-size: var(--t-sm); }
+.bt-card-head .spacer { flex: 1; }
+.bt-rename-input { flex: 1; min-width: 120px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; font-family: inherit; font-size: 13px; }
+.bt-grid-wrap { overflow-x: auto; }
+.bt-grid { border-collapse: collapse; width: 100%; font-size: 11px; table-layout: fixed; }
+.bt-grid th, .bt-grid td { border: 1px solid var(--line); padding: 3px; text-align: center; vertical-align: middle; }
+.bt-grid thead th { background: var(--gray-50); font-weight: 700; color: var(--ink-2); }
+.bt-grid thead th.sat { color: var(--accent); }
+.bt-grid .bt-ph { background: var(--gray-50); font-weight: 700; color: var(--ink-2); width: 36px; }
+.bt-grid td { height: 26px; }
+.bt-chip { display: inline-block; color: #fff; font-weight: 700; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; white-space: nowrap; }
+.bt-chip small { font-weight: 600; opacity: .9; font-size: 9px; }
+
+/* 今週の時数(下部の集計欄): 数字を主役に。等幅数字・ゆとり・色は識別のみ */
+.mini-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 11px 16px; }
+.mini-stats .ms-title { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
+.mini-stats .ms-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 16px; flex: 1; min-width: 0; }
+.mini-stats .ms-chip { display: inline-flex; align-items: center; gap: 5px; }
+.mini-stats .ms-scope { font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
+.mini-stats .ms-num { font-size: 15.5px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1; }
+.mini-stats .ms-total { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; margin-left: auto; padding-left: 10px; border-left: 1px solid var(--line); }
+.mini-stats .ms-total b { font-size: 16px; color: var(--ink); font-variant-numeric: tabular-nums; margin: 0 1px; }
+.mini-stats .ms-total .ms-unit { font-size: 11.5px; color: var(--muted); }
 .day-chip.muted b, .day-chip.muted span { color: var(--gray-400); }
 .day-chip.is-today { border-color: var(--accent-300); }
 .day-chip.is-today b { color: var(--accent-ink); }

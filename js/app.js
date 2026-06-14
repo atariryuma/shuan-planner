@@ -31,7 +31,7 @@ const ctx = {
   getWeekStart: () => ctx.weekStart,
   setWeekStart(dateStr) {
     ctx.weekStart = dateStr ? fmtDate(mondayOf(parseDate(dateStr))) : fmtDate(mondayOf(new Date()));
-    ctx.swapSource = null;
+    // 移動(swapSource)は週をまたいで運べるよう、週移動では解除しない(解除はEsc/キャンセルボタン)
     rerender();
   },
   rerender,
