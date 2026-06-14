@@ -229,12 +229,13 @@ table.week-grid {
 .week-grid thead .day-head.sat .dow { color: #2563eb; }
 .week-grid thead .day-head.holiday-mark .dow,
 .week-grid thead .day-head.holiday-mark .date { color: #dc2626; }
-.week-grid thead .day-head .hol-name {
-  display: block; font-size: 10px; color: #dc2626; font-weight: 600; line-height: 1.1;
-}
+.week-grid thead .day-head .hol-name,
 .week-grid thead .day-head .brk-name {
-  display: block; font-size: 10px; color: #0369a1; font-weight: 600; line-height: 1.1;
+  display: inline-block; margin-top: 2px; font-size: 10px; font-weight: 700; line-height: 1.5;
+  padding: 0 7px; border-radius: var(--r-full); white-space: nowrap;
 }
+.week-grid thead .day-head .hol-name { background: #fbd0d0; color: #b91c1c; }
+.week-grid thead .day-head .brk-name { background: #cfe0fa; color: #075985; }
 .week-grid thead .day-head.in-break .dow,
 .week-grid thead .day-head.in-break .date { color: #64748b; }
 .week-grid .pattern-row td { background: #fafafa; }
@@ -1020,12 +1021,19 @@ td.cell:focus-visible, .day-th:focus-visible {
 /* ---------- 非授業日(祝日・長期休業・任意の休業日)を列で明示 ---------- */
 /* 斜めの淡いハッチで「授業を入れない日」と一目で分かる。理由で色を変える(祝日=赤/休業=青/任意=灰)。
    .no-school.ns-* は td.cell.off(0,2,1)より高い特異度(0,3,0)で背景を確実に上書きする。 */
+/* フラットな淡色で静かに区別(斜線は認知負荷が高いので使わない)。理由は列の最初の校時にピルで明示 */
 .cell.no-school { cursor: default; }
 .cell.no-school:hover { box-shadow: none; }
-.cell.no-school .ns-mark { display: block; text-align: center; color: var(--gray-300); padding-top: 18px; font-size: 13px; user-select: none; }
-.cell.no-school.ns-holiday { background: repeating-linear-gradient(45deg, #fef5f5, #fef5f5 7px, #fbe2e2 7px, #fbe2e2 14px); }
-.cell.no-school.ns-break   { background: repeating-linear-gradient(45deg, #f2f8ff, #f2f8ff 7px, #e1edff 7px, #e1edff 14px); }
-.cell.no-school.ns-off     { background: repeating-linear-gradient(45deg, #f7f9fc, #f7f9fc 7px, #e9eef5 7px, #e9eef5 14px); }
+.cell.no-school.ns-holiday { background: #fdecec; }
+.cell.no-school.ns-break   { background: #eaf1fd; }
+.cell.no-school.ns-off     { background: #eef1f6; }
+.cell.no-school .ns-label {
+  display: inline-block; margin: 6px 5px; padding: 2px 9px; border-radius: var(--r-full);
+  font-size: 10.5px; font-weight: 700; white-space: nowrap; line-height: 1.5;
+}
+.cell.no-school.ns-holiday .ns-label { background: #fbd0d0; color: #b91c1c; }
+.cell.no-school.ns-break .ns-label { background: #cfe0fa; color: #075985; }
+.cell.no-school.ns-off .ns-label { background: #dde3ec; color: var(--gray-700); }
 
 /* 今日ビュー: 非授業日で授業が無いときの落ち着いた表示 */
 .day-noschool { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 16px; border-radius: var(--r-lg); text-align: center; }
