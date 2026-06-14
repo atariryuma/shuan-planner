@@ -659,9 +659,9 @@ function cloneCells(cells, keepText) {
         pin: keepText ? e.pin : null,       // 別単元・計画外は週ごとの状態。ひな形(keepText=false)には持ち込まない
         offplan: keepText ? e.offplan : false,
       })),
-      // 予定(非授業)メモは週固有の事実(その週の会議・面談)。ひな形・前週コピー(keepText=false)には持ち込まない
-      note: keepText ? String(cell.note ?? '') : '',
-      blocked: keepText ? cell.blocked === true : false,
+      // 予定(非授業)=会議・面談などは毎週くり返す枠組みの一部。基本時間割への登録・反映・前週コピーで持ち運ぶ
+      note: String(cell.note ?? ''),
+      blocked: cell.blocked === true,
     };
   }
   return out;

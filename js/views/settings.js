@@ -27,17 +27,23 @@ function baseCardHTML(s, base) {
 function baseEditGridHTML(s, base) {
   const dayCount = s.saturday ? 6 : 5;
   const subjOptsFor = (sel) => '<option value="">—</option>' + s.subjects.map(x =>
-    `<option value="${esc(x.key)}" ${x.key === sel ? 'selected' : ''}>${esc(x.short || x.name)}</option>`).join('');
+    `<option value="${esc(x.key)}" ${x.key === sel ? 'selected' : ''}>${esc(x.short || x.name)}</option>`).join('')
+    + `<option value="__memo__" ${sel === '__memo__' ? 'selected' : ''}>予定/会議</option>`;
   const scopeOptsFor = (sel) => s.senkaClasses.map(c =>
     `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.label || c.id)}</option>`).join('');
   const head = `<tr><th></th>${Array.from({ length: dayCount }, (_, d) => `<th class="${d === 5 ? 'sat' : ''}">${DAY_NAMES[d]}</th>`).join('')}</tr>`;
   const rows = s.periods.map(p => {
     const cells = Array.from({ length: dayCount }, (_, d) => {
-      const e = (base.cells?.[cellKey(d, p.id)]?.entries || [])[0];
-      const subjSel = `<select class="bt-cell-subj" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${subjOptsFor(e?.subjectKey || '')}</select>`;
-      const scopeSel = (s.mode === 'senka' && e?.subjectKey && s.senkaClasses.length)
-        ? `<select class="bt-cell-scope" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${scopeOptsFor(e?.scope ?? s.senkaClasses[0]?.id)}</select>` : '';
-      return `<td>${subjSel}${scopeSel}</td>`;
+      const cell = base.cells?.[cellKey(d, p.id)];
+      const blocked = cell?.blocked === true;
+      const e = (cell?.entries || [])[0];
+      const subjSel = `<select class="bt-cell-subj" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${subjOptsFor(blocked ? '__memo__' : (e?.subjectKey || ''))}</select>`;
+      // 予定(会議)なら名前入力欄、専科の授業なら学級セレクト
+      const extra = blocked
+        ? `<input class="bt-cell-note" type="text" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}" value="${esc(cell.note || '')}" placeholder="会議名" aria-label="予定の名前">`
+        : (s.mode === 'senka' && e?.subjectKey && s.senkaClasses.length)
+          ? `<select class="bt-cell-scope" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${scopeOptsFor(e?.scope ?? s.senkaClasses[0]?.id)}</select>` : '';
+      return `<td>${subjSel}${extra}</td>`;
     }).join('');
     return `<tr><th class="bt-ph">${esc(p.label)}</th>${cells}</tr>`;
   }).join('');
@@ -661,8 +667,13 @@ function wireSettings(root, ctx) {
       const subj = sel.value;
       if (!subj) {
         delete base.cells[key];
+      } else if (subj === '__memo__') {
+        // 予定(会議)コマ: 毎週くり返す会議・面談など。授業ではない。
+        const prev = base.cells[key];
+        base.cells[key] = { entries: [], blocked: true, note: (prev && prev.note) || '' };
       } else {
         const cell = base.cells[key] || (base.cells[key] = { entries: [] });
+        cell.blocked = false; cell.note = ''; // 教科を入れたら予定は解除
         if (!cell.entries.length) {
           const e = newEntry(); e.subjectKey = subj;
           if (s.mode === 'senka') e.scope = s.senkaClasses[0]?.id ?? null;
@@ -672,7 +683,7 @@ function wireSettings(root, ctx) {
           if (s.mode === 'senka' && cell.entries[0].scope == null) cell.entries[0].scope = s.senkaClasses[0]?.id ?? null;
         }
       }
-      store.commit(); ctx.rerender(); // scope セレクトの出入りがあるので再描画
+      store.commit(); ctx.rerender(); // scope/会議名 欄の出入りがあるので再描画
     };
   });
   root.querySelectorAll('.bt-cell-scope').forEach(sel => {
@@ -680,6 +691,13 @@ function wireSettings(root, ctx) {
       const base = store.state.baseTimetables.find(b => b.id === sel.dataset.base);
       const cell = base?.cells?.[cellKey(Number(sel.dataset.d), sel.dataset.p)];
       if (cell?.entries?.[0]) { cell.entries[0].scope = sel.value; store.commit(); }
+    };
+  });
+  root.querySelectorAll('.bt-cell-note').forEach(inp => {
+    inp.onchange = () => {
+      const base = store.state.baseTimetables.find(b => b.id === inp.dataset.base);
+      const cell = base?.cells?.[cellKey(Number(inp.dataset.d), inp.dataset.p)];
+      if (cell) { cell.note = inp.value; cell.blocked = true; store.commit(); }
     };
   });
   root.querySelectorAll('[data-base-name]').forEach(inp => {

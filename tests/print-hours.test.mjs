@@ -402,3 +402,26 @@ test('blocked (予定/非授業) cells survive flow-in and consume neither hours
   assert.equal(cellIsBlocked(store.state.weeks[WEEK].cells[cellKey(1, 'p1')]), true);
   assert.equal(store.state.weeks[WEEK].cells[cellKey(1, 'p1')].note, '職員会議');
 });
+
+test('a recurring meeting set in the base timetable flows into the week', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.baseTimetables = [{
+    id: 'base-1', name: '基本', dayPatterns: {}, savedAt: 1,
+    cells: {
+      [cellKey(0, 'p1')]: { entries: [{ id: 'b0', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false, auto: true }] },
+      [cellKey(2, 'p3')]: { entries: [], blocked: true, note: '職員会議' }, // 毎週水3校時=会議
+    },
+  }];
+  store.state = state;
+
+  // 空の週へ流し込む(自動材料化と同じ fillEmptyOnly)
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: true, commit: false });
+  const w = store.state.weeks[WEEK];
+  // 会議コマが週に入っている(blocked＋note保持)
+  assert.equal(cellIsBlocked(w.cells[cellKey(2, 'p3')]), true);
+  assert.equal(w.cells[cellKey(2, 'p3')].note, '職員会議');
+  assert.equal(w.cells[cellKey(2, 'p3')].entries.length, 0); // 授業ではない
+  // 月曜の授業も入っている
+  assert.equal(w.cells[cellKey(0, 'p1')].entries[0].subjectKey, 'kokugo');
+});

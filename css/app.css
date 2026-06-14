@@ -354,12 +354,11 @@ td.cell.blocked { background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc
 .cell-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; opacity: .8; }
 .cell-note .cn-text { word-break: break-word; }
 
-/* コマ編集: 空きコマの「授業／予定」選択と予定メモ */
-.oc-choice { display: flex; gap: 10px; margin: 4px 0 2px; }
-.oc-choice .btn.big { flex: 1; flex-direction: column; gap: 6px; padding: 18px 10px; height: auto; font-size: 14px; }
-.oc-choice .btn.big svg { width: 22px; height: 22px; }
+/* コマ編集: 予定(会議・面談)メモ と 授業→予定の切替 */
 .oc-memo { width: 100%; resize: vertical; }
 .oc-memo-acts { display: flex; gap: 8px; margin-top: 10px; }
+.oc-to-memo { width: 100%; justify-content: center; margin-top: 8px; color: var(--muted); }
+.oc-to-memo svg { width: 15px; height: 15px; }
 
 /* ---------- week notes ---------- */
 .week-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }

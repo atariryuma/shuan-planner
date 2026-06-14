@@ -1639,9 +1639,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     return cell;
   };
 
-  // 複式は常に授業エディタ。担任・専科は、空きコマなら「授業/予定」の選択から始める
-  // (空きコマに会議・面談などのメモを書けるように)。既に授業が入っていれば授業エディタ。
-  if (s.mode === 'fukushiki' || store.getCell(weekStart, dayIdx, periodId)?.entries?.length) ensureLesson();
+  // 空きコマは授業エディタを直接開く(タップ＝すぐ授業入力)。予定(会議・面談)は中の「授業なし」で切替。
+  // 既に予定(blocked)のコマだけは、授業を作らずメモ編集のまま開く。
+  if (!store.getCell(weekStart, dayIdx, periodId)?.blocked) ensureLesson();
 
   const render = (modal) => {
     const state = store.state;
@@ -1655,11 +1655,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
           `<button data-subj="${esc(x.key)}" style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('')}</div>
       </div>` : '';
     let inner;
-    if (cellNow.entries.length) {
-      // 授業エディタ(既存)
-      const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
-      inner = commonPalette + body + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
-    } else if (cellNow.blocked) {
+    if (cellNow.blocked) {
       // 予定(非授業)エディタ: 会議・面談・出張などのメモ
       inner = `
         <div class="field">
@@ -1671,13 +1667,11 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
           <button class="btn small ghost" data-unblock>空きに戻す</button>
         </div>`;
     } else {
-      // 真の空きコマ: 授業か予定かを選ぶ
-      inner = `
-        <p class="hint">このコマに何を入れますか？</p>
-        <div class="oc-choice">
-          <button class="btn big" data-make-lesson>${icon('clipboard')}<span>授業を入れる</span></button>
-          <button class="btn big" data-make-memo>${icon('memo')}<span>予定（会議・面談など）</span></button>
-        </div>`;
+      // 授業エディタ(空きコマも直接ここを開く)。会議等は下の「授業なし」で予定に切替。
+      const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
+      inner = commonPalette + body
+        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
+        + `<button class="btn small ghost oc-to-memo" data-make-memo>${icon('memo')}この時間は授業なし（会議・面談など）</button>`;
     }
     modal.querySelector('.cell-editor-body').innerHTML = inner;
     wireEditor(modal);
