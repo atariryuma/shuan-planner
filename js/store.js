@@ -358,25 +358,33 @@ class Store {
 
   /**
    * 期間内の各週へ基本時間割をまとめて流し込む(年間指導計画の進度は自動で連続する)。
-   * 祝日・長期休業・非授業日は除外。既存の入力は上書きしない。
-   * 戻り値: { weeks: 生成した週数, cells: 置いたコマ数 }
+   * 祝日・長期休業・非授業日は常に除外。
+   * mode:
+   *   'fill'    (既定) 空き週・空きコマだけ作る。既存は一切触らない。
+   *   'reapply' 既存週も基本時間割で作り直す。手編集(●変更/手入力/備考/中止/計画外)は保持。
+   *   'reset'   手編集も含め全コマを計画どおりに作り直す(破壊的)。
+   * 戻り値: { weeks: 対象/更新した週数, placed: 置いたコマ数, preserved: 保持した手編集コマ数 }
    */
-  generateRange(fromWeekStart, toWeekStart, id = null) {
+  generateRange(fromWeekStart, toWeekStart, id = null, mode = 'fill') {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
-    if (!base) return { weeks: 0, cells: 0 };
+    if (!base) return { weeks: 0, placed: 0, preserved: 0 };
+    const opts = mode === 'reset'
+      ? { skipNoSchool: true, fillEmptyOnly: false, preserveEdits: false, commit: false }
+      : mode === 'reapply'
+        ? { skipNoSchool: true, fillEmptyOnly: false, preserveEdits: true, commit: false }
+        : { skipNoSchool: true, fillEmptyOnly: true, commit: false };
     let monday = mondayOf(parseDate(fromWeekStart));
     const end = mondayOf(parseDate(toWeekStart));
-    let weeks = 0, cells = 0;
+    let weeks = 0, placed = 0, preserved = 0;
     let guard = 0;
     while (fmtDate(monday) <= fmtDate(end) && guard++ < 80) {
-      const before = countCells(this.state.weeks[fmtDate(monday)]);
-      this.applyBaseTimetable(fmtDate(monday), id, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
-      const after = countCells(this.state.weeks[fmtDate(monday)]);
-      if (after > before) { weeks++; cells += after - before; }
+      const res = this.applyBaseTimetable(fmtDate(monday), id, opts);
+      if (res.placed > 0 || res.preserved > 0) weeks++;
+      placed += res.placed; preserved += res.preserved;
       monday = addDays(monday, 7);
     }
     this.commit();
-    return { weeks, cells };
+    return { weeks, placed, preserved };
   }
 
   get hasBaseTimetable() {
@@ -511,6 +519,7 @@ export function newEntry() {
     endUnit: false,    // この時間で単元を終える(残りの計画コマを飛ばし、次のコマから次の単元へ)
     guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
     pin: null,         // この時間だけ別の単元の本時をやる {unitId, nth}|null。自動の順番から外して差し込む(自転車操業対応)
+    offplan: false,    // 計画外(復習・テスト・予備など)。年間計画の本時に紐づかず、進度カウンタを消費しない
     override: null,    // 年間計画の本時項目を「このコマだけ」上書きした差分。形 {objective?,activity?,assessment?,viewpoint?}
                        // 設定された項目のみ保持(計画全文は重複保存しない)。実施記録=計画との差分。
   };
@@ -604,6 +613,7 @@ export function isEntryEdited(e) {
   if (e.auto === false && e.text && e.text.trim()) return true; // 内容を全文手入力
   if (e.note && e.note.trim()) return true;                     // 備考
   if (e.cancelled) return true;                                 // 中止指定
+  if (e.offplan) return true;                                   // 計画外(復習・テスト等。一括再反映で自動コマに戻さない)
   return false;
 }
 
@@ -824,7 +834,7 @@ export function computeOrdinals(state, refWeekStart) {
         if (!cell) continue;
         for (const e of cell.entries) {
           if (!e.subjectKey || e.cancelled) continue;
-          if (e.pin) continue; // この時間だけ別単元(差し込み)は自動カウンタを動かさない=他コマの順番は不変
+          if (e.pin || e.offplan) continue; // 別単元(差し込み)・計画外は自動カウンタを動かさない=他コマの順番は不変
           const isModule = p.type === 'module';
           const advances = e.advance === null || e.advance === undefined ? !isModule : !!e.advance;
           if (!advances) continue;
@@ -901,6 +911,11 @@ export function lessonFromPin(plan, pin) {
  */
 export function resolveEntryText(state, entry, ordinals) {
   if (!entry.auto && entry.text) return { text: entry.text, auto: false, info: null };
+  // 計画外(復習・テスト・予備): 年間計画は引かず、自由ねらい(override.objective)/手入力を1行表示にする
+  if (entry.offplan) {
+    const ov = normalizeOverride(entry.override);
+    return { text: ov?.objective || entry.text || '', auto: true, info: null };
+  }
   const grade = scopeGrade(state.settings, entry.scope);
   const plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
     || null;
@@ -921,7 +936,7 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
   const resolved = resolveEntryText(state, entry, ordinals);
   let info = resolved.info;
   let plan = null;
-  if (!info && entry.subjectKey) {
+  if (!info && entry.subjectKey && !entry.offplan) {
     const grade = scopeGrade(state.settings, entry.scope);
     plan = state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade))
       || null;
@@ -1208,13 +1223,6 @@ export function noSchoolReason(settings, dateStr) {
   return null;
 }
 
-/** 週のコマ数(エントリのある data セル数)。まとめて作成の差分に使う */
-function countCells(week) {
-  if (!week || !week.cells) return 0;
-  let n = 0;
-  for (const c of Object.values(week.cells)) n += (c.entries?.length ? 1 : 0);
-  return n;
-}
 
 /**
  * 月別・学期別の時数集計(年度内、入力済みの全週)。

@@ -407,14 +407,17 @@ td.cell:hover .cell-clear { display: block; }
   background: #ffedd5; color: #9a3412; font-style: normal; font-size: 10px; font-weight: 700;
 }
 /* この時間だけ別の単元(pin)ピッカー */
-.unit-pick { margin: 0 0 10px; }
-.unit-pick > .up-summary { list-style: none; cursor: pointer; font-size: 11.5px; font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: 6px; }
-.unit-pick > .up-summary::-webkit-details-marker { display: none; }
-.unit-pick > .up-summary::before { content: '▸'; color: var(--muted); }
-.unit-pick[open] > .up-summary::before { content: '▾'; }
-.unit-pick .up-body { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
-.unit-pick .up-label { font-size: 11px; font-weight: 700; color: var(--muted); }
-.unit-pick .up-body select { flex: 1 1 160px; min-width: 120px; }
+/* 「この時間にやること」3択(計画どおり/別の単元/計画外) */
+.lesson-mode { display: inline-flex; background: var(--gray-100); border-radius: var(--r-full, 999px); padding: 3px; gap: 2px; }
+.lesson-mode .lm-btn { border: none; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; padding: 5px 12px; border-radius: var(--r-full, 999px); cursor: pointer; }
+.lesson-mode .lm-btn:hover { color: var(--ink); }
+.lesson-mode .lm-btn.selected { background: var(--panel); color: var(--accent); box-shadow: var(--e-1); }
+.up-body { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+.up-label { font-size: 11px; font-weight: 700; color: var(--muted); }
+.up-body select { flex: 1 1 160px; min-width: 120px; }
+/* 単元を切り上げる(単元見出しの隣にインライン) */
+.eu-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ink-2); margin-left: 4px; cursor: pointer; }
+.eu-inline input { width: 15px; height: 15px; }
 
 .auto-unit-details { margin-top: 5px; border-top: 1px solid #bfdbfe; padding-top: 5px; }
 .auto-unit-details summary { cursor: pointer; color: #1d4ed8; font-weight: 700; font-size: 11px; }
@@ -569,6 +572,15 @@ details.menu .menu-items .btn { text-align: left; justify-content: flex-start; }
    .btn 既定の中央寄せ(justify-content:center)だと、名前が中央に浮いて不格好になる。 */
 .choice-list { display: flex; flex-direction: column; gap: 8px; }
 .choice-list > .btn { justify-content: flex-start; text-align: left; }
+
+/* 期間をまとめて作成の「作り方」モード選択 */
+.gen-mode { display: flex; flex-direction: column; gap: 6px; }
+.gen-mode > label { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md, 8px); cursor: pointer; }
+.gen-mode > label:hover { background: var(--accent-50); }
+.gen-mode input { margin-top: 3px; flex: 0 0 auto; width: 16px; height: 16px; }
+.gen-mode span { display: flex; flex-direction: column; }
+.gen-mode b { font-size: 13.5px; }
+.gen-mode small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
 
 
 /* ---------- 中止エントリ ---------- */

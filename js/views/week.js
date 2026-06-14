@@ -348,6 +348,7 @@ function renderEntriesHTML(state, entries, ordinals) {
     const changed = e.override && Object.keys(e.override).length
       ? `<span class="e-changed-dot" title="計画から変更あり" aria-label="計画から変更あり">●</span>` : '';
     const pinned = e.pin ? `<span class="e-flag" style="color:#7c3aed;" title="この時間だけ別の単元(差し込み)">別単元</span>` : '';
+    const offplan = e.offplan ? `<span class="e-flag" style="color:#0369a1;" title="計画外(復習・テスト・予備など。進度は進みません)">計画外</span>` : '';
     // 単元の進度を●●○のドット(または長単元はミニバー)で一目に
     const progress = !e.cancelled ? unitProgressHTML(details?.nth, details?.unitHours) : '';
     return `
@@ -355,7 +356,7 @@ function renderEntriesHTML(state, entries, ordinals) {
         <div class="e-head">
           ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
-          ${guide}${frac}${unsetClass}${changed}${pinned}
+          ${guide}${frac}${unsetClass}${changed}${pinned}${offplan}
           ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           ${!e.cancelled && e.endUnit ? `<span class="e-flag" style="color:#15803d;" title="この時間で単元を終え、次のコマから次の単元へ">単元終</span>` : ''}
           ${progress}
@@ -612,16 +613,27 @@ function wireNav(root, ctx, monday) {
     const monthEnd = fmtDate(new Date(monday.getFullYear(), monday.getMonth() + 1, 0));
     const yearEnd = `${fy + 1}-03-31`;
     const bases = store.state.baseTimetables;
-    const run = async (toDate, baseId) => {
+    const run = async (toDate, baseId, mode) => {
       const toWeek = fmtDate(mondayOf(parseDate(toDate)));
+      if (mode === 'reset') {
+        const ok = await confirmDialog('手を入れたコマ(●変更・手入力・中止など)も消して、計画どおりに作り直します。よろしいですか?',
+          { okLabel: '作り直す', danger: true });
+        if (!ok) return;
+      }
       store.snapshot('まとめて作成');
-      const res = store.generateRange(here, toWeek, baseId);
-      if (!res.cells) { toast('追加できるコマがありませんでした(既に入力済みか期間外)', 'error', 4000); return; }
-      toast(`${res.weeks}週・${res.cells}コマを作成しました`, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      const res = store.generateRange(here, toWeek, baseId, mode);
+      if (!res.weeks) {
+        toast(mode === 'fill' ? '追加できるコマがありませんでした(既に入力済みか期間外)' : '対象の週がありませんでした', 'error', 4000);
+        return;
+      }
+      const msg = mode === 'fill' ? `${res.weeks}週・${res.placed}コマを作成しました`
+        : mode === 'reapply' ? `${res.weeks}週を計画に合わせて更新${res.preserved ? `(手入力${res.preserved}件は保持)` : ''}`
+          : `${res.weeks}週を作り直しました`;
+      toast(msg, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     };
-    const pickBaseThen = async (toDate) => {
-      if (bases.length <= 1) return run(toDate, null);
+    const pickBaseThen = async (toDate, mode) => {
+      if (bases.length <= 1) return run(toDate, null, mode);
       openModal(`<h2>どの時間割で作成しますか?</h2>
         <div class="choice-list">
           ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
@@ -629,13 +641,19 @@ function wireNav(root, ctx, monday) {
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>`,
         (m, close) => {
           m.querySelector('[data-cancel]').onclick = close;
-          m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base); });
+          m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base, mode); });
         });
     };
     openModal(`
       <h2>期間をまとめて作成</h2>
-      <p class="hint">今週(${fmtMD(monday)})から下の期間まで、基本時間割と年間指導計画で自動作成します。<br>
-        祝日・長期休業・非授業日は除き、入力済みの週はそのまま残します。</p>
+      <p class="hint">今週(${fmtMD(monday)})から下の期間まで、基本時間割と年間指導計画で自動作成します。祝日・長期休業・非授業日は除きます。</p>
+      <div class="field"><label>作り方</label>
+        <div class="gen-mode" role="radiogroup">
+          <label><input type="radio" name="genmode" value="fill" checked><span><b>空いている週・コマだけ作る</b><small>入力済みは触りません（おすすめ）</small></span></label>
+          <label><input type="radio" name="genmode" value="reapply"><span><b>計画に合わせて作り直す</b><small>基本時間割や年間計画を直したとき。●変更・手入力・備考・中止・計画外は残します</small></span></label>
+          <label><input type="radio" name="genmode" value="reset"><span><b>まっさらにして作り直す</b><small>手を入れたコマも消して計画どおりに戻します</small></span></label>
+        </div>
+      </div>
       <div class="choice-list">
         <button class="btn primary" data-to="${term.to}">学期末まで(${fmtMD(parseDate(term.to))})</button>
         <button class="btn" data-to="${monthEnd}">今月末まで(${fmtMD(parseDate(monthEnd))})</button>
@@ -647,12 +665,13 @@ function wireNav(root, ctx, monday) {
       </div>
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
     `, (modal, close) => {
+      const getMode = () => modal.querySelector('input[name="genmode"]:checked')?.value || 'fill';
       modal.querySelector('[data-cancel]').onclick = close;
-      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { close(); pickBaseThen(b.dataset.to); });
+      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { const mode = getMode(); close(); pickBaseThen(b.dataset.to, mode); });
       modal.querySelector('[data-to-input]').onclick = () => {
         const v = modal.querySelector('#gen-to').value;
         if (!v) { toast('日付を選んでください', 'error'); return; }
-        close(); pickBaseThen(v);
+        const mode = getMode(); close(); pickBaseThen(v, mode);
       };
     });
   };
@@ -1625,7 +1644,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
           touch();
           entry.subjectKey = b.dataset.subj === entry.subjectKey ? '' : b.dataset.subj;
           if (entry.auto) entry.text = '';
-          entry.pin = null; // 教科を変えたら別単元ピンは無効(別教科の単元になるため)
+          entry.pin = null; entry.offplan = false; // 教科を変えたら別単元/計画外はリセット(別教科に持ち越さない)
           store.commit();
           render(modal);
           ctx.rerender();
@@ -1709,13 +1728,24 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         store.commit(); render(modal); ctx.rerender();
       };
 
-      const advChk = box.querySelector('[name="advance"]');
-      advChk.onchange = () => {
-        touch();
-        const def = period?.type !== 'module';
-        entry.advance = advChk.checked === def ? null : advChk.checked;
-        store.commit(); ctx.rerender();
-      };
+      // 「この時間にやること」3択(計画どおり/別の単元/計画外)。advance+pin+計画外 を統合。
+      box.querySelectorAll('[data-lm]').forEach(b => {
+        b.onclick = () => {
+          touch();
+          const m = b.dataset.lm;
+          if (m === 'plan') { entry.pin = null; entry.offplan = false; entry.advance = null; }
+          else if (m === 'pin') {
+            entry.offplan = false;
+            if (!entry.pin) {
+              const grade = scopeGrade(store.settings, entry.scope);
+              const plan = store.state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade));
+              const u = plan?.units?.[0];
+              entry.pin = u ? { unitId: String(u.id), nth: 1 } : null;
+            }
+          } else if (m === 'offplan') { entry.offplan = true; entry.pin = null; entry.advance = false; }
+          store.commit(); render(modal); ctx.rerender();
+        };
+      });
 
       const ncChk = box.querySelector('[name="noCount"]');
       ncChk.onchange = () => { touch(); entry.noCount = ncChk.checked; store.commit(); ctx.rerender(); };
@@ -1850,8 +1880,6 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     ? state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === scopeGrade(s, entry.scope)))
     : null;
   const pinUnit = entry.pin && planForPick ? (planForPick.units || []).find(u => String(u.id) === String(entry.pin.unitId)) : null;
-  const isModule = period?.type === 'module';
-  const effAdvance = entry.advance == null ? !isModule : !!entry.advance;
 
   const palette = s.subjects.map(x =>
     `<button data-subj="${esc(x.key)}" class="${x.key === entry.subjectKey ? 'selected' : ''}"
@@ -1922,8 +1950,11 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`;
     // 「この時間だけ別の単元の本時をやる」ピッカー(自転車操業対応)。計画に単元があるときだけ出す。
     const pinUnits = planForPick?.units || [];
-    const pinControl = pinUnits.length ? (() => {
-      const unitOpts = `<option value="">自動（計画の順番どおり）</option>`
+    const lessonMode = entry.offplan ? 'offplan' : entry.pin ? 'pin' : 'plan';
+    // 「別の単元」用の単元×本時セレクト(pinモードのときだけ表示)
+    const pinSelects = (() => {
+      if (!pinUnits.length) return '';
+      const unitOpts = `<option value="">単元を選ぶ…</option>`
         + pinUnits.map(u => `<option value="${esc(u.id)}" ${entry.pin && String(entry.pin.unitId) === String(u.id) ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
       let lessonSel = '';
       if (pinUnit) {
@@ -1934,19 +1965,26 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         }).join('');
         lessonSel = `<label class="up-label">本時</label><select name="pinLesson">${opts}</select>`;
       }
-      return `<details class="unit-pick" ${entry.pin ? 'open' : ''}>
-        <summary class="up-summary">${entry.pin ? '別の単元に変更中' : 'この時間だけ別の単元にする'}${infoHTML('天候・準備の都合などで、この時間だけ計画の順番と違う単元の本時をやるとき。他のコマの進度(順番)は動きません')}</summary>
-        <div class="up-body"><label class="up-label">単元</label><select name="pinUnit">${unitOpts}</select>${lessonSel}</div>
-      </details>`;
-    })() : '';
+      return `<div class="up-body"><label class="up-label">単元</label><select name="pinUnit">${unitOpts}</select>${lessonSel}</div>`;
+    })();
+    // 「この時間にやること」3択(計画どおり/別の単元/計画外)。advance+pin+計画外 を統合し「詳細」から昇格。
+    const lmBtn = (val, label) => `<button type="button" class="lm-btn ${lessonMode === val ? 'selected' : ''}" data-lm="${val}" aria-pressed="${lessonMode === val}">${label}</button>`;
+    const lessonModeSelector = planForPick ? `
+      <div class="field"><label>この時間にやること${infoHTML('計画どおり＝年間計画の順番。別の単元＝この時間だけ他単元の本時(他コマの順番は不変)。計画外＝復習・テスト・予備など計画に紐づかない授業で、進度は進みません')}</label>
+        <div class="lesson-mode" role="group">${lmBtn('plan', '計画どおり')}${pinUnits.length ? lmBtn('pin', '別の単元') : ''}${lmBtn('offplan', '計画外')}</div>
+        ${lessonMode === 'pin' ? pinSelects : ''}
+      </div>` : '';
+    // 単元途中で切り上げる(計画どおりモードかつ単元途中のときだけ、単元見出しの近くに出す)
+    const endUnitInline = (lessonMode === 'plan' && details && details.unitHours > 1 && details.nth < details.unitHours)
+      ? `<label class="eu-inline"><input type="checkbox" name="endUnit" ${entry.endUnit ? 'checked' : ''}>この時間で単元を切り上げる（残り${details.unitHours - details.nth}コマを飛ばす）</label>` : '';
+    const modeHeader = lessonMode === 'offplan'
+      ? `<div class="ov-head"><span class="ov-kicker">計画外</span><span class="ov-sub">復習・テスト・予備など（進度は進みません）</span></div>`
+      : ed.planless
+        ? `<div class="ov-head"><span class="ov-kicker">本時の記録</span><span class="ov-sub">年間計画に未登録のコマ</span></div>`
+        : `<div class="ov-head"><span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}${endUnitInline}<span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span></div>`;
     autoBlock = `<div class="ov-block">
-      <div class="ov-head">
-        ${ed.planless
-          ? '<span class="ov-kicker">本時の記録</span><span class="ov-sub">年間計画に未登録のコマ</span>'
-          : `<span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}`}
-        <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
-      </div>
-      ${pinControl}
+      ${lessonModeSelector}
+      ${modeHeader}
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
       ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
       ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment, vprow, ed.autoBlanked.assessment)}
@@ -2014,12 +2052,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
             <option value="0.3333333333333333" ${Math.abs((entry.fraction ?? 1) - 1 / 3) < 0.01 ? 'selected' : ''}>1/3</option>
           </select>
         </div>
-        <div class="checkline"><input type="checkbox" name="advance" id="adv-${idx}" ${effAdvance ? 'checked' : ''}>
-          <label for="adv-${idx}">進度を進める</label>${infoHTML('年間指導計画の「何時間目か」を1つ進めます。ドリル等で単元を進めないときはオフに')}</div>
-        ${details && details.unitHours > 1 && details.nth < details.unitHours ? `<div class="checkline"><input type="checkbox" name="endUnit" id="eu-${idx}" ${entry.endUnit ? 'checked' : ''}>
-          <label for="eu-${idx}">この時間で単元を終える</label>${infoHTML(`予定より早く単元が終わったとき。残りの計画コマ(${details.unitHours - details.nth}コマ)を飛ばして、次のコマから次の単元に進みます`)}</div>` : ''}
         <div class="checkline"><input type="checkbox" name="noCount" id="nc-${idx}" ${entry.noCount ? 'checked' : ''}>
-          <label for="nc-${idx}">時数に数えない</label>${infoHTML('教育課程外の朝活動・テスト監督などに')}</div>
+          <label for="nc-${idx}">時数に数えない（教育課程外）</label>${infoHTML('朝活動・テスト監督など、授業時数に含めないコマに。進度とは別の「時数」の話です')}</div>
         <div class="checkline"><input type="checkbox" name="cancelled" id="cl-${idx}" ${entry.cancelled ? 'checked' : ''}>
           <label for="cl-${idx}">中止</label>${infoHTML('学級閉鎖・行事変更などで実施しなかったコマ。以降の授業内容は自動で繰り下がります')}</div>
         ${s.mode !== 'fukushiki' || !isKnownGrade ? `<button class="btn small danger" data-del-entry>この授業を削除</button>` : ''}

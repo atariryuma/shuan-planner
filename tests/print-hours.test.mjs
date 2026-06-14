@@ -285,3 +285,41 @@ test('senka detail print shares one unit overview across classes', () => {
   assert.match(pages[0], /詳細 1\/1/);
   assert.equal((pages[0].match(/単元の目標/g) || []).length, 1);
 });
+
+test('offplan cells do not consume the annual-plan progression counter', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.plans = [{
+    id: 'pl', subjectKey: 'kokugo', grade: 4, startOffset: 0,
+    units: [{
+      id: 'u1', name: '物語', hours: 4, goal: '', criteria: { knowledge: '', thinking: '', attitude: '' },
+      lessons: [
+        { objective: 'L1', activity: '', assessment: '', viewpoint: '' },
+        { objective: 'L2', activity: '', assessment: '', viewpoint: '' },
+        { objective: 'L3', activity: '', assessment: '', viewpoint: '' },
+        { objective: 'L4', activity: '', assessment: '', viewpoint: '' },
+      ],
+    }],
+  }];
+  addEntry(state, 0, 'p1', 'kokugo', null, { auto: true });
+  addEntry(state, 1, 'p1', 'kokugo', null, { auto: true });
+  addEntry(state, 2, 'p1', 'kokugo', null, { auto: true });
+  const id = (d) => `${d}-p1-kokugo-`;
+
+  let ords = computeOrdinals(state, WEEK);
+  assert.equal(ords.get(id(0)), 0); // L1
+  assert.equal(ords.get(id(1)), 1); // L2
+  assert.equal(ords.get(id(2)), 2); // L3
+
+  // 火曜を計画外にすると、カウンタを消費せず水曜が前にずれる(advance の効果が見える)
+  state.weeks[WEEK].cells[cellKey(1, 'p1')].entries[0].offplan = true;
+  ords = computeOrdinals(state, WEEK);
+  assert.equal(ords.get(id(0)), 0);
+  assert.equal(ords.has(id(1)), false); // 計画外はordinalsに含まれない
+  assert.equal(ords.get(id(2)), 1);     // 水曜が L3→L2 にずれる
+
+  // 計画外コマは resolveEntryPlanDetails で計画を引かない(本時が出ない)
+  const offEntry = state.weeks[WEEK].cells[cellKey(1, 'p1')].entries[0];
+  const { details } = resolveEntryPlanDetails(state, offEntry, ords);
+  assert.equal(details, null); // override も無いので details なし
+});
