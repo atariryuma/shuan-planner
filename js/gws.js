@@ -52,7 +52,6 @@ export function buildCalendarEvents(weekStart) {
   const week = store.getWeek(weekStart);
   const monday = parseDate(weekStart);
   const days = weekDayOffsets(s, week, monday);
-  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const events = [];
   let skipped = 0;
@@ -91,7 +90,6 @@ export function buildWeekEmail(weekStart) {
   const week = store.getWeek(weekStart);
   const monday = parseDate(weekStart);
   const days = weekDayOffsets(s, week, monday);
-  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
   const lastDay = addDays(monday, days[days.length - 1]);
@@ -236,7 +234,6 @@ export function buildWeekSheet(weekStart) {
   const week = store.getWeek(weekStart);
   const monday = parseDate(weekStart);
   const days = weekDayOffsets(s, week, monday);
-  const dayCount = days.length;
   const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
 

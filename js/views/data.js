@@ -191,7 +191,7 @@ export function renderDataView(root, ctx) {
       <h2>全データを消去</h2>
       <p style="font-size:14px; line-height:1.7;">${wc}週分の週案・計画・設定をすべて削除します。この操作は取り消せません。<br>
         「保存して消去」はバックアップファイルを保存してから消します。</p>
-      <div style="display:flex; flex-direction:column; gap:8px;">
+      <div class="choice-list">
         <button class="btn" data-act="save">保存して消去</button>
         <button class="btn danger" data-act="wipe">保存せず消去</button>
         <button class="btn primary" data-act="cancel">キャンセル</button>

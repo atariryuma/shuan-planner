@@ -545,6 +545,11 @@ details.menu .menu-items {
 }
 details.menu .menu-items .btn { text-align: left; }
 
+/* モーダル内の縦並び選択ボタン(時間割選択・まとめて作成など)は左寄せでメニューらしく。
+   .btn 既定の中央寄せ(justify-content:center)だと、名前が中央に浮いて不格好になる。 */
+.choice-list { display: flex; flex-direction: column; gap: 8px; }
+.choice-list > .btn { justify-content: flex-start; text-align: left; }
+
 /* ---------- 中止エントリ ---------- */
 /* #6b7280=白背景で4.8:1(WCAG 1.4.3)。中止は取り消し線+「中止」フラグで伝え、文字は読めるまま残す */
 .entry.cancelled .e-text, .entry.cancelled .e-note { text-decoration: line-through; color: #6b7280; }
@@ -1061,13 +1066,6 @@ td.cell:focus-visible, .day-th:focus-visible {
 .cell.no-school.ns-holiday { background: #fdecec; border-color: #f3c9c9; }
 .cell.no-school.ns-break   { background: #eaf1fd; border-color: #c6d8f4; }
 .cell.no-school.ns-off     { background: #eef1f6; border-color: #d4dbe6; }
-.cell.no-school .ns-label {
-  display: inline-block; margin: 6px 5px; padding: 2px 9px; border-radius: var(--r-full);
-  font-size: 10.5px; font-weight: 700; white-space: nowrap; line-height: 1.5;
-}
-.cell.no-school.ns-holiday .ns-label { background: #fbd0d0; color: #b91c1c; }
-.cell.no-school.ns-break .ns-label { background: #cfe0fa; color: #075985; }
-.cell.no-school.ns-off .ns-label { background: #dde3ec; color: var(--gray-700); }
 
 /* 今日ビュー: 非授業日で授業が無いときの落ち着いた表示 */
 .day-noschool { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 16px; border-radius: var(--r-lg); text-align: center; }

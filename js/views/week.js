@@ -248,6 +248,7 @@ export function renderWeekView(root, ctx) {
         <div class="menu-items">
           ${store.hasBaseTimetable && viewMode === 'week' ? `<button class="btn ghost menu-item ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}">${icon('pencil')}連続入力</button>` : ''}
           <button class="btn ghost menu-item" id="wk-copy">${icon('clipboard')}前週をコピー</button>
+          ${viewMode === 'week' ? `<button class="btn ghost menu-item" id="wk-weekend">${icon('calendar')}土日の列を出す${infoHTML('日曜参観・運動会など、この週に土日の授業・行事があるとき列を出します')}</button>` : ''}
           ${gas ? `<button class="btn ghost menu-item" id="wk-calendar">${icon('calendar')}この週に行事を取り込み</button>` : ''}
           <div class="menu-sep" role="separator"></div>
           ${store.hasBaseTimetable ? `<button class="btn ghost menu-item" id="wk-apply-base">${icon('clipboard')}基本時間割を反映${infoHTML('この週を基本時間割で埋めます。手を入れたコマ(●変更・手入力・備考・中止)はそのまま残ります')}</button>` : ''}
@@ -549,7 +550,7 @@ function wireNav(root, ctx, monday) {
     if (bases.length <= 1) { apply(null); return; }
     openModal(`
       <h2>どの時間割を反映しますか?</h2>
-      <div style="display:flex; flex-direction:column; gap:8px;">
+      <div class="choice-list">
         ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
       </div>
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
@@ -582,7 +583,7 @@ function wireNav(root, ctx, monday) {
     const pickBaseThen = async (toDate) => {
       if (bases.length <= 1) return run(toDate, null);
       openModal(`<h2>どの時間割で作成しますか?</h2>
-        <div style="display:flex; flex-direction:column; gap:8px;">
+        <div class="choice-list">
           ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>`,
@@ -595,7 +596,7 @@ function wireNav(root, ctx, monday) {
       <h2>期間をまとめて作成</h2>
       <p class="hint">今週(${fmtMD(monday)})から下の期間まで、基本時間割と年間指導計画で自動作成します。<br>
         祝日・長期休業・非授業日は除き、入力済みの週はそのまま残します。</p>
-      <div style="display:flex; flex-direction:column; gap:8px;">
+      <div class="choice-list">
         <button class="btn primary" data-to="${term.to}">学期末まで(${fmtMD(parseDate(term.to))})</button>
         <button class="btn" data-to="${monthEnd}">今月末まで(${fmtMD(parseDate(monthEnd))})</button>
         <button class="btn" data-to="${yearEnd}">年度末まで(3/31)</button>
@@ -632,7 +633,7 @@ function wireNav(root, ctx, monday) {
     // 2件目以降: 上書き or 名前を付けて追加(A週/B週など。最大3件)
     openModal(`
       <h2>基本時間割に登録</h2>
-      <div style="display:flex; flex-direction:column; gap:8px;">
+      <div class="choice-list">
         ${bases.map(b => `<button class="btn" data-over="${esc(b.name)}">「${esc(b.name)}」を上書き</button>`).join('')}
         ${bases.length < 3 ? `
         <div style="display:flex; gap:8px;">
@@ -658,6 +659,34 @@ function wireNav(root, ctx, monday) {
           close(); ctx.rerender();
         }
       };
+    });
+  };
+
+  // 土日の列を出す: 日曜参観・運動会など。土/日を「振替授業日」にして、その週だけ列を出す
+  const weekendBtn = root.querySelector('#wk-weekend');
+  if (weekendBtn) weekendBtn.onclick = () => {
+    const satDate = fmtDate(addDays(monday, 5));
+    const sunDate = fmtDate(addDays(monday, 6));
+    const sat = !!store.settings.saturday;
+    const cls = store.settings.classDays || [];
+    const sunShown = cls.includes(sunDate);
+    openModal(`
+      <h2>土日の列を出す</h2>
+      <p class="hint">日曜参観・運動会など、この週に土日の授業や行事があるとき列を出します。出したら、コマをクリックして授業を入れたり、行事欄に記入できます。<br>振替でお休みになる平日は、その曜日の見出しをクリック →「非授業日にする」で。</p>
+      <div class="choice-list">
+        ${sat ? '' : `<button class="btn" data-wd="sat">${icon('calendar')}土曜の列を${cls.includes(satDate) ? '消す' : '出す'}</button>`}
+        <button class="btn" data-wd="sun">${icon('calendar')}日曜の列を${sunShown ? '消す' : '出す'}</button>
+        ${sat ? '<p class="hint">土曜は設定で常時表示中です。</p>' : ''}
+      </div>
+      <div class="modal-foot"><button class="btn" data-cancel>閉じる</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-cancel]').onclick = close;
+      modal.querySelectorAll('[data-wd]').forEach(b => b.onclick = () => {
+        const dateStr = b.dataset.wd === 'sat' ? satDate : sunDate;
+        const now = store.toggleClassDay(dateStr);
+        close(); ctx.rerender();
+        toast(now ? `${b.dataset.wd === 'sat' ? '土' : '日'}曜の列を出しました` : `${b.dataset.wd === 'sat' ? '土' : '日'}曜の列を消しました`, 'info', 2400, { label: '元に戻す', onClick: () => { store.toggleClassDay(dateStr); ctx.rerender(); } });
+      });
     });
   };
 

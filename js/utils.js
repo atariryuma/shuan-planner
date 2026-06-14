@@ -57,11 +57,6 @@ export function fmtMD(date) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-/** M月D日(曜) 表示 */
-export function fmtJP(date) {
-  return `${date.getMonth() + 1}月${date.getDate()}日(${DAY_NAMES[(date.getDay() + 6) % 7]})`;
-}
-
 /** 6/11 14:32 形式(規約の日付形式。秒・年は出さない) */
 export function fmtMDHM(ts) {
   const d = new Date(ts);
@@ -87,15 +82,6 @@ export function uid() {
   return 'id-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
-/** debounce */
-export function debounce(fn, ms) {
-  let t = null;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
-
 /** HTMLエスケープ */
 export function esc(s) {
   return String(s ?? '')
@@ -103,9 +89,4 @@ export function esc(s) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
-}
-
-/** 祝日判定用: 簡易データ(主要固定祝日のみ。可変祝日はユーザーが行事欄で対応) */
-export function isSunday(date) {
-  return date.getDay() === 0;
 }

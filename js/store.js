@@ -1238,17 +1238,5 @@ export function standardHoursFor(settings, subjectKey, grade) {
   return getStandardHours(settings.schoolType, subjectKey, grade);
 }
 
-/** 週の開始日リスト(年度内、4月第1週〜翌3月) */
-export function fiscalWeeks(fiscalYear) {
-  const out = [];
-  let d = mondayOf(new Date(fiscalYear, 3, 1));
-  const end = new Date(fiscalYear + 1, 2, 31);
-  while (d <= end) {
-    out.push(fmtDate(d));
-    d = addDays(d, 7);
-  }
-  return out;
-}
-
 export const store = new Store();
 export { parseDate };

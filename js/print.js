@@ -224,9 +224,7 @@ function renderPrintPage(state, weekStart, { innerW }) {
   const s = state.settings;
   const monday = parseDate(weekStart);
   const week = store.getWeek(weekStart);
-  const days = weekDayOffsets(s, week, monday); // 月〜金＋必要なら土/日(その週に授業・行事のある土日)
-  const dayCount = days.length;
-  const ordinals = computeOrdinals(state, weekStart);
+  const days = weekDayOffsets(s, week, monday); // 月〜金＋必要なら土/日(その週に授業・行事のある土日)  const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
   const lastDay = addDays(monday, days[days.length - 1]);
 
@@ -613,9 +611,7 @@ export function buildKidsPrintDOM(weekStart) {
   const s = state.settings;
   const monday = parseDate(weekStart);
   const week = store.getWeek(weekStart);
-  const days = weekDayOffsets(s, week, monday); // 土日に授業・行事のある週は土/日列も出す
-  const dayCount = days.length;
-  const lastDay = addDays(monday, days[days.length - 1]);
+  const days = weekDayOffsets(s, week, monday); // 土日に授業・行事のある週は土/日列も出す  const lastDay = addDays(monday, days[days.length - 1]);
 
   let styleEl = document.getElementById('print-page-style');
   if (!styleEl) {
