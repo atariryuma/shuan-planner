@@ -1312,9 +1312,6 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
   if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
   if (hasClip) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
-  if (hasEntries && store.settings.mode === 'senka' && store.settings.senkaClasses.length > 1) {
-    acts.push({ ic: 'layers', label: '他学級へ展開', run: () => fanOutCellToClasses(weekStart, dayIdx, periodId, ctx) });
-  }
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'trash', label: 'クリア', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
@@ -1379,52 +1376,6 @@ function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
   store.commit();
   ctx.rerender();
   toast('貼り付けました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
-}
-
-// 専科: いま編集中のコマの内容(教科・本時の上書き・備考など)を、選んだ他の学級にも
-// 同じ校時へまとめて入れる。1コマずつ学級を選び直す手間を無くす(中学教科担任・専科の最重要要望)。
-function fanOutCellToClasses(weekStart, dayIdx, periodId, ctx) {
-  const s = store.settings;
-  if (s.mode !== 'senka' || !s.senkaClasses.length) return;
-  const cell = store.getCell(weekStart, dayIdx, periodId);
-  const entries = (cell?.entries || []).filter(e => e.subjectKey); // 教科未設定の空コマは展開しない
-  if (!entries.length) { toast('展開する授業がありません', 'info', 2400); return; }
-  // 元にする内容(複数学級が既にあるときは先頭=最初に作ったコマを雛形にする)
-  const tmpl = entries[0];
-  const present = new Set((cell.entries || []).map(e => e.scope));
-  const targets = s.senkaClasses.filter(c => !present.has(c.id));
-  if (!targets.length) { toast('担当の全学級が既に入っています', 'info', 2600); return; }
-
-  const subjLabel = s.subjects.find(x => x.key === tmpl.subjectKey)?.short || tmpl.subjectKey;
-  const checks = targets.map(c =>
-    `<label class="fanout-item"><input type="checkbox" value="${esc(c.id)}" checked> ${esc(c.label || c.name || c.id)}</label>`).join('');
-  openModal(`
-    <h2>他の学級へ展開</h2>
-    <p class="hint" style="margin:0 0 10px">「${esc(subjLabel)}」の内容(本時の上書き・備考を含む)を、同じ校時の下の学級にも入れます。</p>
-    <div class="fanout-list">${checks}</div>
-    <div class="modal-foot">
-      <button class="btn" data-close>キャンセル</button>
-      <button class="btn primary" data-go>展開する</button>
-    </div>
-  `, (modal, close) => {
-    modal.querySelector('[data-close]').onclick = close;
-    modal.querySelector('[data-go]').onclick = () => {
-      const ids = [...modal.querySelectorAll('.fanout-list input:checked')].map(i => i.value);
-      if (!ids.length) { close(); return; }
-      const w = store.getWeek(weekStart, true);
-      const c = w.cells[cellKey(dayIdx, periodId)];
-      store.snapshot('他の学級へ展開');
-      for (const id of ids) {
-        // 内容(教科・本時の上書き・備考・係数・時数除外)を引き継ぎ、学級と中止状態だけ各学級用に初期化
-        const e = { ...JSON.parse(JSON.stringify(tmpl)), id: uid(), scope: id, cancelled: false, cancelledText: '' };
-        c.entries.push(e);
-      }
-      store.commit();
-      close();
-      ctx.rerender();
-      toast(`${ids.length}学級に展開しました`, 'info', 2800, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
-    };
-  });
 }
 
 function toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) {
@@ -1816,14 +1767,12 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
       <button class="btn danger left" data-clear-cell>クリア</button>
-      ${s.mode === 'senka' && s.senkaClasses.length > 1 ? `<button class="btn" data-fanout>${icon('layers')}他学級へ展開</button>` : ''}
       <button class="btn" data-swap>⇄ 移動</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
   `, (modal, close) => {
     render(modal);
     modal.querySelector('[data-close]').onclick = () => close();
-    modal.querySelector('[data-fanout]')?.addEventListener('click', () => { close(); fanOutCellToClasses(weekStart, dayIdx, periodId, ctx); });
     modal.querySelector('[data-swap]').onclick = () => {
       ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
       close();

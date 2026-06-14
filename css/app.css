@@ -570,11 +570,6 @@ details.menu .menu-items .btn { text-align: left; justify-content: flex-start; }
 .choice-list { display: flex; flex-direction: column; gap: 8px; }
 .choice-list > .btn { justify-content: flex-start; text-align: left; }
 
-/* 他学級へ展開の学級チェック一覧 */
-.fanout-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
-.fanout-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-md, 8px); cursor: pointer; }
-.fanout-item:hover { background: var(--accent-soft, #eef2ff); }
-.fanout-item input { width: 18px; height: 18px; }
 
 /* ---------- 中止エントリ ---------- */
 /* #6b7280=白背景で4.8:1(WCAG 1.4.3)。中止は取り消し線+「中止」フラグで伝え、文字は読めるまま残す */
