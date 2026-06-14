@@ -57,6 +57,7 @@ export function defaultSettings(schoolType = 'elementary') {
     termEnds: ['07-31', '12-31'], // 学期の区切り(月-日)。3学期制=1学期末・2学期末 / 2学期制=前期末のみ使用
     showDayNotes: false,  // 日ごとのメモ欄(画面のみ・印刷されない)
     showHolidays: true,   // 祝日の表示
+    autoLayout: true,     // 基本時間割がある週を開くと、空なら自動で時間割＋計画を配置(毎週の「反映」操作を不要に)
     subjects: defaultSubjects(schoolType),
     hoursBase: 35,            // 年間授業週数(時数の進捗目安に使用)
     senkaSubject: '',         // 専科: 担当教科(新規コマの既定教科)

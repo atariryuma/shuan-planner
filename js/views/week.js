@@ -6,11 +6,29 @@ import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
 import { icon } from '../icons.js';
 
+/**
+ * 基本時間割がある週を開いたとき、その週がまだ空なら自動で時間割＋計画内容を配置する。
+ * 「基本時間割を反映」を毎週押す手間を無くす。開いた週だけ・空のときだけ生成し、
+ * 祝日・長期休業・非授業日は除く(skipNoSchool)。設定 autoLayout=false で無効化。
+ * 通知(commit)は使わず persist 直書きで保存し、描画中の再描画ループを避ける。
+ */
+function autoMaterializeWeek(weekStart) {
+  if (!store.hasBaseTimetable) return;
+  if (store.state.settings.autoLayout === false) return;
+  const existed = !!store.state.weeks[weekStart];
+  const w = store.state.weeks[weekStart];
+  if (w && Object.keys(w.cells).length) return; // 既に中身がある週は触らない
+  const res = store.applyBaseTimetable(weekStart, null, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
+  if (res.placed) store.persist();
+  else if (!existed) delete store.state.weeks[weekStart]; // 0コマ(全休等)なら空週を残さない
+}
+
 export function renderWeekView(root, ctx) {
   const state = store.state;
   const s = state.settings;
   const weekStart = ctx.getWeekStart();
   const monday = parseDate(weekStart);
+  autoMaterializeWeek(weekStart); // 空き週なら基本時間割＋計画を自動配置(毎週の反映操作を不要に)
   const week = store.getWeek(weekStart);
   const dayCount = s.saturday ? 6 : 5;
   const ordinals = computeOrdinals(state, weekStart);
