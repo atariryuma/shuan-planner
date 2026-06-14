@@ -782,18 +782,30 @@ function wireNav(root, ctx, monday) {
   if (calBtn) calBtn.onclick = async () => {
     try {
       toast('取得中…');
-      // 土日の行事(運動会・日曜参観等)も取り込む。週末の行事が入るとその列が自動で出る
+      // 土日も取得した上で、平日は自動・土日は予定がある回だけ確認して入れる(個人予定の紛れ込み防止)
       const res = await ctx.gas.events(fmtDate(monday), fmtDate(addDays(monday, 6)), store.settings.gas.calendarIds || []);
       if (res.errors?.length) {
         toast('一部のカレンダーを読めません: ' + res.errors.join(' / '), 'error', 6000);
       }
+      const all = (res.events || [])
+        .map(ev => ({ ...ev, idx: Math.round((parseDate(ev.date) - monday) / 86400000) }))
+        .filter(ev => ev.idx >= 0 && ev.idx <= 6);
+      const weekend = all.filter(ev => ev.idx >= 5);
+      let takeWeekend = false;
+      if (weekend.length) {
+        const names = weekend.slice(0, 4).map(ev => `${DAY_NAMES[ev.idx]} ${ev.title}`).join('\n');
+        takeWeekend = await confirmDialog(
+          `土日に${weekend.length}件の予定があります。週案に入れますか?\n${names}${weekend.length > 4 ? '\n…' : ''}`,
+          { okLabel: '入れる', hint: '運動会・日曜参観など。入れると土/日の列が出ます(個人の予定なら「キャンセル」)' });
+      }
+      const target = all.filter(ev => ev.idx <= 4 || (takeWeekend && ev.idx >= 5));
       store.snapshot('行事の取得');
       const week = store.getWeek(fmtDate(monday), true);
+      if (!Array.isArray(week.events)) week.events = ['', '', '', '', '', ''];
       let n = 0;
       let dup = 0; // 既に行事欄にある予定(再取り込み)は件数に数えない
-      for (const ev of res.events || []) {
-        const idx = Math.round((parseDate(ev.date) - monday) / 86400000);
-        if (idx < 0 || idx > 6) continue;
+      for (const ev of target) {
+        const idx = ev.idx;
         const line = (ev.time ? ev.time + ' ' : '') + ev.title;
         if (!week.events[idx]) { week.events[idx] = line; n++; }
         else if (!week.events[idx].includes(ev.title)) { week.events[idx] += '\n' + line; n++; }
