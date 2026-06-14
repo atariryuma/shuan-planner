@@ -10,6 +10,7 @@ import { renderDataView } from './views/data.js';
 import { renderOnboarding, needsOnboarding, maybeYearRollover } from './views/onboarding.js';
 import { openPrintDialog, buildPrintDOM, buildStatsPrintDOM, printState } from './print.js';
 import { fmtDate, mondayOf, parseDate, addDays, fiscalYearOf } from './utils.js';
+import { icon } from './icons.js';
 import { toast, closeAllModals, wireInfoPopovers, openModal, associateLabels } from './ui.js';
 
 const VIEWS = {
@@ -86,7 +87,7 @@ function rerender() {
   if (connecting) {
     document.querySelector('.topbar').style.display = 'none';
     main.innerHTML = `<div class="onboarding"><div class="ob-card">
-      <div class="ob-logo">🔄</div><h1>他の端末と接続中…</h1>
+      <div class="ob-logo">${icon('refresh')}</div><h1>他の端末と接続中…</h1>
       <p class="ob-sub">保存済みのデータを取得しています(数秒)</p></div></div>`;
     return;
   }

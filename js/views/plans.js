@@ -189,7 +189,6 @@ function renderPlanEditor(root, ctx) {
 
 /** 選択中の単元の編集領域(単元名・時数・目標・評価規準・各時カード) */
 function unitEditHTML(u) {
-  const vpOptions = [{ value: '', label: '—' }, { value: '知', label: '知' }, { value: '思', label: '思' }, { value: '態', label: '態' }];
   const cards = u.lessons.slice(0, u.hours).map((l, i) => `
     <div class="hour-card" data-h="${i}">
       <div class="hc-head"><span class="hc-no">${i + 1}時</span>

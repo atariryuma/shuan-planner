@@ -112,7 +112,6 @@ html, body {
   flex-wrap: wrap;
 }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand-icon { font-size: 20px; }
 .brand h1 { font-size: var(--t-md); margin: 0; font-weight: 700; letter-spacing: .01em; }
 
 .tabs { display: flex; gap: 2px; flex: 1; }
@@ -123,7 +122,6 @@ html, body {
   font-size: 14px; color: var(--muted); border-radius: var(--r-sm);
   transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.tab .tab-ic { font-size: 14px; line-height: 1; }
 .tab:hover { color: var(--ink); background: var(--gray-100); }
 .tab.active { color: var(--accent); font-weight: 700; }
 .tab.active::after {
@@ -497,8 +495,6 @@ table.stats-table { border-collapse: collapse; width: 100%; }
 .stats-table th { background: #f8fafc; text-align: center; }
 .stats-table td.subj { text-align: left; font-weight: 600; }
 .stats-table tr.over td { background: #fef2f2; }
-.stats-table .bar-wrap { background: #eef2f7; border-radius: 4px; height: 10px; overflow: hidden; min-width: 120px; }
-.stats-table .bar { height: 100%; background: var(--accent); border-radius: 4px; }
 
 /* ---------- settings ---------- */
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; align-items: start; }
@@ -877,12 +873,9 @@ td.cell:focus-visible, .day-th:focus-visible {
 .empty-state .empty-sub { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 auto 16px; max-width: 460px; }
 .empty-state .empty-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
-/* ---------- アイコンの二重符号化(アイコン＋ラベルで即認識) ---------- */
-.panel h2 .h2-ic { margin-right: 8px; font-size: 17px; vertical-align: -1px; }
+/* ---------- アイコン＋ラベルのレイアウト(SVGサイズは .ic で指定) ---------- */
 .set-chip { display: inline-flex; align-items: center; gap: 5px; }
-.set-chip .chip-ic { font-size: 13px; line-height: 1; }
 .menu-item { display: flex; align-items: center; gap: 8px; }
-.menu-item .mi-ic { font-size: 14px; line-height: 1; flex: 0 0 auto; width: 18px; text-align: center; }
 
 /* ---------- 曜日の一括操作(アイコン＋説明の二段ボタン) ---------- */
 .day-ops { display: flex; flex-direction: column; gap: 8px; }

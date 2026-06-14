@@ -809,7 +809,7 @@ function wireSettings(root, ctx) {
         </div>`).join('');
       openModal(`
         <h2>行事の取り込み元カレンダー</h2>
-        <p class="hint">チェックしたカレンダーの予定が、週案タブの「📆 行事」で行事欄に入ります。</p>
+        <p class="hint">チェックしたカレンダーの予定が、週案タブの「行事」ボタンで行事欄に入ります。</p>
         <div style="max-height:50vh; overflow-y:auto;">${items || '<p class="hint">カレンダーが見つかりません</p>'}</div>
         <div class="modal-foot">
           <button class="btn" data-cancel>キャンセル</button>
