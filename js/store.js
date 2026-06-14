@@ -106,6 +106,7 @@ export function defaultState() {
   return {
     schemaVersion: SCHEMA_VERSION,
     updatedAt: Date.now(),
+    settingsUpdatedAt: Date.now(), // 設定だけの更新時刻。同期で設定が古いデータに巻き戻されるのを防ぐ
     settings: defaultSettings(),
     plans: [],
     weeks: {},
@@ -126,6 +127,13 @@ class Store {
     this.listeners = new Set();
     this._saveTimer = null;
     this._undo = null; // 直前の破壊的操作のスナップショット {json, label, at, commits}
+    this._lastSettingsFp = this._settingsFingerprint(); // 設定変更検知の基準(commitで比較)
+  }
+
+  /** 設定の指紋(変更検知用)。GASのlastSync等の揮発値は除外し、ユーザー設定の実体だけ見る */
+  _settingsFingerprint() {
+    const { gas, ...rest } = this.state?.settings || {};
+    return JSON.stringify(rest);
   }
 
   /** 破壊的操作の直前に呼ぶ。undo()で巻き戻せる(再度のundoでやり直し) */
@@ -180,6 +188,12 @@ class Store {
   /** 変更通知 + 遅延保存 */
   commit() {
     this.state.updatedAt = Date.now();
+    // 設定が変わったときだけ settingsUpdatedAt を進める(同期で設定が古いデータに巻き戻らないように)
+    const fp = this._settingsFingerprint();
+    if (fp !== this._lastSettingsFp) {
+      this.state.settingsUpdatedAt = this.state.updatedAt;
+      this._lastSettingsFp = fp;
+    }
     if (this._undo) this._undo.commits++; // 編集が重なったスナップショットは失効へ近づく
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => this.persist(), 400);
@@ -402,10 +416,19 @@ class Store {
    * 外部由来(インポート/GAS/他タブ)のデータで置き換える。
    * updatedAtは外部データの値を尊重する(commitで進めない: 同期の競合判定を壊さないため)。
    * GAS設定はローカルの値を優先して引き継ぐ(トークンはエクスポートに含まれないため)。
+   * mergeSettingsByTime=true: 自動同期/他タブ取込で、ローカルの設定の方が新しければ設定を巻き戻さない
+   *   (設定が週案と同じ文書で後勝ち同期されるため、古い設定の端末の編集が設定を上書きする事故を防ぐ)。
    */
-  replaceState(data, { keepLocalGas = true } = {}) {
+  replaceState(data, { keepLocalGas = true, mergeSettingsByTime = false } = {}) {
     const localGas = this.state?.settings?.gas;
+    const localSettings = this.state?.settings;
+    const localSettingsAt = this.state?.settingsUpdatedAt || 0;
     this.state = migrate(data);
+    if (mergeSettingsByTime && localSettings && localSettingsAt > (this.state.settingsUpdatedAt || 0)) {
+      // ローカルの設定の方が新しい → 同期データの古い設定で巻き戻さない(設定だけローカルを維持)
+      this.state.settings = localSettings;
+      this.state.settingsUpdatedAt = localSettingsAt;
+    }
     if (keepLocalGas && localGas) {
       const g = this.state.settings.gas;
       if (!g.url) g.url = localGas.url;
@@ -415,6 +438,7 @@ class Store {
       g.autoBackup = localGas.autoBackup;
       g.lastSync = localGas.lastSync;
     }
+    this._lastSettingsFp = this._settingsFingerprint(); // 取込後を基準に(直後のcommitで誤検知しない)
     this.persist();
     this.notify();
   }
@@ -698,6 +722,8 @@ function migrate(data) {
   }
   data.schemaVersion = SCHEMA_VERSION;
   data.updatedAt = Number(data.updatedAt) || Date.now();
+  // 設定だけの更新時刻。旧データは0(=設定を編集した時点で進む)。同期の設定マージ判定に使う
+  data.settingsUpdatedAt = Number(data.settingsUpdatedAt) || 0;
   return data;
 }
 

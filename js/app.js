@@ -266,7 +266,7 @@ window.addEventListener('storage', (ev) => {
       const a = document.activeElement;
       if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
       if (document.querySelector('.modal-backdrop')) return;
-      store.replaceState(incoming); // migrate(正規化)を通し、ローカルのGAS設定を維持
+      store.replaceState(incoming, { mergeSettingsByTime: true }); // GAS設定維持＋設定は新しい側を採用
       rerender(); // 通知は出さない(タブ間の整合は裏方の動作)
     } catch { /* 壊れた値は無視 */ }
   }, 400); // 連続保存をまとめて1回だけ適用(通知も再描画も最小化)
@@ -388,7 +388,7 @@ async function autoPull() {
     syncing = true;
     try {
       closeAllModals();
-      store.replaceState(res.data);
+      store.replaceState(res.data, { mergeSettingsByTime: true }); // 設定は新しい側を採用(古い設定での巻き戻し防止)
       store.state.updatedAt = res.updatedAt;
       store.settings.fiscalYear = nowFY; // サーバー側が旧年度表示でもローカルで補正
       store.settings.gas.lastSync = Date.now();
