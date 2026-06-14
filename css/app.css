@@ -1024,9 +1024,11 @@ td.cell:focus-visible, .day-th:focus-visible {
 /* フラットな淡色で静かに区別(斜線は認知負荷が高いので使わない)。理由は列の最初の校時にピルで明示 */
 .cell.no-school { cursor: default; }
 .cell.no-school:hover { box-shadow: none; }
-.cell.no-school.ns-holiday { background: #fdecec; }
-.cell.no-school.ns-break   { background: #eaf1fd; }
-.cell.no-school.ns-off     { background: #eef1f6; }
+/* 塗りはフラットでも、校時の罫線は残す(時間構造を保つ＝のっぺりさせない)。
+   枠線は淡色より一段濃い同系色にして、行の区切りが静かに見えるようにする。 */
+.cell.no-school.ns-holiday { background: #fdecec; border-color: #f3c9c9; }
+.cell.no-school.ns-break   { background: #eaf1fd; border-color: #c6d8f4; }
+.cell.no-school.ns-off     { background: #eef1f6; border-color: #d4dbe6; }
 .cell.no-school .ns-label {
   display: inline-block; margin: 6px 5px; padding: 2px 9px; border-radius: var(--r-full);
   font-size: 10.5px; font-weight: 700; white-space: nowrap; line-height: 1.5;
