@@ -6,7 +6,7 @@
  *     新版で読み直す(古いモジュールに新しい動的importがぶつかる事故を防ぐ)。
  * ファイルを更新したら VERSION を必ず上げること。
  */
-const VERSION = 'v2.47.0';
+const VERSION = 'v2.48.0';
 const CACHE = `shuan-planner-${VERSION}`;
 
 const PRECACHE = [
@@ -66,6 +66,15 @@ self.addEventListener('fetch', (ev) => {
         return fetch(ev.request).then((res) => {
           if (res.ok) cache.put(ev.request, res.clone());
           return res;
+        }).catch(async () => {
+          // オフライン等でネットワーク取得に失敗したとき:
+          //  - ページ遷移(navigate)は必ず index.html を返してアプリを起動させる。
+          //    SPAなので index さえ出れば全画面が描画でき、precache漏れ1件で白画面にならない。
+          //  - それ以外(未キャッシュの資産)は代替が無いので 503 を返す(白画面より無害)。
+          if (ev.request.mode === 'navigate') {
+            return (await cache.match('./index.html')) || (await cache.match('./')) || Response.error();
+          }
+          return new Response('', { status: 503, statusText: 'offline' });
         });
       })
     )

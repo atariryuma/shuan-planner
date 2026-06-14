@@ -200,7 +200,10 @@ export function buildPrintDOM(weekStart, { range = 'week' } = {}) {
   root.setAttribute('style', 'display:block; position:fixed; left:-9999px; top:0;');
   let overflow = false, shrunk = false;
   try {
-    const constrained = [...root.querySelectorAll('.pp-table-wrap, .pp-hours')];
+    // 授業表・時数表に加え、めあて/反省/指導助言の記録欄も対象にする。
+    // これらは max-height + overflow:hidden で、はみ出すと「無言で文字が切れる」事故になるため、
+    // あふれ検知に含めてフォント縮小→それでも入らなければ警告トーストを出す。
+    const constrained = [...root.querySelectorAll('.pp-table-wrap, .pp-hours, .pp-goals, .pp-reflection, .pp-manager')];
     const pages = [...root.querySelectorAll('.print-page')];
     const steps = [fontPt, 8, 7.2, 6.5];
     for (let i = 0; pages.length && i < steps.length; i++) {
@@ -245,11 +248,11 @@ function renderPrintPage(state, weekStart, { innerW }) {
 
   const header = `
     <div class="pp-header">
-      <span class="pp-title">週指導計画</span>
+      <span class="pp-title">${esc(s.printTitle || '週案')}</span>
       <span class="pp-range">${fmtYear(monday.getFullYear(), s.printEra)}${monday.getMonth() + 1}月${monday.getDate()}日〜${lastDay.getMonth() + 1}月${lastDay.getDate()}日</span>
       <span class="pp-weekno">第${weekNo}週</span>
       <div class="pp-school">
-        ${esc(s.schoolName || '')} ${modeLabel}<br>
+        ${esc(s.schoolName || '')} ${modeLabel}${(() => { const cf = printClassFilter(s); const lb = cf ? (s.senkaClasses.find(c => c.id === cf)?.label || '') : ''; return lb ? ` ${esc(lb)}` : ''; })()}<br>
         ${esc(s.teacherName ? '氏名: ' + s.teacherName : '')}
       </div>
       ${stamps}
@@ -325,11 +328,23 @@ function renderTableDays(state, week, monday, days, ordinals, innerW) {
   return `<table class="pp-grid">${cols}<thead>${head}</thead><tbody>${rows}</tbody></table>`;
 }
 
+/** 専科の学級フィルタ(週ビューで選んだ学級)。印刷も同じ学級に絞り、学級別の週案を出す。
+ *  担当に無い学級IDは無視。専科以外・未選択は '' を返す(全学級印刷)。 */
+function printClassFilter(s) {
+  if (s.mode !== 'senka') return '';
+  try {
+    const f = localStorage.getItem('shuan-class-filter') || '';
+    return (s.senkaClasses || []).some(c => c.id === f) ? f : '';
+  } catch { return ''; }
+}
+
 function renderPrintCell(state, week, dayIdx, period, ordinals) {
   const s = state.settings;
   if (!effectivePeriod(s, week, dayIdx, period)) return `<td class="pcell pcell-off"></td>`;
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   let entries = cell?.entries || [];
+  const cf = printClassFilter(s);
+  if (cf) entries = entries.filter(e => (e.scope ?? '') === cf); // 学級別印刷: 対象学級のコマだけ
   if (!entries.length) return `<td class="pcell"></td>`;
 
   // 複式: 両学年が完全に同じ授業(合同)なら1段に統合して印刷

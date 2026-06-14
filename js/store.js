@@ -9,7 +9,7 @@
  *   授業内容の自動反映は保存せず、表示時に年間指導計画と進度カウンタから毎回計算する。
  */
 
-import { getSubjectPresets, getStandardHours, LEGACY_COLOR_FIXES } from './standards.js';
+import { getSubjectPresets, getStandardHours, getStandardTotalHours, LEGACY_COLOR_FIXES } from './standards.js';
 import { fmtDate, parseDate, mondayOf, addDays, uid, fiscalYearOf, fiscalYearFirstMonday, weekNumberInFiscalYear } from './utils.js';
 import { holidayName } from './holidays.js';
 
@@ -67,6 +67,7 @@ export function defaultSettings(schoolType = 'elementary') {
     classDays: [],            // 任意の授業日(振替授業日) ['YYYY-MM-DD']。祝日・休業・週末でも授業日扱いにする(offDaysの対称)
     showAttendance: false,    // 出欠メモ行(週案・印刷)
     stampBoxes: ['校長', '教頭', '担任'],
+    printTitle: '週案',        // 印刷ヘッダーの標目(学校の様式に合わせて変更可。例: 週ごとの指導計画)
     printRole: '',            // 印刷ヘッダーの肩書(空=自動: ◯年◯組/専科/教科担任)
     printManagerBox: false,   // 印刷に管理職の指導・助言欄を出す
     printEra: false,          // 印刷・出力の年表記を和暦(令和)にする
@@ -947,6 +948,41 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
   };
 }
 
+/**
+ * 観点別(知/思/態)の評価場面数を集計する。年度内の全コマを走査し、進度を進める
+ * (=評価機会のある)非中止コマについて、実効観点(override優先、なければ計画)を数える。
+ * 戻り値: Map<scopeKey, {知, 思, 態, total}>。
+ * 評定期に「思考の評価場面が足りない」等を、観点別評価の入力済みデータから事前に把握するため。
+ */
+export function computeViewpointTally(state, refWeekStart) {
+  const { settings, weeks } = state;
+  const range = refWeekStart ? fiscalRangeOf(refWeekStart) : null;
+  const ordinals = computeOrdinals(state, refWeekStart);
+  const tally = new Map();
+  const weekKeys = Object.keys(weeks).sort();
+  for (const wk of weekKeys) {
+    if (range && (wk < range.from || wk >= range.to)) continue;
+    const week = weeks[wk];
+    for (let d = 0; d < 7; d++) {
+      for (const p of settings.periods) {
+        if (!effectivePeriod(settings, week, d, p)) continue;
+        const cell = week.cells[cellKey(d, p.id)];
+        if (!cell) continue;
+        for (const e of cell.entries) {
+          if (!e.subjectKey || e.cancelled) continue;
+          const vp = resolveEntryPlanDetails(state, e, ordinals).details?.viewpoint;
+          if (vp !== '知' && vp !== '思' && vp !== '態') continue;
+          const k = scopeKey(e.subjectKey, e.scope);
+          let t = tally.get(k);
+          if (!t) { t = { 知: 0, 思: 0, 態: 0, total: 0 }; tally.set(k, t); }
+          t[vp]++; t.total++;
+        }
+      }
+    }
+  }
+  return tally;
+}
+
 /** scope(専科=classId / 複式=学年番号)から学年を解決 */
 export function scopeGrade(settings, scope) {
   if (settings.mode === 'fukushiki') return typeof scope === 'number' ? scope : settings.fukushikiGrades[0];
@@ -1266,6 +1302,11 @@ export function standardHoursFor(settings, subjectKey, grade) {
   const ov = settings.standardOverrides?.[`${subjectKey}|${grade}`];
   if (ov != null) return ov;
   return getStandardHours(settings.schoolType, subjectKey, grade);
+}
+
+/** 学年の年間「総授業時数」(施行規則 別表の総枠。各教科標準の単純和ではない)。 */
+export function standardTotalHoursFor(settings, grade) {
+  return getStandardTotalHours(settings.schoolType, grade);
 }
 
 export const store = new Store();

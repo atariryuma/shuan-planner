@@ -39,6 +39,11 @@ export function renderWeekView(root, ctx) {
   const gas = ctx.gas.configured;
   // 表示密度: compact=本時のねらいまで / detail=学習活動・評価規準も表示(既定)
   const density = localStorage.getItem('shuan-week-density') === 'compact' ? 'compact' : 'detail';
+  // 専科: 表示する学級の絞り込み(グリッド・印刷で1学級だけ見る/出す)。担当に無い学級IDは無視。
+  const classFilter = (s.mode === 'senka' && s.senkaClasses.length > 1
+    && s.senkaClasses.some(c => c.id === localStorage.getItem('shuan-class-filter')))
+    ? localStorage.getItem('shuan-class-filter') : '';
+  ctx.classFilter = classFilter; // renderCell が読む(グリッドの絞り込み)
 
   const dayHeads = [];
   const noSchoolDays = {}; // 各曜日(d)の非授業情報 {reason,type} | null。day番号キー(土日=5,6も入るため位置配列にしない)
@@ -226,6 +231,15 @@ export function renderWeekView(root, ctx) {
 
   const mainPanel = viewMode === 'day' ? dayPanel : gridPanel;
 
+  // 専科の学級フィルタ(週グリッド・印刷を1学級に絞る)。週ビューでのみ操作。
+  const classFilterBar = (s.mode === 'senka' && s.senkaClasses.length > 1 && viewMode === 'week') ? `
+    <div class="class-filter" role="group" aria-label="表示する学級">
+      <span class="cf-label">学級で絞る</span>
+      <button class="cf-chip ${!classFilter ? 'selected' : ''}" data-cf="" aria-pressed="${!classFilter}">全学級</button>
+      ${s.senkaClasses.map(c => `<button class="cf-chip ${classFilter === c.id ? 'selected' : ''}" data-cf="${esc(c.id)}" aria-pressed="${classFilter === c.id}">${esc(c.label || c.id)}</button>`).join('')}
+      ${classFilter ? infoHTML('選んだ学級だけをグリッドと印刷に表示します。印刷すると学級別の週案になります。「全学級」で解除') : ''}
+    </div>` : '';
+
   root.innerHTML = `
     <div class="week-nav">
       <button class="btn" id="wk-prev" aria-label="前の週">◀</button>
@@ -274,6 +288,7 @@ export function renderWeekView(root, ctx) {
       </details>
     </div>
     ${breakBanner}
+    ${classFilterBar}
     ${paintBar}
     ${ctx.swapSource ? `<div class="mode-banner">⇄ 移動中${ctx.swapSource.weekStart && ctx.swapSource.weekStart !== weekStart ? `（${fmtMD(parseDate(ctx.swapSource.weekStart))}の週から）` : ''} — ${ctx.swapSource.weekStart && ctx.swapSource.weekStart !== weekStart ? 'この週' : '他の週へも移せます。'}移動先のコマをクリック
       <button class="btn small" id="wk-swap-cancel">キャンセル</button></div>` : ''}
@@ -451,13 +466,17 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchoo
       hiddenCount ? '<span class="off-hidden">非表示の授業あり</span>' : ''}</td>`;
   }
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
-  const entries = cell?.entries || [];
+  const allEntries = cell?.entries || [];
+  // 学級フィルタ中は対象学級のコマだけ表示(他学級のコマは隠す。データは消さない)
+  const entries = ctx.classFilter ? allEntries.filter(e => (e.scope ?? '') === ctx.classFilter) : allEntries;
+  const hiddenOther = ctx.classFilter && allEntries.length && !entries.length; // 他学級だけが入っている
   const isModule = period.type === 'module';
   // 非授業日の空きコマ: フラットな淡色のみ(理由=祝日名はヘッダーに1度だけ。セルでは繰り返さない)。
   // 「＋」は出さない(授業を入れる場所に見せない)。授業が入っていれば通常表示。
+  // フィルタで隠れた他学級のコマがある場合も「＋」は出さない(空きと誤認させない)。
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
-    : noSchool ? '' : `<div class="cell-empty">＋</div>`;
+    : (noSchool || hiddenOther) ? '' : `<div class="cell-empty">＋</div>`;
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && (ctx.swapSource.weekStart == null || ctx.swapSource.weekStart === week.start) && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)
@@ -529,6 +548,16 @@ function wireNav(root, ctx, monday) {
     const btn = ev.currentTarget;
     btn.textContent = next === 'detail' ? '詳細表示' : '簡潔表示';
     btn.setAttribute('aria-pressed', String(next === 'detail'));
+  });
+
+  // 専科の学級フィルタ(チップ): 選んだ学級だけをグリッド・印刷に表示
+  root.querySelectorAll('.class-filter [data-cf]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const v = btn.dataset.cf || '';
+      if (v) localStorage.setItem('shuan-class-filter', v);
+      else localStorage.removeItem('shuan-class-filter');
+      ctx.rerender();
+    });
   });
 
   root.querySelector('#wk-base-manager')?.addEventListener('click', () => openBaseTimetableManager(ctx));
@@ -1276,6 +1305,9 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
   if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
   if (hasClip) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries && store.settings.mode === 'senka' && store.settings.senkaClasses.length > 1) {
+    acts.push({ ic: 'layers', label: '他学級へ展開', run: () => fanOutCellToClasses(weekStart, dayIdx, periodId, ctx) });
+  }
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'trash', label: 'クリア', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
@@ -1320,12 +1352,72 @@ function closeCellContextMenu() {
 
 function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
   if (!Array.isArray(ctx.cellClipboard) || !ctx.cellClipboard.length) return;
+  const s = store.settings;
   const w = store.getWeek(weekStart, true);
   store.snapshot('コマの貼り付け');
-  w.cells[cellKey(dayIdx, periodId)] = { entries: ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '' })) };
+  const key = cellKey(dayIdx, periodId);
+  const fresh = ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '' }));
+  // 専科・複式は学級/学年(scope)でコマを区別する。貼り付けはセル全体を上書きせず、
+  // 同じscopeのコマだけ置き換えて他学級のコマは残す(専科で「貼り付けたら別クラスが消えた」事故を防ぐ)。
+  if (s.mode === 'senka' || s.mode === 'fukushiki') {
+    const cell = w.cells[key] || (w.cells[key] = { entries: [] });
+    if (!Array.isArray(cell.entries)) cell.entries = [];
+    for (const e of fresh) {
+      const i = cell.entries.findIndex(x => (x.scope ?? null) === (e.scope ?? null));
+      if (i >= 0) cell.entries[i] = e; else cell.entries.push(e);
+    }
+  } else {
+    w.cells[key] = { entries: fresh };
+  }
   store.commit();
   ctx.rerender();
   toast('貼り付けました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+// 専科: いま編集中のコマの内容(教科・本時の上書き・備考など)を、選んだ他の学級にも
+// 同じ校時へまとめて入れる。1コマずつ学級を選び直す手間を無くす(中学教科担任・専科の最重要要望)。
+function fanOutCellToClasses(weekStart, dayIdx, periodId, ctx) {
+  const s = store.settings;
+  if (s.mode !== 'senka' || !s.senkaClasses.length) return;
+  const cell = store.getCell(weekStart, dayIdx, periodId);
+  const entries = (cell?.entries || []).filter(e => e.subjectKey); // 教科未設定の空コマは展開しない
+  if (!entries.length) { toast('展開する授業がありません', 'info', 2400); return; }
+  // 元にする内容(複数学級が既にあるときは先頭=最初に作ったコマを雛形にする)
+  const tmpl = entries[0];
+  const present = new Set((cell.entries || []).map(e => e.scope));
+  const targets = s.senkaClasses.filter(c => !present.has(c.id));
+  if (!targets.length) { toast('担当の全学級が既に入っています', 'info', 2600); return; }
+
+  const subjLabel = s.subjects.find(x => x.key === tmpl.subjectKey)?.short || tmpl.subjectKey;
+  const checks = targets.map(c =>
+    `<label class="fanout-item"><input type="checkbox" value="${esc(c.id)}" checked> ${esc(c.label || c.name || c.id)}</label>`).join('');
+  openModal(`
+    <h2>他の学級へ展開</h2>
+    <p class="hint" style="margin:0 0 10px">「${esc(subjLabel)}」の内容(本時の上書き・備考を含む)を、同じ校時の下の学級にも入れます。</p>
+    <div class="fanout-list">${checks}</div>
+    <div class="modal-foot">
+      <button class="btn" data-close>キャンセル</button>
+      <button class="btn primary" data-go>展開する</button>
+    </div>
+  `, (modal, close) => {
+    modal.querySelector('[data-close]').onclick = close;
+    modal.querySelector('[data-go]').onclick = () => {
+      const ids = [...modal.querySelectorAll('.fanout-list input:checked')].map(i => i.value);
+      if (!ids.length) { close(); return; }
+      const w = store.getWeek(weekStart, true);
+      const c = w.cells[cellKey(dayIdx, periodId)];
+      store.snapshot('他の学級へ展開');
+      for (const id of ids) {
+        // 内容(教科・本時の上書き・備考・係数・時数除外)を引き継ぎ、学級と中止状態だけ各学級用に初期化
+        const e = { ...JSON.parse(JSON.stringify(tmpl)), id: uid(), scope: id, cancelled: false, cancelledText: '' };
+        c.entries.push(e);
+      }
+      store.commit();
+      close();
+      ctx.rerender();
+      toast(`${ids.length}学級に展開しました`, 'info', 2800, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    };
+  });
 }
 
 function toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) {
@@ -1699,12 +1791,14 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
       <button class="btn danger left" data-clear-cell>クリア</button>
+      ${s.mode === 'senka' && s.senkaClasses.length > 1 ? `<button class="btn" data-fanout>${icon('layers')}他学級へ展開</button>` : ''}
       <button class="btn" data-swap>⇄ 移動</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
   `, (modal, close) => {
     render(modal);
     modal.querySelector('[data-close]').onclick = () => close();
+    modal.querySelector('[data-fanout]')?.addEventListener('click', () => { close(); fanOutCellToClasses(weekStart, dayIdx, periodId, ctx); });
     modal.querySelector('[data-swap]').onclick = () => {
       ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
       close();
@@ -1765,6 +1859,14 @@ function setOverrideViewpoint(entry, code, planViewpoint) {
   entry.override = Object.keys(o).length ? o : null;
 }
 
+// 年間計画が無いコマの入力欄に出す「書き方の型」。白紙に放り出される初任者を助ける、
+// 著作物ではない一般的な雛形(教科書の本文ではない)。
+const OV_PLACEHOLDERS = {
+  objective: '（例）〜について、〜が分かる／〜できる。',
+  activity: '（例）〜を観察・実験し、気づいたことを交流する。',
+  assessment: '（例）〜を理解している／〜を考えている。（観点は下で選ぶ）',
+};
+
 function entryEditorHTML(state, entry, idx, period, ordinals) {
   const s = state.settings;
   const { resolved, details } = resolveEntryPlanDetails(state, entry, ordinals);
@@ -1821,7 +1923,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           : (planVal ? '<span class="ov-asplan">計画どおり</span>' : '')}
       </div>
       <textarea class="ov-input" data-ov="${key}" rows="2"
-        placeholder="${esc(planVal || '（計画に記載なし・自由に記録できます）')}">${isOv ? esc(effVal) : ''}</textarea>
+        placeholder="${esc(planVal || OV_PLACEHOLDERS[key] || '（計画に記載なし・自由に記録できます）')}">${isOv ? esc(effVal) : ''}</textarea>
       ${extra}
     </div>`;
 
@@ -1845,7 +1947,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
       ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity)}
       ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
-        `<div class="ov-vprow"><span class="ov-vplabel">観点${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`)}
+        `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`)}
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
         ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
         ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}

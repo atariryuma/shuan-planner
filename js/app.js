@@ -241,11 +241,13 @@ store.subscribe(() => {
   // 自動保存の案内トーストは置かない(規約3: 結果報告でない教育文。保存インジケータが常時見える)
 });
 
-// タブ非表示・ページ離脱時に即時保存(beforeunloadはモバイルで発火しないため使わない)
+// タブ非表示・ページ離脱時に即時保存(beforeunloadはモバイルで発火しないため使わない)。
+// 自動同期ONなら、閉じる直前に未送信の変更をsendBeaconで送る(編集→15秒以内に閉じても
+// クラウドに上がる。fetchはunloadで中断されるためbeaconを使う)。
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') store.persist();
+  if (document.visibilityState === 'hidden') { store.persist(); beaconPush(); }
 });
-window.addEventListener('pagehide', () => store.persist());
+window.addEventListener('pagehide', () => { store.persist(); beaconPush(); });
 
 // 同じ端末で複数タブを開いているときのタブ間整合(last-write-wins消失防止)。
 // 同一ユーザーの同じデータを揃えるだけなので無音で行う(編集のたび通知が出ると煩い)。
@@ -354,6 +356,7 @@ if ('serviceWorker' in navigator
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (swReloading) return;
     swReloading = true;
+    try { store.persist(); } catch { /* リロード前に未保存(デバウンス中)の変更を確実に書き出す */ }
     location.reload();
   });
   navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(e => console.info('SW登録スキップ:', e.message));
@@ -410,6 +413,25 @@ async function autoPull() {
   } catch (e) {
     console.info('自動取得スキップ:', e.message);
   }
+}
+
+// ページ離脱の直前に、未送信の変更をベストエフォートで送る。
+// unload中はfetchが中断されるためsendBeaconを使う(応答は受け取れないが、サーバー側の
+// 競合判定は生きているので、サーバーに新しいデータがあれば取りこぼし側で弾かれる=上書き事故にならない)。
+function beaconPush() {
+  try {
+    const g = store.settings.gas;
+    if (!g || !g.auto || !ctx.gas.configured || !navigator.sendBeacon) return;
+    // 直近の同期以降に変更がなければ送らない(冗長送信の防止)
+    if (lastSyncedUpdatedAt !== null && (store.state.updatedAt || 0) <= lastSyncedUpdatedAt) return;
+    const url = String(g.url || '').trim();
+    const token = g.token || '';
+    if (!url || !token) return;
+    const data = JSON.parse(JSON.stringify(store.state));
+    if (data.settings?.gas) data.settings.gas.token = ''; // トークンは保存データに含めない
+    const body = JSON.stringify({ token, action: 'push', key: 'default', data, updatedAt: store.state.updatedAt });
+    navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=utf-8' }));
+  } catch { /* 離脱時のベストエフォート。失敗は無視 */ }
 }
 
 async function autoPush() {

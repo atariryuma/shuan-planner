@@ -1,6 +1,6 @@
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-import { store, computeHours, computeMonthlyHours, computeOrdinals, lessonFromPlan, fmtHours, standardHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
+import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
 import { weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
 import { icon } from '../icons.js';
@@ -28,6 +28,7 @@ export function renderStatsView(root, ctx) {
   const classSummary = scopes.length >= 2 ? renderClassSummary(state, hours, hoursDone, scopes) : '';
   const sections = scopes.map(sc => renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail)).filter(Boolean).join('');
   const progress = renderProgress(state, weekStart);
+  const viewpoints = renderViewpointSummary(state, scopes, weekStart);
 
   root.innerHTML = `
     <div class="panel">
@@ -48,6 +49,7 @@ export function renderStatsView(root, ctx) {
       </div>` : ''}
       ${classSummary}
       ${progress}
+      ${viewpoints}
       ${sections || `<div class="empty-state">
         <div class="empty-ic">${icon('chart')}</div>
         <p class="empty-title">まだ集計するコマがありません</p>
@@ -107,8 +109,8 @@ function scopesOf(s, hours) {
  */
 /**
  * 時数の状態を一目で示すバー。標準時数を目標ラインに、実施(実線)と予定(淡色)を重ねる。
- * バーが目標ラインに届かない=標準に未達、ラインを越える=超過(淡色が赤)。数字を読まずに状態が分かる。
- * 色＋位置(ライン)＋数値ツールチップで、色覚に依存しない。
+ * バーが目標ラインに届かない=標準に未達。標準を多少上回るのは差し支えないため、
+ * 過度な超過(標準の115%超)のときだけ淡色を警告色にする。色＋位置(ライン)＋数値で色覚に依存しない。
  */
 function hoursBar(done, total, std) {
   if (!std) {
@@ -120,7 +122,7 @@ function hoursBar(done, total, std) {
   }
   const max = Math.max(total, std);
   const stdPct = std / max * 100;
-  const over = total > std;
+  const over = total > std * 1.15; // 標準を多少超える程度は警告しない(超過は原則差し支えない)
   return `<div class="hbar ${over ? 'is-over' : ''}" title="実施${fmtHours(done)} / 予定${fmtHours(total)} / 標準${fmtHours(std)}">
     <div class="hbar-plan" style="width:${total / max * 100}%"></div>
     <div class="hbar-done" style="width:${done / max * 100}%"></div>
@@ -159,12 +161,14 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
     sumDone += done; sumTotal += total; sumStd += std;
     const pct = std ? Math.min(100, Math.round((done / std) * 100)) : 0;
     const remain = std ? std - total : null;
+    const totalStd = standardTotalHoursFor(s, sc.grade); // 施行規則 別表の年間総授業時数(法定の総枠)
     rows.push(`
       <tr>
         <td class="subj">${esc(sc.label || '—')}</td>
         <td>${fmtHours(done)}</td>
         <td>${fmtHours(total)}</td>
         <td>${std || '—'}</td>
+        <td>${totalStd || '—'}</td>
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
         <td style="text-align:left;">${hoursBar(done, total, std)}</td>
       </tr>`);
@@ -178,19 +182,73 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
       <table class="stats-table" style="margin-bottom:18px;">
         <thead><tr>
           <th style="width:110px;">${label}</th>
-          <th style="width:74px;">実施済</th>
-          <th style="width:74px;">予定計</th>
-          <th style="width:64px;">標準</th>
-          <th style="width:64px;">残り</th>
+          <th style="width:70px;">実施済</th>
+          <th style="width:70px;">予定計</th>
+          <th style="width:60px;">教科計${infoHTML('開設する各教科の標準時数の合計。下の「総授業時数」(法定の総枠)とは別物です')}</th>
+          <th style="width:78px;">総授業時数${infoHTML('学校教育法施行規則 別表の年間総授業時数(法定の総枠)。予定計がこれに達するかで確保状況を見ます')}</th>
+          <th style="width:60px;">残り</th>
           <th>進捗(実施)</th>
         </tr></thead>
         <tbody>
           ${rows.join('')}
           <tr style="background:#f8fafc;">
             <td class="subj">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumTotal)}</td>
-            <td>${sumStd || '—'}</td><td>${sumStd ? fmtHours(sumStd - sumTotal) : '—'}</td><td></td>
+            <td>${sumStd || '—'}</td><td></td><td>${sumStd ? fmtHours(sumStd - sumTotal) : '—'}</td><td></td>
           </tr>
         </tbody>
+      </table>
+    </div>`;
+}
+
+// ---------------------------------------------------------------- 観点別の評価場面
+
+/**
+ * 観点別評価(知/思/態)のタグを付けたコマを、実施済の範囲で学級×教科ごとに数える。
+ * 観点を入力させておきながら集計しない問題への対応。評定期の偏り(例: 思考の評価場面が少ない)を可視化する。
+ */
+function renderViewpointSummary(state, scopes, weekStart) {
+  const s = state.settings;
+  const tally = computeViewpointTally(state, doneRefWeek(weekStart)); // 今日までに実施したコマで数える
+  if (!tally.size) return '';
+  const keys = new Set(s.subjects.map(x => x.key));
+  const childrenOf = {};
+  for (const subj of s.subjects) {
+    if (subj.parent && keys.has(subj.parent)) (childrenOf[subj.parent] = childrenOf[subj.parent] || []).push(subj.key);
+  }
+  const rows = [];
+  for (const sc of scopes) {
+    const scopeVal = sc.scope === '' ? null : sc.scope;
+    for (const subj of s.subjects) {
+      if (subj.parent && keys.has(subj.parent)) continue;
+      let k = 0, t = 0, a = 0;
+      for (const key of [subj.key, ...(childrenOf[subj.key] || [])]) {
+        const v = tally.get(scopeKey(key, scopeVal));
+        if (v) { k += v['知']; t += v['思']; a += v['態']; }
+      }
+      const sum = k + t + a;
+      if (!sum) continue;
+      rows.push(`<tr>
+        <td class="subj">${esc(sc.label || '—')}</td>
+        <td style="text-align:left;">${esc(subj.short || subj.name)}</td>
+        <td>${k || ''}</td><td>${t || ''}</td><td>${a || ''}</td><td><b>${sum}</b></td>
+      </tr>`);
+    }
+  }
+  if (!rows.length) return '';
+  const label = s.mode === 'fukushiki' ? '学年' : '学級';
+  return `
+    <h3>観点別の評価場面${infoHTML('観点(知/思/態)のタグを付けたコマを、実施済の範囲で学級×教科ごとに数えます。評定期に「思考の評価場面が少ない」等の偏りを事前に把握できます')}</h3>
+    <div class="table-scroll">
+      <table class="stats-table" style="margin-bottom:18px;">
+        <thead><tr>
+          <th style="width:110px;">${label}</th>
+          <th style="text-align:left;">教科</th>
+          <th style="width:54px;"><span class="vp-badge" data-vp="知">知</span></th>
+          <th style="width:54px;"><span class="vp-badge" data-vp="思">思</span></th>
+          <th style="width:54px;"><span class="vp-badge" data-vp="態">態</span></th>
+          <th style="width:48px;">計</th>
+        </tr></thead>
+        <tbody>${rows.join('')}</tbody>
       </table>
     </div>`;
 }
@@ -401,7 +459,7 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
         <th style="width:200px;">教科</th><th style="width:64px;">今週</th>
         <th style="width:74px;">実施済${infoHTML('今日までの日付のコマ(中止を除く)。教育委員会への実施時数報告はこちらを使います')}</th>
         ${detail ? `<th style="width:74px;">予定計${infoHTML('表示中の週までに入力したコマの合計(未来日を含む)')}</th>` : ''}
-        <th style="width:74px;">標準${infoHTML('学校教育法施行規則の年間標準授業時数。クリックで上書きできます(標準は下限でも上限でもありません)')}</th>
+        <th style="width:74px;">標準${infoHTML('学校教育法施行規則の年間標準授業時数。確保すべき目安で、原則として下回らないようにします(上回ることは差し支えありません)。クリックで上書きできます')}</th>
         <th style="width:64px;">残り${infoHTML('標準時数−入力済みのコマ数(未来日を含む)')}</th>
         ${detail ? `<th style="width:84px;">必要ペース${infoHTML('残り時数÷残り授業週数。長期休業を設定すると休業週を除いて計算します')}</th><th style="width:70px;">見込み${infoHTML('現在のペースが続いた場合の年度末の着地')}</th>` : ''}
         <th>進捗</th>

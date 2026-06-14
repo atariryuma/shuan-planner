@@ -123,6 +123,14 @@ export function getStandardHours(schoolType, subjectKey, grade) {
   return row[grade - 1] ?? null;
 }
 
+/** 年間の総授業時数(学校教育法施行規則 別表第一/第二の総授業時数)。grade: 1始まり。範囲外は null。
+ *  各教科の標準時数の単純和ではなく、施行規則が定める総枠。教務の達成管理に使う。 */
+export function getStandardTotalHours(schoolType, grade) {
+  const table = schoolType === 'junior' ? JUNIOR_TOTAL_HOURS : ELEMENTARY_TOTAL_HOURS;
+  const v = table[grade - 1];
+  return v == null ? null : v;
+}
+
 export function getSubjectPresets(schoolType) {
   return schoolType === 'junior' ? JUNIOR_SUBJECTS : ELEMENTARY_SUBJECTS;
 }
