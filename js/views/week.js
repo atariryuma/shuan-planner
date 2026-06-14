@@ -1307,7 +1307,9 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
-  if (hasEntries) acts.push({ ic: 'trash', label: 'クリア', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
+  // 語彙をエディタと統一: クリア=中身を空に / 授業なし=授業を外す / 空きに戻す=削除
+  if (hasEntries) acts.push({ ic: 'eraser', label: 'クリア（中身を空に）', run: () => clearCellContentQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries) acts.push({ ic: 'memo', label: '授業なし', run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (blocked) acts.push({ ic: 'trash', label: '空きに戻す', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
 
   const menu = document.createElement('div');
@@ -1442,6 +1444,16 @@ function clearCellQuick(weekStart, dayIdx, periodId, ctx) {
     store.commit(); ctx.rerender();
     toast('空きに戻しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
   }
+}
+
+// 本時の中身を空にする(教科・学級は残す)。右クリック「クリア」用。
+function clearCellContentQuick(weekStart, dayIdx, periodId, ctx) {
+  const cell = store.getCell(weekStart, dayIdx, periodId);
+  if (!cell?.entries?.length) return;
+  store.snapshot('本時の中身をクリア');
+  clearCellContent(cell);
+  store.commit(); ctx.rerender();
+  toast('本時の中身を空にしました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
 // このコマをロック/解除(「計画に合わせて更新」で守られる)
@@ -1678,14 +1690,10 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         </div>`;
     } else {
       // 授業エディタ(空きコマも直接ここを開く)。会議・委員会等はフッター左「授業なし」で切替。
+      // ロック/クリア/移動は右上の「⋯」へ集約(本文には置かない)。
       const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
-      const locked = cellNow.entries.some(e => e.locked);
       inner = commonPalette + body
-        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
-        + `<div class="cell-meta-acts">
-            <button type="button" class="btn small ghost" data-lock-cell>${icon('lock')}${locked ? 'ロック解除' : '更新から守る'}</button>
-            <button type="button" class="btn small ghost" data-swap>${icon('refresh')}別の時間へ移動</button>
-          </div>`;
+        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
     }
     modal.querySelector('.cell-editor-body').innerHTML = inner;
     // フッター左ボタン(クリア位置)を状態で出し分け: 授業中→「授業なし」/予定・空き→「空きに戻す」
@@ -1694,6 +1702,14 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       const isLesson = !cellNow.blocked && cellNow.entries.length > 0;
       clearBtn.innerHTML = isLesson ? `${icon('memo')}授業なし` : `${icon('trash')}空きに戻す`;
       clearBtn.classList.toggle('danger', !isLesson); // 「空きに戻す」=削除のみ赤
+    }
+    // 右上「⋯」(ロック/クリア/移動)は授業コマだけ。予定(blocked)・空きでは隠す。ロック表示も更新。
+    const ocMenu = modal.querySelector('.oc-menu');
+    if (ocMenu) {
+      const isLesson = !cellNow.blocked && cellNow.entries.length > 0;
+      ocMenu.style.display = isLesson ? '' : 'none';
+      const lockItem = ocMenu.querySelector('[data-oc-lock]');
+      if (lockItem) lockItem.innerHTML = `${icon('lock')}${cellNow.entries.some(e => e.locked) ? 'ロック解除' : 'ロック'}`;
     }
     wireEditor(modal);
     associateLabels(modal); // 内部再描画でラベル関連付けが消えないように
@@ -1781,16 +1797,6 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       box.querySelectorAll('[data-ov-reset]').forEach(b => {
         b.onclick = () => { touch(); clearOverrideKey(entry, b.dataset.ovReset); store.commit(); render(modal); ctx.rerender(); };
       });
-      // 本時の中身を空に(教科・学級・モードは残す)。意図的な白紙化を1タップで。
-      const ovClearBtn = box.querySelector('[data-ov-clear]');
-      if (ovClearBtn) ovClearBtn.onclick = () => {
-        touch();
-        const o = { ...(entry.override || {}) };
-        o.objective = ''; o.activity = ''; o.assessment = '';
-        entry.override = o;
-        entry.text = ''; entry.auto = true; // 全文手入力も消す
-        store.commit(); render(modal); ctx.rerender();
-      };
       box.querySelectorAll('[data-ov-vp] [data-vp]').forEach(b => {
         b.onclick = () => {
           touch();
@@ -1886,19 +1892,6 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     modal.querySelector('[data-make-lesson]')?.addEventListener('click', () => {
       ensureLesson(); store.commit(); render(modal); ctx.rerender();
     });
-    // このコマの操作: ロック / 別の時間へ移動(本文下部。再描画されるのでwireEditorで毎回束ねる)
-    modal.querySelector('[data-lock-cell]')?.addEventListener('click', () => {
-      const c = store.getCell(weekStart, dayIdx, periodId);
-      if (!c?.entries?.length) return;
-      const on = !c.entries.some(e => e.locked);
-      store.snapshot(on ? 'コマをロック' : 'ロック解除');
-      c.entries.forEach(e => { e.locked = on; });
-      store.commit(); render(modal); ctx.rerender();
-    });
-    modal.querySelector('[data-swap]')?.addEventListener('click', () => {
-      ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
-      closeModal?.();
-    });
     const memoTa = modal.querySelector('[name="cellNote"]');
     if (memoTa) {
       memoTa.addEventListener('input', () => {
@@ -1920,7 +1913,17 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   };
 
   openModal(`
-    <h2>${esc(title)}</h2>
+    <div class="oc-titlebar">
+      <h2>${esc(title)}</h2>
+      <details class="menu oc-menu">
+        <summary class="btn small ghost" aria-label="このコマの操作">⋯</summary>
+        <div class="menu-items">
+          <button class="btn ghost menu-item" data-oc-lock title="「計画に合わせて更新」しても上書きされません">${icon('lock')}ロック</button>
+          <button class="btn ghost menu-item" data-oc-clear title="本時のねらい・活動・評価を空に。教科・学級は残ります">${icon('eraser')}クリア（中身を空に）</button>
+          <button class="btn ghost menu-item" data-oc-move>${icon('refresh')}別の時間へ移動</button>
+        </div>
+      </details>
+    </div>
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
       <button class="btn danger left" data-clear-cell></button>
@@ -1931,6 +1934,31 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     closeModal = close;
     render(modal);
     modal.querySelector('[data-close]').onclick = () => close();
+    // 右上「⋯」: このコマへの操作(ロック/クリア/移動)。Apple流に二次操作を畳む。
+    const ocMenu = modal.querySelector('.oc-menu');
+    const closeOcMenu = () => { if (ocMenu) ocMenu.open = false; };
+    modal.querySelector('[data-oc-lock]').onclick = () => {
+      closeOcMenu();
+      const c = store.getCell(weekStart, dayIdx, periodId);
+      if (!c?.entries?.length) return;
+      const on = !c.entries.some(e => e.locked);
+      store.snapshot(on ? 'コマをロック' : 'ロック解除');
+      c.entries.forEach(e => { e.locked = on; });
+      store.commit(); render(modal); ctx.rerender();
+    };
+    modal.querySelector('[data-oc-clear]').onclick = () => {
+      closeOcMenu();
+      const c = store.getCell(weekStart, dayIdx, periodId);
+      if (!c?.entries?.length) return;
+      store.snapshot('本時の中身をクリア');
+      clearCellContent(c); // 教科・学級は残し、本時の中身(ねらい/活動/評価/全文)を空に
+      store.commit(); render(modal); ctx.rerender();
+    };
+    modal.querySelector('[data-oc-move]').onclick = () => {
+      closeOcMenu();
+      ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
+      close();
+    };
     // 取り消す: 開いた時点のセル状態へ戻して閉じる(編集を破棄)
     modal.querySelector('[data-revert]').onclick = () => {
       discarded = true;
@@ -1998,12 +2026,22 @@ function setOverride(entry, key, value, planVal = '') {
   entry.override = Object.keys(o).length ? o : null;
 }
 
-// 上書きを完全に解除して計画どおりへ戻す(↺ ボタン・全項目クリア用)。
+// 上書きを完全に解除して計画どおりへ戻す(↺ ボタン用)。
 function clearOverrideKey(entry, key) {
   if (!entry.override) return;
   const o = { ...entry.override };
   delete o[key];
   entry.override = Object.keys(o).length ? o : null;
+}
+
+// このコマの「本時の中身」を空にする(教科・学級・モードは残す)。複数授業ぶん一括。
+function clearCellContent(cell) {
+  for (const e of cell.entries || []) {
+    const o = { ...(e.override || {}) };
+    o.objective = ''; o.activity = ''; o.assessment = '';
+    e.override = o;
+    e.text = ''; e.auto = true; // 全文手入力も消す
+  }
 }
 
 // 観点(知/思/態)の上書き。同じ観点 or 計画と同じ観点を選んだら解除(計画に戻す)。
@@ -2139,7 +2177,6 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
       ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity)}
       ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment, vprow)}
-      <button type="button" class="btn small ghost ov-clear" data-ov-clear title="ねらい・学習活動・評価規準を空にします。教科・学級は残ります">本時の中身を空にする</button>
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
         ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
         ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}

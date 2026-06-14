@@ -32,6 +32,7 @@ const PATHS = {
   ban: '<circle cx="12" cy="12" r="8.5"/><path d="M6.2 6.2l11.6 11.6"/>',
   lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><path d="M12 14.5v2"/>',
   memo: '<rect x="4.5" y="4" width="15" height="16" rx="2"/><path d="M8 9h8M8 12.5h8M8 16h5"/>',
+  eraser: '<path d="M8.5 19.5 4 15a2 2 0 0 1 0-2.8l7.2-7.2a2 2 0 0 1 2.8 0L20 11a2 2 0 0 1 0 2.8L14.5 19"/><path d="M7.5 19.5H20"/><path d="m9 9 6 6"/>',
   stop: '<path d="M8.3 3.5h7.4l5.3 5.3v7.4l-5.3 5.3H8.3L3 16.2V8.8Z"/>',
   pencil: '<path d="M16.5 4 20 7.5 8.5 19l-4 1 1-4L16.5 4Z"/><path d="M14.5 6 18 9.5"/>',
   download: '<path d="M12 3.5v11M7.5 10 12 14.5 16.5 10M5 19.5h14"/>',

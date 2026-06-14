@@ -361,10 +361,12 @@ td.cell.blocked { background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc
 .oc-memo-acts { display: flex; gap: 8px; margin-top: 10px; }
 .oc-to-memo { width: 100%; justify-content: center; margin-top: 8px; color: var(--muted); }
 .oc-to-memo svg { width: 15px; height: 15px; }
-/* このコマの操作(ロック・移動)。本文下部に控えめに置く */
-.cell-meta-acts { display: flex; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
-.cell-meta-acts .btn { color: var(--muted); }
-.cell-meta-acts .btn svg { width: 15px; height: 15px; }
+/* コマ編集の見出し行: タイトル＋右上「⋯」(このコマへの操作) */
+.oc-titlebar { display: flex; align-items: center; gap: 8px; }
+.oc-titlebar h2 { flex: 1; margin: 0; }
+.oc-titlebar .oc-menu { flex: none; }
+.oc-titlebar .oc-menu > summary { padding: 4px 10px; font-size: 18px; line-height: 1; color: var(--muted); }
+.oc-menu .menu-item svg { width: 16px; height: 16px; }
 
 /* ---------- week notes ---------- */
 .week-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
