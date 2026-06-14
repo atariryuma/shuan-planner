@@ -355,7 +355,7 @@ function renderEntriesHTML(state, entries, ordinals) {
     // 計画から変更ありは色付きドットのみ(語を減らし、形と色で示す)
     const changed = e.override && Object.keys(e.override).length
       ? `<span class="e-changed-dot" title="計画から変更あり" aria-label="計画から変更あり">●</span>` : '';
-    const pinned = e.pin ? `<span class="e-flag" style="color:#7c3aed;" title="この時間だけ別の単元(差し込み)">別単元</span>` : '';
+    const pinned = e.pin ? `<span class="e-flag" style="color:#7c3aed;" title="この時間にやる本時を選んで指定(進度は進めない・同じ本時の再実施も可)">本時指定</span>` : '';
     const offplan = e.offplan ? `<span class="e-flag" style="color:#0369a1;" title="計画外(復習・テスト・予備など。進度は進みません)">計画外</span>` : '';
     const lockFlag = e.locked ? `<span class="e-flag e-lock" title="ロック中: 計画に合わせて更新しても守られます">${icon('lock')}</span>` : '';
     // 単元の進度を●●○のドット(または長単元はミニバー)で一目に
@@ -1217,6 +1217,7 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
         <div class="day-ops">
           <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>中止にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
           ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">${icon('clipboard')}</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
+          ${store.hasBaseTimetable ? `<button class="btn day-op" data-act="restore-base"><span class="op-ic">${icon('calendar')}</span><span class="op-tx"><b>基本時間割から復元</b><small>この日の空きコマに、基本時間割の授業を入れ直します（入力済みは触りません）</small></span></button>` : ''}
           <button class="btn day-op" data-act="${dayLocked ? 'unlock-day' : 'lock-day'}"><span class="op-ic">${icon('lock')}</span><span class="op-tx"><b>${dayLocked ? 'この日のロックを解除' : 'この日をロック'}</b><small>「計画に合わせて更新」しても、この日のコマは上書きされず守られます</small></span></button>
           <button class="btn day-op" data-act="${dayToggle.act}"><span class="op-ic">${icon(dayToggle.icon)}</span><span class="op-tx"><b>${dayToggle.title}</b><small>${dayToggle.desc}</small></span></button>
           <button class="btn day-op danger" data-act="clear"><span class="op-ic">${icon('trash')}</span><span class="op-tx"><b>この日を削除</b><small>この日の入力をすべて削除します</small></span></button>
@@ -1280,10 +1281,15 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
                 for (const e of cell.entries) e.locked = on;
                 n++;
               }
+            } else if (act === 'restore-base') {
+              n = store.restoreDayFromBase(weekStart, d); // 空きコマだけ基本時間割から復元
             }
             store.commit();
             close();
-            toast(`${label}: ${n}コマを処理しました`, 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+            const doneMsg = act === 'restore-base'
+              ? (n ? `${label}: ${n}コマを基本時間割から入れました` : '入れ直せる空きコマがありませんでした')
+              : `${label}: ${n}コマを処理しました`;
+            toast(doneMsg, 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
             ctx.rerender();
           };
         });
@@ -1312,10 +1318,18 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   const anyCancelled = hasEntries && entries.some(e => e.cancelled);
   const anyLocked = hasEntries && entries.some(e => e.locked);
 
+  const lessonEntries = entries.filter(e => e.subjectKey && !isActivity(e));
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
+  // 空きコマ: 基本時間割にそのスロットがあれば「基本時間割から入れる（教科 学級）」(削除の逆=復元)
+  if (!hasEntries && store.hasBaseTimetable) {
+    const blabel = store.baseCellLabel(dayIdx, periodId);
+    if (blabel) acts.push({ ic: 'calendar', label: `基本時間割から入れる（${blabel}）`, run: () => restoreCellFromBaseQuick(weekStart, dayIdx, periodId, ctx) });
+  }
   if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
   if (hasClip) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
+  // 授業コマ(1コマ): この時間にやる本時を選ぶ(別の単元の本時・同じ本時の再実施。進度は進めない)
+  if (lessonEntries.length === 1) acts.push({ ic: 'book', label: '本時を選ぶ…', run: () => openPinPicker(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries && !onlyActivity) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
   // 破壊系は下にまとめて区切り線で分ける。語彙はエディタと統一(クリア=中身を空に / 削除=コマごと消す)。赤は「削除」だけ。
@@ -1361,6 +1375,61 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
 function closeCellContextMenu() {
   document.querySelectorAll('.context-menu').forEach(m => m.remove());
   if (closeCellContextMenu._cleanup) { closeCellContextMenu._cleanup(); closeCellContextMenu._cleanup = null; }
+}
+
+// 基本時間割からこの空きコマを復元する(削除の逆操作)。
+function restoreCellFromBaseQuick(weekStart, dayIdx, periodId, ctx) {
+  store.snapshot('基本時間割から復元');
+  if (!store.restoreCellFromBase(weekStart, dayIdx, periodId)) { toast('基本時間割にこのコマはありません', 'error', 2600); return; }
+  ctx.rerender();
+  toast('基本時間割から入れました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+// この時間にやる本時を選ぶ(別単元の本時・同じ本時の再実施)。pinを設定。進度は進めない。
+function openPinPicker(weekStart, dayIdx, periodId, ctx) {
+  const cell = store.getCell(weekStart, dayIdx, periodId);
+  const entry = (cell?.entries || []).find(e => e.subjectKey && !isActivity(e));
+  if (!entry) return;
+  const grade = scopeGrade(store.settings, entry.scope);
+  const plan = store.state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade));
+  const units = plan?.units || [];
+  if (!units.length) { toast('この教科の年間指導計画に単元がありません', 'error', 3000); return; }
+  const curUnit = entry.pin ? String(entry.pin.unitId) : '';
+  const unitOpts = '<option value="">単元を選ぶ…</option>'
+    + units.map(u => `<option value="${esc(u.id)}" ${curUnit === String(u.id) ? 'selected' : ''}>${esc(u.name)}</option>`).join('');
+  openModal(`
+    <h2>本時を選ぶ</h2>
+    <p class="hint">この時間にやる本時を選びます。年間計画の順番（他コマ）は変わりません。同じ本時をもう一度でもOK。</p>
+    <div class="up-body"><label class="up-label">単元</label><select id="pp-unit">${unitOpts}</select>
+      <label class="up-label">本時</label><select id="pp-lesson"></select></div>
+    <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button><button class="btn primary" data-ok disabled>この本時にする</button></div>
+  `, (modal, close) => {
+    const unitSel = modal.querySelector('#pp-unit');
+    const lessonSel = modal.querySelector('#pp-lesson');
+    const okBtn = modal.querySelector('[data-ok]');
+    const fillLessons = () => {
+      const u = units.find(x => String(x.id) === unitSel.value);
+      if (!u) { lessonSel.innerHTML = ''; okBtn.disabled = true; return; }
+      const h = Math.max(1, Math.round(u.hours || u.lessons?.length || 1));
+      const curNth = entry.pin && String(entry.pin.unitId) === String(u.id) ? (entry.pin.nth || 1) : 1;
+      lessonSel.innerHTML = Array.from({ length: h }, (_, i) => {
+        const o = u.lessons?.[i]?.objective || u.lessons?.[i]?.text || '';
+        return `<option value="${i + 1}" ${curNth === i + 1 ? 'selected' : ''}>${i + 1}時${o ? '：' + esc(String(o).slice(0, 20)) : ''}</option>`;
+      }).join('');
+      okBtn.disabled = false;
+    };
+    if (unitSel.value) fillLessons();
+    unitSel.onchange = fillLessons;
+    modal.querySelector('[data-cancel]').onclick = close;
+    okBtn.onclick = () => {
+      if (!unitSel.value) return;
+      store.snapshot('本時を選ぶ');
+      entry.pin = { unitId: unitSel.value, nth: Number(lessonSel.value) || 1 };
+      entry.offplan = false;
+      store.commit(); close(); ctx.rerender();
+      toast('本時を指定しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    };
+  });
 }
 
 function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
@@ -2173,8 +2242,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     // 「この時間にやること」3択(計画どおり/別の単元/計画外)。advance+pin+計画外 を統合し「詳細」から昇格。
     const lmBtn = (val, label) => `<button type="button" class="lm-btn ${lessonMode === val ? 'selected' : ''}" data-lm="${val}" aria-pressed="${lessonMode === val}">${label}</button>`;
     const lessonModeSelector = planForPick ? `
-      <div class="field"><label>この時間にやること${infoHTML('計画どおり＝年間計画の順番。別の単元＝この時間だけ他単元の本時(他コマの順番は不変)。計画外＝復習・テスト・予備など計画に紐づかない授業で、進度は進みません')}</label>
-        <div class="lesson-mode" role="group">${lmBtn('plan', '計画どおり')}${pinUnits.length ? lmBtn('pin', '別の単元') : ''}${lmBtn('offplan', '計画外')}</div>
+      <div class="field"><label>この時間にやること${infoHTML('計画どおり＝年間計画の順番。本時を選ぶ＝この時間だけ指定の本時をやる(他コマの順番は不変。同じ本時の再実施も可)。計画外＝復習・テスト・予備など計画に紐づかない授業で、進度は進みません')}</label>
+        <div class="lesson-mode" role="group">${lmBtn('plan', '計画どおり')}${pinUnits.length ? lmBtn('pin', '本時を選ぶ') : ''}${lmBtn('offplan', '計画外')}</div>
         ${lessonMode === 'pin' ? pinSelects : ''}
       </div>` : '';
     // 単元途中で切り上げる(計画どおりモードかつ単元途中のときだけ、単元見出しの近くに出す)

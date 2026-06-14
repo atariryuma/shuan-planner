@@ -410,6 +410,56 @@ class Store {
     return (this.state.baseTimetables || []).length > 0;
   }
 
+  /** 基本時間割の特定スロットの内容を「教科 学級」ラベルにする(右クリック等の表示用)。無ければ null。 */
+  baseCellLabel(dayIdx, periodId, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
+    const cell = base?.cells?.[cellKey(dayIdx, periodId)];
+    if (!cell || !cell.entries?.length) return null;
+    const s = this.settings;
+    const label = (e) => {
+      if (isActivity(e)) return e.unitName || '予定';
+      const subj = s.subjects.find(x => x.key === e.subjectKey);
+      const subjName = subj ? (subj.short || subj.name) : (e.subjectKey || '');
+      const scope = s.mode === 'senka' ? (s.senkaClasses.find(c => c.id === e.scope)?.label || '')
+        : (s.mode === 'fukushiki' && e.scope != null ? `${e.scope}年` : '');
+      return [subjName, scope].filter(Boolean).join(' ');
+    };
+    return cell.entries.map(label).filter(Boolean).join('・') || null;
+  }
+
+  /** 基本時間割からそのスロットを週へ置く(空きのみ=非破壊)。置いたら1。内部用(commitしない)。 */
+  _placeBaseCell(w, base, dayIdx, periodId) {
+    const key = cellKey(dayIdx, periodId);
+    const baseCell = base?.cells?.[key];
+    if (!baseCell || !baseCell.entries?.length) return 0;
+    if (cellIsClaimed(w.cells[key])) return 0;            // 既に授業・予定があれば触らない(非破壊)
+    w.cells[key] = cloneCells({ [key]: baseCell }, false)[key];
+    return 1;
+  }
+
+  /** 基本時間割からこのコマ(空きのみ)を復元する。復元したら true。 */
+  restoreCellFromBase(weekStart, dayIdx, periodId, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
+    if (!base) return false;
+    const w = this.getWeek(weekStart, true);
+    const n = this._placeBaseCell(w, base, dayIdx, periodId);
+    if (n) this.commit();
+    return n > 0;
+  }
+
+  /** その日の空きコマを基本時間割から一括復元(非授業日は除外)。戻り値=復元したコマ数。 */
+  restoreDayFromBase(weekStart, dayIdx, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
+    if (!base) return 0;
+    const dateStr = fmtDate(addDays(parseDate(weekStart), dayIdx));
+    if (isNoSchoolDay(this.settings, dateStr)) return 0;  // 非授業日には入れない
+    const w = this.getWeek(weekStart, true);
+    let n = 0;
+    for (const p of this.settings.periods) n += this._placeBaseCell(w, base, dayIdx, p.id);
+    if (n) this.commit();
+    return n;
+  }
+
   /** 任意の日を非授業日にする/解除する(授業を自動挿入しない日) */
   toggleOffDay(dateStr) {
     const s = this.settings;
