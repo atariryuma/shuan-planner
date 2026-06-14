@@ -1034,6 +1034,50 @@ td.cell:focus-visible, .day-th:focus-visible {
 .offday-chip .oc-x { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; border-radius: var(--r-full); width: 22px; height: 22px; }
 .offday-chip .oc-x:hover { color: var(--danger); background: var(--danger-soft); }
 
+/* ---------- Apple仕上げ: iOSスイッチ・押下・ボトムシート ---------- */
+
+/* 二値トグルのチェックボックスをiOS風スイッチに(つまみの左右で状態が分かる=色覚非依存) */
+.checkline { gap: 10px; }
+.checkline input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; margin: 0;
+  width: 42px; height: 26px; border-radius: var(--r-full);
+  background: var(--gray-300); position: relative; cursor: pointer; flex: 0 0 auto;
+  transition: background var(--dur-2) var(--ease);
+}
+.checkline input[type="checkbox"]::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px;
+  border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .2), 0 2px 6px rgba(0, 0, 0, .16);
+  transition: transform var(--dur-2) var(--ease);
+}
+.checkline input[type="checkbox"]:checked { background: #34c759; }
+.checkline input[type="checkbox"]:checked::after { transform: translateX(16px); }
+.checkline input[type="checkbox"]:focus-visible { box-shadow: var(--focus-ring); }
+.checkline label { cursor: pointer; }
+
+/* 押下フィードバック(タップで軽く沈む) */
+.tab:active, .set-chip:active, .day-chip:active, .day-period:active,
+.subject-palette button:active, .paint-chip:active, .scope-palette button:active,
+.ov-vp button:active, .view-toggle .vt-btn:active, .guide-btn:active,
+.day-op:active, .mode-card:active { transform: scale(.97); }
+
+/* モバイルはモーダルを下からせり上がるシートに(iOSの作法) */
+@media (max-width: 640px) {
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal {
+    position: relative; width: 100%; max-width: 100%; margin: 0;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    max-height: 92dvh; padding-top: 22px;
+    animation: sheet-up var(--dur-3) var(--ease-out);
+  }
+  .modal::before {
+    content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    width: 36px; height: 5px; border-radius: var(--r-full); background: var(--gray-300);
+  }
+  .modal .modal-foot { bottom: 0; margin-bottom: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+
 /* ---------- モーション抑制(OS設定を尊重) ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

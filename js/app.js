@@ -139,6 +139,14 @@ document.getElementById('tabs').addEventListener('click', (ev) => {
   printOpts.disabled = noOpts;
   printOpts.setAttribute('aria-disabled', String(noOpts));
   rerender();
+  // タブ切替に控えめなフェード/スライド(Apple風。OSのモーション抑制は尊重)
+  const main = document.getElementById('main');
+  if (main && !window.matchMedia('(prefers-reduced-motion: reduce)').matches && main.animate) {
+    main.animate(
+      [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 220, easing: 'cubic-bezier(.16,1,.3,1)' }
+    );
+  }
 });
 
 // Escで連続入力・移動モードを終了(バーの「終了」ボタンと同じ挙動に揃える)。
