@@ -1704,13 +1704,15 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       });
 
       const textArea = box.querySelector('[name="text"]');
-      textArea.addEventListener('input', () => {
-        touch();
-        entry.text = textArea.value;
-        entry.auto = textArea.value.trim() === '';
-        store.commit();
-      });
-      textArea.addEventListener('change', () => ctx.rerender());
+      if (textArea) {
+        textArea.addEventListener('input', () => {
+          touch();
+          entry.text = textArea.value;
+          entry.auto = textArea.value.trim() === '';
+          store.commit();
+        });
+        textArea.addEventListener('change', () => ctx.rerender());
+      }
 
       const noteInput = box.querySelector('[name="note"]');
       noteInput.addEventListener('input', () => { touch(); entry.note = noteInput.value; store.commit(); });
@@ -1992,10 +1994,9 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         <label>内容 ${!entry.auto ? '<button class="btn small ghost" data-reset-auto>↺ 自動に戻す</button>' : ''}</label>
         <textarea name="text" placeholder="${esc(resolved.auto && resolved.text ? resolved.text : '')}">${entry.auto ? '' : esc(entry.text)}</textarea>
       </div>`;
-  // 構造化編集がある場合、全文差し替えは「上級」として折りたたむ(主導線は項目別編集)
-  const manualBlock = ed
-    ? `<details class="manual-fold" ${!entry.auto ? 'open' : ''}><summary class="fold-label">1行表示を丸ごと書き換える（上級）${infoHTML('週案グリッドの1行表示を、年間計画と切り離して自由文に置き換えます。通常は上の項目編集で十分です')}</summary>${manualField}</details>`
-    : manualField;
+  // 「内容(1行丸ごと手書き)」は本時のねらいと役割が重複するため、入力欄としては廃止。
+  // 既に手書きが入っているコマ(auto=false)だけ、編集・解除できるよう表示する(既存データ保護)。
+  const manualBlock = !entry.auto ? manualField : '';
 
   return `
     <div data-entry="${idx}" class="entry-editor">
