@@ -1008,6 +1008,32 @@ td.cell:focus-visible, .day-th:focus-visible {
   .day-period { min-height: 60px; }
 }
 
+/* ---------- 非授業日(祝日・長期休業・任意の休業日)を列で明示 ---------- */
+/* 斜めの淡いハッチで「授業を入れない日」と一目で分かる。理由で色を変える(祝日=赤/休業=青/任意=灰)。
+   .no-school.ns-* は td.cell.off(0,2,1)より高い特異度(0,3,0)で背景を確実に上書きする。 */
+.cell.no-school { cursor: default; }
+.cell.no-school:hover { box-shadow: none; }
+.cell.no-school .ns-mark { display: block; text-align: center; color: var(--gray-300); padding-top: 18px; font-size: 13px; user-select: none; }
+.cell.no-school.ns-holiday { background: repeating-linear-gradient(45deg, #fef5f5, #fef5f5 7px, #fbe2e2 7px, #fbe2e2 14px); }
+.cell.no-school.ns-break   { background: repeating-linear-gradient(45deg, #f2f8ff, #f2f8ff 7px, #e1edff 7px, #e1edff 14px); }
+.cell.no-school.ns-off     { background: repeating-linear-gradient(45deg, #f7f9fc, #f7f9fc 7px, #e9eef5 7px, #e9eef5 14px); }
+
+/* 今日ビュー: 非授業日で授業が無いときの落ち着いた表示 */
+.day-noschool { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 16px; border-radius: var(--r-lg); text-align: center; }
+.day-noschool .dn-ic { font-size: 40px; line-height: 1; }
+.day-noschool b { font-size: var(--t-md); }
+.day-noschool .dn-sub { font-size: 13px; color: var(--muted); }
+.day-noschool.ns-holiday { background: #fef5f5; color: #991b1b; }
+.day-noschool.ns-break { background: #f2f8ff; color: #075985; }
+.day-noschool.ns-off { background: var(--gray-50); color: var(--ink-2); }
+
+/* 設定: 任意の非授業日チップ一覧 */
+.offday-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.offday-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--gray-100); border: 1px solid var(--line); border-radius: var(--r-full); padding: 3px 4px 3px 11px; font-size: 12.5px; }
+.offday-chip .oc-d { font-weight: 600; color: var(--ink-2); }
+.offday-chip .oc-x { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; border-radius: var(--r-full); width: 22px; height: 22px; }
+.offday-chip .oc-x:hover { color: var(--danger); background: var(--danger-soft); }
+
 /* ---------- モーション抑制(OS設定を尊重) ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

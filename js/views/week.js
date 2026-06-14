@@ -20,6 +20,7 @@ export function renderWeekView(root, ctx) {
   const density = localStorage.getItem('shuan-week-density') === 'compact' ? 'compact' : 'detail';
 
   const dayHeads = [];
+  const noSchoolDays = []; // 各曜日の非授業情報 {reason,type} | null。グリッドの列を視覚的に区別する
   let breakDays = 0;
   let breakLabel = '';
   for (let d = 0; d < dayCount; d++) {
@@ -27,6 +28,7 @@ export function renderWeekView(root, ctx) {
     const hol = s.showHolidays ? holidayName(date) : null;
     const brk = breakNameOf(s, fmtDate(date));
     const isOff = (s.offDays || []).includes(fmtDate(date)); // 任意の非授業日
+    noSchoolDays.push(hol ? { reason: hol, type: 'holiday' } : brk ? { reason: brk, type: 'break' } : isOff ? { reason: '休業日', type: 'off' } : null);
     if (brk) { breakDays++; breakLabel = brk; }
     const isToday = fmtDate(date) === todayStr;
     dayHeads.push(`
@@ -104,7 +106,7 @@ export function renderWeekView(root, ctx) {
   const bodyRows = s.periods.map(p => {
     const cells = [];
     for (let d = 0; d < dayCount; d++) {
-      cells.push(renderCell(state, week, d, p, ordinals, ctx, d === todayIdx));
+      cells.push(renderCell(state, week, d, p, ordinals, ctx, d === todayIdx, noSchoolDays[d]));
     }
     const coefTxt = p.type === 'module'
       ? `<span class="p-coef">${fmtHours(p.coefficient)}時間</span>` : '';
@@ -384,43 +386,54 @@ function renderDayPanelHTML(state, week, monday, dayCount, dayViewIdx, todayIdx,
   const hol = s.showHolidays ? holidayName(date) : null;
   const brk = breakNameOf(s, fmtDate(date));
   const off = (s.offDays || []).includes(fmtDate(date));
+  const nsReason = hol || brk || (off ? '休業日' : '');
+  const nsType = hol ? 'holiday' : brk ? 'break' : off ? 'off' : '';
   const banner = hol ? `<div class="day-banner hol">${esc(hol)}</div>`
     : brk ? `<div class="day-banner brk">${esc(brk)}</div>`
     : off ? '<div class="day-banner brk">休業日</div>' : '';
+
+  // 非授業日で授業が無ければ、空のコマ列でなく「休み」を明確に出す(授業がある=振替などは通常表示)
+  const hasEntries = s.periods.some(p => week.cells?.[cellKey(dayViewIdx, p.id)]?.entries?.length);
+  const listHTML = (nsReason && !hasEntries)
+    ? `<div class="day-noschool ns-${nsType}"><span class="dn-ic">${hol ? '🎌' : brk ? '🏖' : '🌿'}</span><b>${esc(nsReason)}</b><span class="dn-sub">この日は授業がありません</span></div>`
+    : `<ol class="day-list">${items || '<li class="day-empty"><span class="de-ic">🍵</span>この日に授業はありません</li>'}</ol>`;
 
   return `
     <div class="day-switch" role="tablist">${chips.join('')}</div>
     <h2 class="day-title">${fmtMD(date)}（${DAY_NAMES[dayViewIdx]}）${isToday ? '<span class="day-today-badge">今日</span>' : ''}</h2>
     ${banner}
     ${ev ? `<div class="day-event"><span class="de-label">行事</span>${esc(ev)}</div>` : ''}
-    <ol class="day-list">${items || '<li class="day-empty"><span class="de-ic">🍵</span>この日に授業はありません</li>'}</ol>
+    ${listHTML}
     <div class="day-memo">
       <label for="dp-memo">今日のメモ${infoHTML('自分用のメモ。すきま時間の記録にどうぞ。印刷されません')}</label>
       <textarea id="dp-memo" data-day="${dayViewIdx}" placeholder="気づき・持ち物・連絡など">${memo}</textarea>
     </div>`;
 }
 
-function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday) {
+function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchool) {
   const s = state.settings;
+  // 非授業日(祝日・長期休業・任意の休業日)は列をはっきり区別する
+  const nsClass = noSchool ? `no-school ns-${noSchool.type}` : '';
   if (!effectivePeriod(s, week, dayIdx, period)) {
     // 日課で無効化された校時に入力済みのコマがあれば知らせる(無言で時数・印刷から消えるため)
     const hiddenCount = week.cells?.[cellKey(dayIdx, period.id)]?.entries?.length || 0;
-    return `<td class="cell off ${isToday ? 'today-col' : ''}" data-day="${dayIdx}" data-period="${esc(period.id)}">${
+    return `<td class="cell off ${nsClass} ${isToday ? 'today-col' : ''}" data-day="${dayIdx}" data-period="${esc(period.id)}">${
       hiddenCount ? '<span class="off-hidden">非表示の授業あり</span>' : ''}</td>`;
   }
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
   const isModule = period.type === 'module';
+  // 非授業日の空きコマは「＋」を出さない(授業を入れる場所に見せない)。授業が入っていれば通常表示。
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
-    : `<div class="cell-empty">＋</div>`;
+    : (noSchool ? '<span class="ns-mark" aria-hidden="true">—</span>' : `<div class="cell-empty">＋</div>`);
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)
   const subjNames = entries.map(e => subjectOf(s, e.subjectKey)?.name).filter(Boolean).join('・');
-  const ariaLabel = `${DAY_NAMES[dayIdx]}曜${period.label}${isModule ? '' : '校時'} ${subjNames || '空き'}`;
+  const ariaLabel = `${DAY_NAMES[dayIdx]}曜${period.label}${isModule ? '' : '校時'}${noSchool ? ` ${noSchool.reason}` : ''} ${subjNames || '空き'}`;
   return `
-    <td class="cell ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
+    <td class="cell ${nsClass} ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
         data-day="${dayIdx}" data-period="${esc(period.id)}" ${draggable ? 'draggable="true"' : ''}
         tabindex="0" role="button" aria-label="${esc(ariaLabel)}">
       ${inner}

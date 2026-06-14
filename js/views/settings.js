@@ -2,7 +2,13 @@
 
 import { store, defaultPeriods, defaultSubjects, cellKey } from '../store.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
-import { esc, uid } from '../utils.js';
+import { esc, uid, parseDate, fmtMD, DAY_NAMES } from '../utils.js';
+
+/** 非授業日の日付を「6/14(土)」形に整形 */
+function fmtOffday(d) {
+  const dt = parseDate(d);
+  return `${fmtMD(dt)}(${DAY_NAMES[(dt.getDay() + 6) % 7]})`;
+}
 
 export function renderSettingsView(root, ctx) {
   const s = store.settings;
@@ -151,6 +157,15 @@ export function renderSettingsView(root, ctx) {
       </table>
       </div>
       <button class="btn small" id="break-add" style="margin-top:8px;">＋ 休業を追加</button>
+
+      <h3>任意の非授業日${infoHTML('開校記念日・振替休日・学級閉鎖など単発の休み。週案タブで曜日見出し→「休講(非授業日)」にした日もここに集まります。授業は自動挿入されません')}</h3>
+      ${(s.offDays || []).length ? `<div class="offday-list">
+        ${(s.offDays || []).slice().sort().map(d => `<span class="offday-chip"><span class="oc-d">${esc(fmtOffday(d))}</span><button class="oc-x" data-offrm="${esc(d)}" aria-label="${esc(fmtOffday(d))}を解除" title="解除">×</button></span>`).join('')}
+      </div>` : '<p class="hint">まだありません。週案タブの曜日見出し→「休講」でも設定できます。</p>'}
+      <div class="inline" style="margin-top:10px; max-width:260px;">
+        <input type="date" id="offday-add-date" aria-label="追加する非授業日の日付">
+        <button class="btn small" id="offday-add">＋ 追加</button>
+      </div>
     </div>
 
     <div class="panel" id="sp-display">
@@ -638,6 +653,23 @@ function wireSettings(root, ctx) {
         : { name: '', from: '', to: '' };
     s.breaks.push(preset);
     store.commit(); ctx.rerender();
+  };
+
+  // 任意の非授業日(offDays)の一覧管理
+  root.querySelectorAll('[data-offrm]').forEach(b => {
+    b.onclick = () => {
+      store.toggleOffDay(b.dataset.offrm); // 既存なので解除になる
+      ctx.rerender();
+      toast('非授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleOffDay(b.dataset.offrm); ctx.rerender(); } });
+    };
+  });
+  root.querySelector('#offday-add').onclick = () => {
+    const inp = root.querySelector('#offday-add-date');
+    const d = inp.value;
+    if (!d) { toast('日付を選んでください', 'error'); return; }
+    if ((s.offDays || []).includes(d)) { toast('すでに登録済みです', 'info'); return; }
+    store.toggleOffDay(d); // 未登録なので追加になる
+    ctx.rerender();
   };
 
   // 教科テーブル
