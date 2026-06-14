@@ -13,7 +13,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, store } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, cellIsBlocked, store } = await import('../js/store.js');
 const { buildPrintHoursModel, capSubjectColumns } = await import('../js/print-hours.js');
 const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons, renderPlanDetailPages } = await import('../js/print.js');
 
@@ -354,4 +354,51 @@ test('locked cells survive a destructive reapply (reset); unlocked user edits do
   // 火曜=ロックなしの手編集はresetで消える(計画どおりに作り直される)
   assert.equal(cellHasLock(after.cells[cellKey(1, 'p1')]), false);
   assert.equal(after.cells[cellKey(1, 'p1')].entries[0].cancelled, false);
+});
+
+test('blocked (予定/非授業) cells survive flow-in and consume neither hours nor progression', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.plans = [{
+    id: 'pl', subjectKey: 'kokugo', grade: 4, startOffset: 0,
+    units: [{
+      id: 'u1', name: '物語', hours: 3, goal: '', criteria: { knowledge: '', thinking: '', attitude: '' },
+      lessons: [
+        { objective: 'L1', activity: '', assessment: '', viewpoint: '' },
+        { objective: 'L2', activity: '', assessment: '', viewpoint: '' },
+        { objective: 'L3', activity: '', assessment: '', viewpoint: '' },
+      ],
+    }],
+  }];
+  state.baseTimetables = [{
+    id: 'base-1', name: '基本', dayPatterns: {}, savedAt: 1,
+    cells: {
+      [cellKey(0, 'p1')]: { entries: [{ id: 'b0', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false, auto: true }] },
+      [cellKey(1, 'p1')]: { entries: [{ id: 'b1', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false, auto: true }] },
+    },
+  }];
+  store.state = state;
+
+  // 火曜を「予定(会議)」にする = 授業なし・占有
+  state.weeks[WEEK] = state.weeks[WEEK] || { start: WEEK, cells: {}, events: [], dayNotes: [], attendance: [], dayPatterns: {}, goals: '', reflection: '' };
+  state.weeks[WEEK].cells[cellKey(1, 'p1')] = { entries: [], blocked: true, note: '職員会議' };
+
+  // 空きを埋める(fill): 予定コマは埋め直されない、月曜だけ授業が入る
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: true, commit: false });
+  const w = store.state.weeks[WEEK];
+  assert.equal(cellIsBlocked(w.cells[cellKey(1, 'p1')]), true);
+  assert.equal(w.cells[cellKey(1, 'p1')].note, '職員会議');
+  assert.equal(w.cells[cellKey(1, 'p1')].entries.length, 0); // 授業は入っていない
+  assert.equal(w.cells[cellKey(0, 'p1')].entries[0].subjectKey, 'kokugo'); // 月曜は埋まった
+
+  // 進度: 予定コマは授業entryが無いので ordinals に現れず、カウンタも消費しない(月曜=L1)
+  const ords = computeOrdinals(state, WEEK);
+  const mondayId = w.cells[cellKey(0, 'p1')].entries[0].id;
+  assert.equal(ords.get(mondayId), 0); // 月曜=L1
+  assert.equal(w.cells[cellKey(1, 'p1')].entries.length, 0); // 火曜は授業entry無し=進度に出ない
+
+  // reset(まっさら)でも予定コマは残る(ロックと同じく常に保護)
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: false, commit: false });
+  assert.equal(cellIsBlocked(store.state.weeks[WEEK].cells[cellKey(1, 'p1')]), true);
+  assert.equal(store.state.weeks[WEEK].cells[cellKey(1, 'p1')].note, '職員会議');
 });

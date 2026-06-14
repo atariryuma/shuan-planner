@@ -267,7 +267,7 @@ class Store {
     // 手を入れたコマ(●変更・全文手入力・備考・中止)は上書きせず残す
     const kept = {};
     if (preserveEdits && dst.cells) {
-      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
+      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell) || cellIsBlocked(cell)) kept[k] = cell;
     }
     dst.cells = cloneCells(src.cells, keepText);
     let preserved = 0;
@@ -337,7 +337,8 @@ class Store {
     const kept = {};
     if (!fillEmptyOnly) {
       for (const [k, cell] of Object.entries(w.cells)) {
-        if (cellHasLock(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+        // ロック・予定(非授業)は常に保護。手編集は preserveEdits のときだけ保護。
+        if (cellHasLock(cell) || cellIsBlocked(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
       }
     }
     if (!fillEmptyOnly) { w.cells = {}; }      // 通常の反映は週を一旦まっさらにする(編集済みは後で戻す)
@@ -349,7 +350,7 @@ class Store {
       const dayIdx = m ? Number(m[1]) : 0;
       if (skipNoSchool && isNoSchoolDay(this.settings, fmtDate(addDays(monday, dayIdx)))) continue;
       if (kept[key]) continue;                                       // 編集済みコマには置かない
-      if (fillEmptyOnly && w.cells[key]?.entries?.length) continue; // 既存は守る
+      if (fillEmptyOnly && cellIsClaimed(w.cells[key])) continue;   // 既存の授業・予定(非授業)は守る
       w.cells[key] = cell;
       placed++;
     }
@@ -631,6 +632,17 @@ export function cellHasLock(cell) {
   return !!cell && Array.isArray(cell.entries) && cell.entries.some(e => e && e.locked);
 }
 
+/** このコマが「予定(非授業)」=会議・面談・出張など、授業を入れない占有コマか。
+ * 流し込み・自動配置はこのコマに触れない(教員が意図的に空けた=もう授業を戻さない)。 */
+export function cellIsBlocked(cell) {
+  return !!cell && cell.blocked === true;
+}
+
+/** このコマが「占有済み」=授業entryあり or 予定(blocked)。流し込みで埋める対象から外す判定。 */
+export function cellIsClaimed(cell) {
+  return !!cell && ((Array.isArray(cell.entries) && cell.entries.length > 0) || cellIsBlocked(cell));
+}
+
 /** セル群を複製。keepText=falseなら手動内容・備考・中止フラグを初期化して自動反映に戻す */
 function cloneCells(cells, keepText) {
   const out = {};
@@ -647,6 +659,9 @@ function cloneCells(cells, keepText) {
         pin: keepText ? e.pin : null,       // 別単元・計画外は週ごとの状態。ひな形(keepText=false)には持ち込まない
         offplan: keepText ? e.offplan : false,
       })),
+      // 予定(非授業)メモは週固有の事実(その週の会議・面談)。ひな形・前週コピー(keepText=false)には持ち込まない
+      note: keepText ? String(cell.note ?? '') : '',
+      blocked: keepText ? cell.blocked === true : false,
     };
   }
   return out;
@@ -740,7 +755,11 @@ function migrate(data) {
         ne.override = normalizeOverride(ne.override); // 既存データは override 無し(=null)
         return ne;
       });
-      if (!cell.entries.length) delete w.cells[ck];
+      // 予定(非授業)コマ: メモがあれば占有扱い(blocked)。授業が無くても消さない。
+      cell.note = String(cell.note ?? '');
+      cell.blocked = cell.blocked === true || cell.note.trim() !== '';
+      // 授業も予定メモも無いコマだけ削除(真の空き)
+      if (!cell.entries.length && !cell.blocked) delete w.cells[ck];
     }
     if (!Array.isArray(w.events)) w.events = ['', '', '', '', '', ''];
     if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
