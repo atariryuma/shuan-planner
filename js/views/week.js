@@ -1945,6 +1945,19 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         `<button type="button" data-vp="${code}" class="${vp === code ? 'selected' : ''}" aria-pressed="${vp === code}" title="${esc(VIEWPOINTS[code])}">${code}</button>`).join('')}
       <button type="button" data-vp="" class="ov-vp-none ${vp === '' ? 'selected' : ''}" aria-pressed="${vp === ''}">なし</button>
     </div>`;
+    // 学習活動・評価規準・観点は、計画どおりなら畳んで一覧表示(読むだけ)。
+    // 変更済み・ねらい変更で空・計画なし のときだけ開いて編集(日常は「ねらいを見る/直す」が主操作)。
+    const lessonOpen = ed.planless || ed.overridden.activity || ed.overridden.assessment
+      || ed.overridden.viewpoint || ed.autoBlanked.activity || ed.autoBlanked.assessment;
+    const lessonGlance = (ed.activity || ed.assessment || ed.viewpoint)
+      ? `${ed.activity ? `<span class="ld-g"><b>活</b>${esc(ed.activity)}</span>` : ''}${(ed.assessment || ed.viewpoint) ? `<span class="ld-g"><b>評</b>${ed.viewpoint ? `<b class="e-viewpoint" data-vp="${esc(ed.viewpoint)}">${esc(ed.viewpoint)}</b>` : ''}${esc(ed.assessment)}</span>` : ''}`
+      : '<span class="ld-g muted">学習活動・評価規準を入力</span>';
+    const lessonDetail = `<details class="lesson-fold" ${lessonOpen ? 'open' : ''}>
+        <summary class="ld-summary"><span class="ld-glance">${lessonGlance}</span><span class="change-tag">編集</span></summary>
+        ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
+        ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
+          `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`, ed.autoBlanked.assessment)}
+      </details>`;
     autoBlock = `<div class="ov-block">
       <div class="ov-head">
         ${ed.planless
@@ -1953,9 +1966,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
       </div>
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
-      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
-      ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
-        `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`, ed.autoBlanked.assessment)}
+      ${lessonDetail}
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
         ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
         ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}

@@ -852,15 +852,18 @@ td.cell:focus-visible, .day-th:focus-visible {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px;
   margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--accent-100);
 }
-/* ねらいだけ変えて活動・評価が計画のまま=不整合の気づきヒント(琥珀・控えめ) */
-.ov-mismatch {
-  display: flex; align-items: flex-start; gap: 7px; margin: 0 0 12px;
-  padding: 8px 11px; border-radius: var(--r-md);
-  background: var(--warn-soft, #fef3c7); border: 1px solid #fcd34d;
-  color: #92400e; font-size: 12px; line-height: 1.5;
-}
-.ov-mismatch .ic { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 1px; color: #b45309; }
-.ov-mismatch b { color: #92400e; }
+/* 学習活動・評価規準・観点の畳み込み: 計画どおりは一覧(読む)、編集時だけ展開 */
+.lesson-fold { border: 1px solid var(--line); border-radius: var(--r-md); margin: 10px 0; background: var(--panel); }
+.lesson-fold > .ld-summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 8px 10px; min-height: 38px; }
+.lesson-fold > .ld-summary::-webkit-details-marker { display: none; }
+.lesson-fold[open] > .ld-summary { border-bottom: 1px solid var(--line); }
+.ld-glance { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink-2); }
+.ld-glance .ld-g b { color: var(--muted); font-weight: 700; margin-right: 3px; }
+.ld-glance .ld-g + .ld-g::before { content: '／'; color: var(--line-strong); margin: 0 7px; }
+.ld-glance .muted { color: var(--muted); }
+.lesson-fold > .ov-field { padding: 0 10px; }
+.lesson-fold > .ov-field:first-of-type { margin-top: 8px; }
+.lesson-fold > .ov-field:last-of-type { padding-bottom: 10px; }
 .ov-head .ov-kicker {
   font-size: 10px; font-weight: 800; letter-spacing: .04em; color: var(--accent);
   text-transform: none;
