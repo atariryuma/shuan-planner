@@ -246,11 +246,12 @@ export function renderWeekView(root, ctx) {
       <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
+          <div class="menu-group-label">週の操作</div>
           ${store.hasBaseTimetable && viewMode === 'week' ? `<button class="btn ghost menu-item ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}">${icon('pencil')}連続入力</button>` : ''}
           <button class="btn ghost menu-item" id="wk-copy">${icon('clipboard')}前週をコピー</button>
           ${viewMode === 'week' ? `<button class="btn ghost menu-item" id="wk-weekend">${icon('calendar')}土日の列を出す${infoHTML('日曜参観・運動会など、この週に土日の授業・行事があるとき列を出します')}</button>` : ''}
           ${gas ? `<button class="btn ghost menu-item" id="wk-calendar">${icon('calendar')}この週に行事を取り込み</button>` : ''}
-          <div class="menu-sep" role="separator"></div>
+          <div class="menu-group-label">時間割・計画</div>
           ${store.hasBaseTimetable ? `<button class="btn ghost menu-item" id="wk-apply-base">${icon('clipboard')}基本時間割を反映${infoHTML('この週を基本時間割で埋めます。手を入れたコマ(●変更・手入力・備考・中止)はそのまま残ります')}</button>` : ''}
           ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
             <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('calendar')}期間をまとめて作成</button>
@@ -258,7 +259,7 @@ export function renderWeekView(root, ctx) {
           </span>` : ''}
           <button class="btn ghost menu-item" id="wk-save-base">${icon('clipboard')}基本時間割に登録</button>
           <button class="btn ghost menu-item" id="wk-import-events">${icon('flag')}年間行事の取り込み</button>
-          ${s.mode !== 'senka' || gas ? '<div class="menu-sep" role="separator"></div>' : ''}
+          ${s.mode !== 'senka' || gas ? '<div class="menu-group-label">書き出し・提出</div>' : ''}
           ${s.mode !== 'senka' ? `<span style="display:flex; align-items:center;">
             <button class="btn ghost menu-item" id="wk-kids-print" style="flex:1;">${icon('doc')}おたより印刷</button>
             ${infoHTML('児童・保護者向けの来週の時間割。大きな字で印刷します')}

@@ -787,6 +787,12 @@ table.week-grid:has(thead tr:first-child th:nth-child(7)) { min-width: 732px; } 
 
 /* ⋯メニューの区切り線(グループ: この週/出力/危険) */
 details.menu .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+/* メニューの小見出し(週の操作 / 時間割・計画 / 書き出し・提出)。長いメニューを走査しやすく */
+details.menu .menu-items .menu-group-label {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  letter-spacing: .04em; padding: 9px 10px 3px;
+}
+details.menu .menu-items .menu-group-label:first-child { padding-top: 4px; }
 
 /* 設定ページの項目ナビ */
 .settings-nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
