@@ -13,7 +13,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, cellIsBlocked, store } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, cellIsBlocked, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
 const { buildPrintHoursModel, capSubjectColumns } = await import('../js/print-hours.js');
 const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons, renderPlanDetailPages } = await import('../js/print.js');
 
@@ -401,6 +401,22 @@ test('blocked (予定/非授業) cells survive flow-in and consume neither hours
   store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: false, commit: false });
   assert.equal(cellIsBlocked(store.state.weeks[WEEK].cells[cellKey(1, 'p1')]), true);
   assert.equal(store.state.weeks[WEEK].cells[cellKey(1, 'p1')].note, '職員会議');
+});
+
+test('editing the objective does not auto-blank activity/assessment; explicit blanks persist', () => {
+  const plan = { objective: 'O', activity: 'A', assessment: 'S', viewpoint: '知' };
+  // ねらいだけ変更 → 学習活動・評価規準は計画のまま(自動空白を廃止)
+  const m1 = mergeLessonOverride(plan, { objective: '新ねらい' });
+  assert.equal(m1.objective, '新ねらい');
+  assert.equal(m1.activity, 'A');
+  assert.equal(m1.assessment, 'S');
+  // 明示的に空にした項目は「白紙」のまま定着し、計画文へ自動では戻らない
+  const m2 = mergeLessonOverride(plan, { activity: '' });
+  assert.equal(m2.activity, '');
+  assert.equal(m2.overridden.activity, true);
+  // normalizeOverride は空文字を保持(=明示的な白紙)。キーを消すと計画へ復帰(=null)
+  assert.deepEqual(normalizeOverride({ activity: '' }), { activity: '' });
+  assert.equal(normalizeOverride({}), null);
 });
 
 test('a recurring meeting set in the base timetable flows into the week', () => {

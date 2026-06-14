@@ -1598,6 +1598,11 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   const date = addDays(monday, dayIdx);
   const title = `${fmtMD(date)}(${DAY_NAMES[dayIdx]}) ${period?.label || ''}${period?.type === 'module' ? '' : '校時'}`;
 
+  // 「取り消す」用に、開いた時点のセル状態を控える(編集を破棄してこの状態へ戻せる)
+  const editKey = cellKey(dayIdx, periodId);
+  const openCellJSON = JSON.stringify(store.state.weeks[weekStart]?.cells?.[editKey] ?? null);
+  let discarded = false;
+
   // 専科で事前充填(担当教科入り)したエントリのid。ユーザー操作がないまま
   // 閉じた場合はcleanupで除去する(開いて閉じるだけで授業が登録されないように)
   const prefilled = new Set();
@@ -1659,25 +1664,31 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       </div>` : '';
     let inner;
     if (cellNow.blocked) {
-      // 授業なしエディタ: 会議・委員会・クラブ・面談・出張など(授業ではない予定)のメモ
+      // 授業なしエディタ: 会議・委員会・クラブ・面談・出張など(授業ではない予定)のメモ。
+      // 「空きに戻す」はフッター左ボタンが担うので body には「授業に変える」だけ置く。
       inner = `
         <div class="field">
-          <label>授業なし（会議・委員会・クラブなど）${infoHTML('授業ではない予定。時数に数えず、流し込みでも埋め直されません')}</label>
+          <label>授業なし（会議・委員会・クラブなど）${infoHTML('授業ではない予定。時数に数えず、流し込みでも埋め直されません。空欄のままでも「授業なし」として固定されます')}</label>
           <div class="memo-presets">${MEMO_PRESETS.map(x => `<button class="btn small ghost memo-preset" data-preset="${esc(x)}">${esc(x)}</button>`).join('')}</div>
           <textarea class="oc-memo" name="cellNote" rows="2" placeholder="会議・委員会・クラブ・面談 など">${esc(cellNow.note || '')}</textarea>
         </div>
         <div class="oc-memo-acts">
           <button class="btn small" data-make-lesson>${icon('clipboard')}授業に変える</button>
-          <button class="btn small ghost" data-unblock>空きに戻す</button>
         </div>`;
     } else {
-      // 授業エディタ(空きコマも直接ここを開く)。会議・委員会等は下の「授業なし」で切替。
+      // 授業エディタ(空きコマも直接ここを開く)。会議・委員会等はフッター左「授業なし」で切替。
       const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
       inner = commonPalette + body
-        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
-        + `<button class="btn small ghost oc-to-memo" data-make-memo>${icon('memo')}この時間は授業なし（会議・委員会など）</button>`;
+        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
     }
     modal.querySelector('.cell-editor-body').innerHTML = inner;
+    // フッター左ボタン(クリア位置)を状態で出し分け: 授業中→「授業なし」/予定・空き→「空きに戻す」
+    const clearBtn = modal.querySelector('[data-clear-cell]');
+    if (clearBtn) {
+      const isLesson = !cellNow.blocked && cellNow.entries.length > 0;
+      clearBtn.innerHTML = isLesson ? `${icon('memo')}授業なし` : `${icon('trash')}空きに戻す`;
+      clearBtn.classList.toggle('danger', !isLesson); // 「空きに戻す」=削除のみ赤
+    }
     wireEditor(modal);
     associateLabels(modal); // 内部再描画でラベル関連付けが消えないように
   };
@@ -1762,8 +1773,18 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         ta.addEventListener('change', () => { render(modal); ctx.rerender(); });
       });
       box.querySelectorAll('[data-ov-reset]').forEach(b => {
-        b.onclick = () => { touch(); setOverride(entry, b.dataset.ovReset, ''); store.commit(); render(modal); ctx.rerender(); };
+        b.onclick = () => { touch(); clearOverrideKey(entry, b.dataset.ovReset); store.commit(); render(modal); ctx.rerender(); };
       });
+      // 本時の中身を空に(教科・学級・モードは残す)。意図的な白紙化を1タップで。
+      const ovClearBtn = box.querySelector('[data-ov-clear]');
+      if (ovClearBtn) ovClearBtn.onclick = () => {
+        touch();
+        const o = { ...(entry.override || {}) };
+        o.objective = ''; o.activity = ''; o.assessment = '';
+        entry.override = o;
+        entry.text = ''; entry.auto = true; // 全文手入力も消す
+        store.commit(); render(modal); ctx.rerender();
+      };
       box.querySelectorAll('[data-ov-vp] [data-vp]').forEach(b => {
         b.onclick = () => {
           touch();
@@ -1855,17 +1876,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       store.commit(); render(modal); ctx.rerender();
     };
 
-    // 空き/予定コマの分岐操作
+    // 予定(授業なし)→授業に戻す(メモ編集の「授業に変える」)
     modal.querySelector('[data-make-lesson]')?.addEventListener('click', () => {
       ensureLesson(); store.commit(); render(modal); ctx.rerender();
-    });
-    modal.querySelector('[data-make-memo]')?.addEventListener('click', () => {
-      makeMemo(); store.commit(); render(modal); ctx.rerender();
-    });
-    modal.querySelector('[data-unblock]')?.addEventListener('click', () => {
-      const w = store.getWeek(weekStart, true);
-      delete w.cells[cellKey(dayIdx, periodId)];
-      store.commit(); render(modal); ctx.rerender(); // 真の空き=選択画面へ戻る
     });
     const memoTa = modal.querySelector('[name="cellNote"]');
     if (memoTa) {
@@ -1891,9 +1904,10 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     <h2>${esc(title)}</h2>
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
-      <button class="btn danger left" data-clear-cell>クリア</button>
+      <button class="btn danger left" data-clear-cell></button>
       <button class="btn" data-lock-cell>${icon('lock')}${(store.getCell(weekStart, dayIdx, periodId)?.entries || []).some(e => e.locked) ? 'ロック解除' : 'ロック'}</button>
       <button class="btn" data-swap>⇄ 移動</button>
+      <button class="btn ghost" data-revert>取り消す</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
   `, (modal, close) => {
@@ -1913,19 +1927,29 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
       close();
     };
-    modal.querySelector('[data-clear-cell]').onclick = () => {
+    // 取り消す: 開いた時点のセル状態へ戻して閉じる(編集を破棄)
+    modal.querySelector('[data-revert]').onclick = () => {
+      discarded = true;
       const w = store.getWeek(weekStart, true);
-      const key = cellKey(dayIdx, periodId);
-      const c = w.cells[key];
-      store.snapshot('コマのクリア');
+      const before = JSON.parse(openCellJSON);
+      if (before) w.cells[editKey] = before; else delete w.cells[editKey];
+      store.commit();
+      close(); // cleanup は discarded を見て何もしない
+      toast('変更を取り消しました', 'info', 2000);
+      ctx.rerender();
+    };
+    // クリア位置のボタンを「授業なし⇄空きに戻す」に統合(ラベルは render で状態に合わせて設定)
+    modal.querySelector('[data-clear-cell]').onclick = () => {
+      const c = store.getCell(weekStart, dayIdx, periodId);
       if (c && c.entries.length) {
-        // 授業を消して「空きのまま固定」(流し込みで戻らない=もう授業をしないコマ)
-        w.cells[key] = { entries: [], blocked: true, note: '' };
-        store.commit(); close();
-        toast('空きにしました（流し込みで戻りません）', 'info', 3200, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+        // 授業を「授業なし(会議・委員会・予定など)」へ。モーダルは開いたままメモ編集に切替。
+        store.snapshot('授業なしにする');
+        makeMemo(); store.commit(); render(modal); ctx.rerender();
       } else {
-        // 予定/空き → 完全に空きへ戻す(また流し込みで埋まる)
-        delete w.cells[key];
+        // 予定・空き → 完全に空きへ戻す(また流し込みで埋まる)
+        const w = store.getWeek(weekStart, true);
+        store.snapshot('空きに戻す');
+        delete w.cells[editKey];
         store.commit(); close();
         toast('空きに戻しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       }
@@ -1936,6 +1960,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   // 専科の事前充填エントリ(担当教科入り)も、ユーザー操作がなければ除去する
   // (空セルを開いて閉じるだけで授業が時数・進度に計上されないように)
   function cleanup() {
+    if (discarded) return; // 「取り消す」で既に開いた時点へ復元済み。掃除はしない。
     const w = store.state.weeks[weekStart];
     const key = cellKey(dayIdx, periodId);
     const c = w?.cells?.[key];
@@ -1959,13 +1984,21 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 }
 
 // ねらい/学習活動/評価規準 の「このコマだけ上書き」を entry.override に反映する。
-// 空文字はキー削除(=計画に復帰)。何も残らなければ override=null。
+// 計画と同じ値に戻したら上書き解除(計画どおりへ)。空にした場合は「白紙」として保持し、
+// 計画文へ自動では戻さない(意図しない復活を防ぐ)。完全に解除したいときは ↺ で行う。
 function setOverride(entry, key, value, planVal = '') {
   const o = { ...(entry.override || {}) };
   const v = String(value);
-  // 空、または計画と同じ値に戻したら override を消す=計画どおりに復帰(計画文を重複保存しない)
-  if (v.trim() === '' || v.trim() === String(planVal).trim()) delete o[key];
-  else o[key] = v;
+  if (v.trim() === String(planVal).trim()) delete o[key]; // 計画と同じ=上書きなし
+  else o[key] = v;                                         // 空文字('')も白紙として保持
+  entry.override = Object.keys(o).length ? o : null;
+}
+
+// 上書きを完全に解除して計画どおりへ戻す(↺ ボタン・全項目クリア用)。
+function clearOverrideKey(entry, key) {
+  if (!entry.override) return;
+  const o = { ...entry.override };
+  delete o[key];
   entry.override = Object.keys(o).length ? o : null;
 }
 
@@ -2035,19 +2068,18 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     objective: '', activity: '', assessment: '', viewpoint: '',
     planObjective: '', planActivity: '', planAssessment: '', planViewpoint: '',
     overridden: { objective: false, activity: false, assessment: false, viewpoint: false },
-    autoBlanked: { activity: false, assessment: false },
   } : null);
 
-  // 1項目分の編集フィールド。計画値はプレースホルダ(薄字)、上書き時のみ実値を表示＋「変更」バッジ。
-  // autoBlank=true は「ねらいを変更したので自動で空にした」項目(計画文は出さず、書き方の型を促す)。
-  const ovField = (key, label, planVal, effVal, isOv, extra = '', autoBlank = false) => `
+  // 1項目分の編集フィールド。計画どおりなら欄に計画文が濃く出て、直接書き換えられる。
+  // 空にすると白紙のまま定着(計画文へ自動では戻さない)。「↺ 計画に戻す」で元の計画文へ。
+  const ovField = (key, label, planVal, effVal, isOv, extra = '') => `
     <div class="ov-field${isOv ? ' is-ov' : ''}">
       <div class="ov-flabel"><b>${label}</b>
         ${isOv
           ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>`
-          : (autoBlank ? '' : (planVal ? '<span class="ov-asplan">計画どおり</span>' : ''))}
+          : (planVal ? '<span class="ov-asplan">計画どおり</span>' : '')}
       </div>
-      <textarea class="ov-input" data-ov="${key}" data-plan="${esc(autoBlank ? '' : (planVal || ''))}" rows="2"
+      <textarea class="ov-input" data-ov="${key}" data-plan="${esc(planVal || '')}" rows="2"
         placeholder="${esc(OV_PLACEHOLDERS[key] || '（自由に記録できます）')}">${esc(effVal)}</textarea>
       ${extra}
     </div>`;
@@ -2101,8 +2133,9 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
       ${lessonModeSelector}
       ${modeHeader}
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
-      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
-      ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment, vprow, ed.autoBlanked.assessment)}
+      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity)}
+      ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment, vprow)}
+      <button type="button" class="btn small ghost ov-clear" data-ov-clear title="ねらい・学習活動・評価規準を空にします。教科・学級は残ります">本時の中身を空にする</button>
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
         ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
         ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}

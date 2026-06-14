@@ -538,8 +538,9 @@ export function normalizeOverride(o) {
   if (!o || typeof o !== 'object') return null;
   const out = {};
   for (const k of ['objective', 'activity', 'assessment']) {
-    const v = o[k];
-    if (v != null && String(v).trim() !== '') out[k] = String(v);
+    // キーがあれば空文字も保持する(=「明示的に白紙にした」状態。計画文に自動で戻さない)。
+    // 上書きを完全に解除したいときは、そのキー自体を消す(↺ 計画に戻す)。
+    if (k in o && o[k] != null) out[k] = String(o[k]);
   }
   const vp = String(o.viewpoint ?? '');
   if (['知', '思', '態'].includes(vp)) out.viewpoint = vp;
@@ -558,19 +559,13 @@ export function mergeLessonOverride(planLesson, override) {
     viewpoint: String(planLesson?.viewpoint || ''),
   };
   const o = normalizeOverride(override) || {};
-  // ねらい(objective)を計画と変えたら、学習活動・評価規準は別の授業になるため計画から
-  // 引き継がず自動で空にする(ずれた計画文をそのまま出さない)。各項目を明示的に上書きすればその値を優先。
-  // 計画にねらいが無いコマ(自由記録)は対象外。
-  const objCustom = ('objective' in o) && base.objective !== '' && o.objective !== base.objective;
-  const blankActivity = objCustom && !('activity' in o) && base.activity !== '';
-  const blankAssessment = objCustom && !('assessment' in o) && base.assessment !== '';
-  // 評価規準を空にしたら、その観点(知/思/態)も計画から引き継がない(規準が無いのに観点だけ残さない)
-  const blankViewpoint = objCustom && !('viewpoint' in o) && base.viewpoint !== '';
+  // 各項目は独立。ねらいを直しても学習活動・評価規準は自動では消さない(意図しない削除を防ぐ)。
+  // 中身を消したいときは明示的に空にする(「内容をクリア」または各欄で消す)。空文字も保持される。
   const eff = {
-    objective: o.objective ?? base.objective,
-    activity: ('activity' in o) ? o.activity : (blankActivity ? '' : base.activity),
-    assessment: ('assessment' in o) ? o.assessment : (blankAssessment ? '' : base.assessment),
-    viewpoint: ('viewpoint' in o) ? o.viewpoint : (blankViewpoint ? '' : base.viewpoint),
+    objective: ('objective' in o) ? o.objective : base.objective,
+    activity: ('activity' in o) ? o.activity : base.activity,
+    assessment: ('assessment' in o) ? o.assessment : base.assessment,
+    viewpoint: ('viewpoint' in o) ? o.viewpoint : base.viewpoint,
   };
   return {
     objective: eff.objective,
@@ -588,7 +583,6 @@ export function mergeLessonOverride(planLesson, override) {
       assessment: 'assessment' in o,
       viewpoint: 'viewpoint' in o,
     },
-    autoBlanked: { activity: blankActivity, assessment: blankAssessment },
   };
 }
 
