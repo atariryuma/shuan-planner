@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS, scopeGrade, cellIsBlocked } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS, scopeGrade, isActivity, cellHasUserEdits, cellHasLock, cellHasActivity } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -8,7 +8,7 @@ import { icon } from '../icons.js';
 
 /**
  * 基本時間割がある週を開いたとき、その週がまだ空なら自動で時間割＋計画内容を配置する。
- * 「基本時間割を反映」を毎週押す手間を無くす。開いた週だけ・空のときだけ生成し、
+ * 毎週の反映操作を不要にする。開いた週だけ・授業が無いときだけ生成し、
  * 祝日・長期休業・非授業日は除く(skipNoSchool)。設定 autoLayout=false で無効化。
  * 通知(commit)は使わず persist 直書きで保存し、描画中の再描画ループを避ける。
  */
@@ -17,9 +17,9 @@ function autoMaterializeWeek(weekStart) {
   if (store.state.settings.autoLayout === false) return false;
   const existed = !!store.state.weeks[weekStart];
   const w = store.state.weeks[weekStart];
-  // 授業が1つでも入っていれば触らない。予定(会議・面談)メモだけの週は授業を自動で埋める
-  // (=「状況によって自動判断」: まっさら/予定だけ→埋める、授業あり→そのまま)。占有コマは流し込みが避ける。
-  if (w && Object.values(w.cells).some(c => c?.entries?.length)) return false;
+  // 授業が1つでも入っていれば触らない。予定(会議・面談)だけの週は授業を自動で埋める
+  // (=「状況によって自動判断」: まっさら/予定だけ→埋める、授業あり→そのまま)。既存の予定は流し込みが避ける。
+  if (w && Object.values(w.cells).some(c => c?.entries?.some(e => !isActivity(e)))) return false;
   const res = store.applyBaseTimetable(weekStart, null, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
   if (res.placed) { store.persist(); return true; } // 自動作成した
   if (!existed) delete store.state.weeks[weekStart]; // 0コマ(全休等)なら空週を残さない
@@ -204,7 +204,7 @@ export function renderWeekView(root, ctx) {
         <div>
           <div style="display:flex; align-items:baseline; justify-content:space-between;">
             <label for="wk-reflection">反省</label>
-            <button class="btn small ghost" id="wk-review">過去の一覧</button>
+            <button class="btn small ghost" id="wk-review">振り返り一覧</button>
           </div>
           <textarea id="wk-reflection">${esc(week.reflection || '')}</textarea>
         </div>
@@ -336,6 +336,10 @@ function unitProgressHTML(nth, total) {
 function renderEntriesHTML(state, entries, ordinals) {
   const s = state.settings;
   return entries.map(e => {
+    // 活動(会議・委員会・クラブ等。教科なし・時数に数えない)は淡色のメモ表示で授業と区別する
+    if (isActivity(e)) {
+      return `<div class="entry activity">${icon('memo')}<span class="e-activity-name">${esc(e.unitName || '予定')}</span>${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}</div>`;
+    }
     const subj = subjectOf(s, e.subjectKey);
     const { resolved, details } = resolveEntryPlanDetails(state, e, ordinals);
     const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
@@ -367,7 +371,7 @@ function renderEntriesHTML(state, entries, ordinals) {
           ${progress}
         </div>
         ${text ? `<div class="e-text ${resolved.auto ? '' : 'manual'}">${esc(text)}</div>` : ''}
-        ${!e.cancelled && details?.activity ? `<div class="e-plan-line e-activity"><span>活</span>${esc(details.activity)}</div>` : ''}
+        ${!e.cancelled && details?.activity ? `<div class="e-plan-line"><span>活</span>${esc(details.activity)}</div>` : ''}
         ${!e.cancelled && (details?.assessment || details?.viewpoint) ? `<div class="e-plan-line e-assessment"><span>評</span>${details.viewpoint ? `<b class="e-viewpoint" data-vp="${esc(details.viewpoint)}">${esc(details.viewpoint)}</b>` : ''}${esc(details.assessment)}</div>` : ''}
         ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
       </div>`;
@@ -424,20 +428,28 @@ function renderDayPanelHTML(state, week, monday, days, dayViewIdx, todayIdx, ord
     </button>`);
   }
 
+  // 非授業日の判定。振替授業日(classDays)は授業日扱い(週グリッドと統一)。
+  const ds = fmtDate(date);
+  const isClassDay = (s.classDays || []).includes(ds);
+  const hol = (!isClassDay && s.showHolidays) ? holidayName(date) : null;
+  const brk = isClassDay ? null : breakNameOf(s, ds);
+  const off = !isClassDay && (s.offDays || []).includes(ds);
+  const nsReason = hol || brk || (off ? '休業日' : '');
+  const nsType = hol ? 'holiday' : brk ? 'break' : off ? 'off' : '';
+  const noSchool = !!nsReason;
+
   const status = periodTimeStatus(s.periods, isToday);
   const items = s.periods.map(p => {
     if (!effectivePeriod(s, week, dayViewIdx, p)) return '';
     const cell = week.cells?.[cellKey(dayViewIdx, p.id)];
     const entries = cell?.entries || [];
-    const blocked = !entries.length && cellIsBlocked(cell);
     const st = status[p.id] || '';
+    // 非授業日の空きコマは「＋」を出さない(週グリッドと統一。授業を入れる場所に見せない)
     const body = entries.length
       ? renderEntriesHTML(state, entries, ordinals)
-      : blocked
-        ? `<div class="dp-note">${icon('memo')}<span>${esc(cell.note || '授業なし')}</span></div>`
-        : `<div class="dp-empty">＋ タップして授業を入れる</div>`;
+      : (noSchool ? '' : `<div class="dp-empty">＋ タップして授業を入れる</div>`);
     const flag = st === 'now' ? '<span class="dp-now">いま</span>' : st === 'next' ? '<span class="dp-next">次</span>' : '';
-    return `<li class="day-period ${st} ${entries.length || blocked ? '' : 'is-empty'}" data-day="${dayViewIdx}" data-period="${esc(p.id)}" tabindex="0" role="button" aria-label="${esc(p.label)} ${entries.length ? '' : blocked ? `予定 ${cell.note || '授業なし'}` : '空き'}">
+    return `<li class="day-period ${st} ${entries.length ? '' : 'is-empty'}" data-day="${dayViewIdx}" data-period="${esc(p.id)}" tabindex="0" role="button" aria-label="${esc(p.label)} ${entries.length ? '' : '空き'}">
       <div class="dp-time"><span class="dp-label">${esc(p.label)}</span>${p.start ? `<span class="dp-clock">${esc(p.start)}</span>` : ''}${flag}</div>
       <div class="dp-body">${body}</div>
     </li>`;
@@ -445,11 +457,6 @@ function renderDayPanelHTML(state, week, monday, days, dayViewIdx, todayIdx, ord
 
   const ev = String(week.events?.[dayViewIdx] || '').trim();
   const memo = esc(week.dayNotes?.[dayViewIdx] || '');
-  const hol = s.showHolidays ? holidayName(date) : null;
-  const brk = breakNameOf(s, fmtDate(date));
-  const off = (s.offDays || []).includes(fmtDate(date));
-  const nsReason = hol || brk || (off ? '休業日' : '');
-  const nsType = hol ? 'holiday' : brk ? 'break' : off ? 'off' : '';
   const banner = hol ? `<div class="day-banner hol">${esc(hol)}</div>`
     : brk ? `<div class="day-banner brk">${esc(brk)}</div>`
     : off ? '<div class="day-banner brk">休業日</div>' : '';
@@ -458,7 +465,7 @@ function renderDayPanelHTML(state, week, monday, days, dayViewIdx, todayIdx, ord
   const hasEntries = s.periods.some(p => week.cells?.[cellKey(dayViewIdx, p.id)]?.entries?.length);
   const listHTML = (nsReason && !hasEntries)
     ? `<div class="day-noschool ns-${nsType}"><span class="dn-ic">${icon(hol ? 'flag' : brk ? 'sun' : 'leaf')}</span><b>${esc(nsReason)}</b><span class="dn-sub">この日は授業がありません</span></div>`
-    : `<ol class="day-list">${items || `<li class="day-empty"><span class="de-ic">${icon('cup')}</span>この日に授業はありません</li>`}</ol>`;
+    : `<ol class="day-list">${items || `<li class="day-empty"><span class="de-ic">${icon('cup')}</span>この日は授業がありません</li>`}</ol>`;
 
   return `
     <div class="day-switch" role="tablist">${chips.join('')}</div>
@@ -488,28 +495,23 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchoo
   const entries = ctx.classFilter ? allEntries.filter(e => (e.scope ?? '') === ctx.classFilter) : allEntries;
   const hiddenOther = ctx.classFilter && allEntries.length && !entries.length; // 他学級だけが入っている
   const isModule = period.type === 'module';
-  // 予定(非授業)コマ: 会議・面談・出張など。授業ではないので淡色のメモchipで出す(流し込みも避ける)。
-  const blocked = !entries.length && cellIsBlocked(cell);
   // 非授業日の空きコマ: フラットな淡色のみ(理由=祝日名はヘッダーに1度だけ。セルでは繰り返さない)。
-  // 「＋」は出さない(授業を入れる場所に見せない)。授業が入っていれば通常表示。
+  // 「＋」は出さない(授業を入れる場所に見せない)。授業・活動が入っていれば通常表示。
   // フィルタで隠れた他学級のコマがある場合も「＋」は出さない(空きと誤認させない)。
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
-    : blocked
-      ? `<div class="cell-note">${icon('memo')}<span class="cn-text">${esc(cell.note || '授業なし')}</span></div>`
-      : (noSchool || hiddenOther) ? '' : `<div class="cell-empty">＋</div>`;
+    : (noSchool || hiddenOther) ? '' : `<div class="cell-empty">＋</div>`;
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && (ctx.swapSource.weekStart == null || ctx.swapSource.weekStart === week.start) && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)
-  const subjNames = entries.map(e => subjectOf(s, e.subjectKey)?.name).filter(Boolean).join('・');
-  const stateName = subjNames || (blocked ? `予定 ${cell.note || '授業なし'}` : '空き');
-  const ariaLabel = `${DAY_NAMES[dayIdx]}曜${period.label}${isModule ? '' : '校時'}${noSchool ? ` ${noSchool.reason}` : ''} ${stateName}`;
+  const subjNames = entries.map(e => isActivity(e) ? e.unitName : subjectOf(s, e.subjectKey)?.name).filter(Boolean).join('・');
+  const ariaLabel = `${DAY_NAMES[dayIdx]}曜${period.label}${isModule ? '' : '校時'}${noSchool ? ` ${noSchool.reason}` : ''} ${subjNames || '空き'}`;
   return `
-    <td class="cell ${nsClass} ${blocked ? 'blocked' : ''} ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
+    <td class="cell ${nsClass} ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
         data-day="${dayIdx}" data-period="${esc(period.id)}" ${draggable ? 'draggable="true"' : ''}
         tabindex="0" role="button" aria-label="${esc(ariaLabel)}">
       ${inner}
-      ${entries.length || blocked ? `<button class="cell-clear" aria-label="${blocked ? '予定を消す' : 'クリア'}" data-clear>×</button>` : ''}
+      ${entries.length ? `<button class="cell-clear" aria-label="削除" data-clear>×</button>` : ''}
     </td>`;
 }
 
@@ -597,47 +599,57 @@ function wireNav(root, ctx, monday) {
     const monthEnd = fmtDate(new Date(monday.getFullYear(), monday.getMonth() + 1, 0));
     const yearEnd = `${fy + 1}-03-31`;
     const bases = store.state.baseTimetables;
-    const run = async (toDate, baseId, mode) => {
+    // 計画に戻すと中身が変わる「手を入れた授業コマ」と、守る「ロック・予定」を数える(上書きを明示するため)
+    const countAffected = (fromWeek, toWeek) => {
+      let edits = 0, kept = 0;
+      const hasPlan = (e) => {
+        const grade = scopeGrade(store.settings, e.scope);
+        return store.state.plans.some(p => p.subjectKey === e.subjectKey && (p.grade == null || p.grade === grade));
+      };
+      for (let m = mondayOf(parseDate(fromWeek)); fmtDate(m) <= toWeek; m = addDays(m, 7)) {
+        const w = store.state.weeks[fmtDate(m)];
+        if (!w) continue;
+        for (const cell of Object.values(w.cells || {})) {
+          if (cellHasLock(cell) || cellHasActivity(cell)) kept++;
+          else if (cellHasUserEdits(cell) && cell.entries.some(e => e.subjectKey && hasPlan(e))) edits++;
+        }
+      }
+      return { edits, kept };
+    };
+    const run = async (toDate, baseId) => {
       const toWeek = fmtDate(mondayOf(parseDate(toDate)));
-      if (mode === 'reset') {
-        const ok = await confirmDialog('手を入れたコマ(●変更・手入力・中止など)も消して、計画どおりに作り直します。よろしいですか?',
-          { okLabel: '作り直す', danger: true });
+      // 手を入れたコマも計画に戻る(=上書き)ことを、件数つきで明示する
+      const { edits, kept } = countAffected(here, toWeek);
+      if (edits > 0) {
+        const tail = kept ? `🔒ロック・予定の ${kept}コマと、空きコマは触りません。` : '🔒ロック・予定・空きコマは触りません。';
+        const ok = await confirmDialog(`手を入れた ${edits}コマ(●変更・手入力・中止など)も計画に戻します。${tail}よろしいですか?`,
+          { okLabel: '計画に戻す', danger: true });
         if (!ok) return;
       }
-      store.snapshot('まとめて作成');
-      const res = store.generateRange(here, toWeek, baseId, mode);
-      if (!res.weeks) {
-        toast(mode === 'fill' ? '追加できるコマがありませんでした(既に入力済みか期間外)' : '対象の週がありませんでした', 'error', 4000);
-        return;
-      }
-      const msg = mode === 'fill' ? `${res.weeks}週・${res.placed}コマを作成しました`
-        : mode === 'reapply' ? `${res.weeks}週を計画に合わせて更新${res.preserved ? `(手入力${res.preserved}件は保持)` : ''}`
-          : `${res.weeks}週を作り直しました`;
-      toast(msg, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      store.snapshot('計画に合わせて更新');
+      const res = store.generateRange(here, toWeek, baseId);
+      if (!res.weeks) { toast('対象の週がありませんでした', 'error', 4000); return; }
+      const parts = [];
+      if (res.placed) parts.push(`空き${res.placed}コマを作成`);
+      if (res.conformed) parts.push(`${res.conformed}コマを計画に`);
+      toast(`${res.weeks}週を更新${parts.length ? `（${parts.join('・')}）` : ''}`, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     };
-    const pickBaseThen = async (toDate, mode) => {
-      if (bases.length <= 1) return run(toDate, null, mode);
-      openModal(`<h2>どの時間割で作成しますか?</h2>
+    const pickBaseThen = async (toDate) => {
+      if (bases.length <= 1) return run(toDate, null);
+      openModal(`<h2>どの時間割で更新しますか?</h2>
         <div class="choice-list">
           ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>`,
         (m, close) => {
           m.querySelector('[data-cancel]').onclick = close;
-          m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base, mode); });
+          m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base); });
         });
     };
     openModal(`
       <h2>計画に合わせて更新</h2>
-      <p class="hint">基本時間割と年間指導計画に合わせて、この週／期間を整えます。祝日・長期休業・非授業日、予定(会議・面談)のコマは除きます。</p>
-      <div class="field"><label>作り方</label>
-        <div class="gen-mode" role="radiogroup">
-          <label><input type="radio" name="genmode" value="fill" checked><span><b>空いているコマを埋める</b><small>いつもの整え方。入力済み・予定・🔒ロックには一切触れません(安全)</small></span></label>
-          <label><input type="radio" name="genmode" value="reapply"><span><b>計画どおりに作り直す</b><small>基本時間割や年間計画を直したとき。●変更・手入力・備考・中止・計画外・予定・🔒ロックは残します</small></span></label>
-          <label><input type="radio" name="genmode" value="reset"><span><b>まっさらにして作り直す</b><small>手を入れたコマも消して計画どおりに。予定・🔒ロックしたコマだけ残します</small></span></label>
-        </div>
-      </div>
+      <p class="hint">設定済みのコマ（教科・学級が入っているコマ）を、年間指導計画どおりの本時に戻します。<br><b>空きコマ（消したコマ）・予定（会議など）・🔒ロックは触りません。</b>手を入れたコマも計画に戻ります（戻したくないコマは🔒ロック）。</p>
       <div class="field"><label>対象</label>
       <div class="choice-list">
         <button class="btn primary" data-to="${here}">この週だけ</button>
@@ -651,13 +663,12 @@ function wireNav(root, ctx, monday) {
       </div></div>
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
     `, (modal, close) => {
-      const getMode = () => modal.querySelector('input[name="genmode"]:checked')?.value || 'fill';
       modal.querySelector('[data-cancel]').onclick = close;
-      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { const mode = getMode(); close(); pickBaseThen(b.dataset.to, mode); });
+      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { close(); pickBaseThen(b.dataset.to); });
       modal.querySelector('[data-to-input]').onclick = () => {
         const v = modal.querySelector('#gen-to').value;
         if (!v) { toast('日付を選んでください', 'error'); return; }
-        const mode = getMode(); close(); pickBaseThen(v, mode);
+        close(); pickBaseThen(v);
       };
     });
   };
@@ -1198,17 +1209,17 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       } else if (noSchoolR) {
         dayToggle = { act: 'classday', icon: 'book', title: '授業日にする', desc: `${noSchoolR}ですが授業日として扱います(日曜参観・運動会など)。基本時間割の自動配置・時数集計の対象になります` };
       } else {
-        dayToggle = { act: 'offday', icon: 'stop', title: '非授業日にする', desc: '開校記念日・振替休業・学級閉鎖など。自動配置や「まとめて作成」で授業が入りません' };
+        dayToggle = { act: 'offday', icon: 'stop', title: '非授業日にする', desc: '開校記念日・振替休業・学級閉鎖など。自動配置や「計画に合わせて更新」で授業が入りません' };
       }
       const dayLocked = store.settings.periods.some(p => (store.state.weeks[weekStart]?.cells?.[cellKey(d, p.id)]?.entries || []).some(e => e.locked));
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div class="day-ops">
-          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>休講にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
+          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>中止にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
           ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">${icon('clipboard')}</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
           <button class="btn day-op" data-act="${dayLocked ? 'unlock-day' : 'lock-day'}"><span class="op-ic">${icon('lock')}</span><span class="op-tx"><b>${dayLocked ? 'この日のロックを解除' : 'この日をロック'}</b><small>「計画に合わせて更新」しても、この日のコマは上書きされず守られます</small></span></button>
           <button class="btn day-op" data-act="${dayToggle.act}"><span class="op-ic">${icon(dayToggle.icon)}</span><span class="op-tx"><b>${dayToggle.title}</b><small>${dayToggle.desc}</small></span></button>
-          <button class="btn day-op danger" data-act="clear"><span class="op-ic">${icon('trash')}</span><span class="op-tx"><b>この日をクリア</b><small>この日の入力をすべて削除します</small></span></button>
+          <button class="btn day-op danger" data-act="clear"><span class="op-ic">${icon('trash')}</span><span class="op-tx"><b>この日を削除</b><small>この日の入力をすべて削除します</small></span></button>
         </div>
         <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
       `, (modal, close) => {
@@ -1296,22 +1307,21 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   const cell = store.state.weeks[weekStart]?.cells?.[cellKey(dayIdx, periodId)];
   const entries = cell?.entries || [];
   const hasEntries = entries.length > 0;
-  const blocked = cellIsBlocked(cell);
+  const onlyActivity = hasEntries && entries.every(isActivity); // 会議・委員会等のみ
   const hasClip = Array.isArray(ctx.cellClipboard) && ctx.cellClipboard.length > 0;
   const anyCancelled = hasEntries && entries.some(e => e.cancelled);
   const anyLocked = hasEntries && entries.some(e => e.locked);
 
-  const acts = [{ ic: 'pencil', label: blocked ? '予定を編集' : '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
+  const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
   if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
-  if (hasClip && !blocked) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasClip) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
-  if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
-  // 破壊系は下にまとめて区切り線で分ける。語彙はエディタと統一(クリア=中身を空に / 削除=授業を消す)。赤は「削除」だけ。
+  if (hasEntries && !onlyActivity) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
+  // 破壊系は下にまとめて区切り線で分ける。語彙はエディタと統一(クリア=中身を空に / 削除=コマごと消す)。赤は「削除」だけ。
   if (hasEntries) acts.push({ sep: true });
-  if (hasEntries) acts.push({ ic: 'eraser', label: 'クリア', run: () => clearCellContentQuick(weekStart, dayIdx, periodId, ctx) });
-  if (hasEntries) acts.push({ ic: 'trash', label: '削除', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
-  if (blocked) acts.push({ ic: 'trash', label: '空きに戻す', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries && !onlyActivity) acts.push({ ic: 'eraser', label: 'クリア', run: () => clearCellContentQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries) acts.push({ ic: 'trash', label: '削除', danger: true, run: () => deleteCellQuick(weekStart, dayIdx, periodId, ctx) });
 
   const menu = document.createElement('div');
   menu.className = 'context-menu';
@@ -1359,7 +1369,7 @@ function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
   const w = store.getWeek(weekStart, true);
   store.snapshot('コマの貼り付け');
   const key = cellKey(dayIdx, periodId);
-  const fresh = ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '' }));
+  const fresh = ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '', locked: false }));
   // 専科・複式は学級/学年(scope)でコマを区別する。貼り付けはセル全体を上書きせず、
   // 同じscopeのコマだけ置き換えて他学級のコマは残す(専科で「貼り付けたら別クラスが消えた」事故を防ぐ)。
   if (s.mode === 'senka' || s.mode === 'fukushiki') {
@@ -1431,22 +1441,13 @@ function saveWeekAsBase(weekStart, ctx) {
   });
 }
 
-// コマのクリア。授業を消すと「空きのまま固定」(流し込みで戻らない=もう授業をしないコマ)。
-// すでに予定/空きなら完全に空きへ戻す(また流し込みで埋まる)。
-function clearCellQuick(weekStart, dayIdx, periodId, ctx) {
+// 削除=このコマ(授業・活動)を消して空きに戻す(また流し込みで埋まりうる)。× ボタン・右クリック「削除」用。
+function deleteCellQuick(weekStart, dayIdx, periodId, ctx) {
   const w = store.getWeek(weekStart, true);
-  const key = cellKey(dayIdx, periodId);
-  const c = w.cells[key];
-  store.snapshot('コマのクリア');
-  if (c && c.entries.length) {
-    w.cells[key] = { entries: [], blocked: true, note: '' };
-    store.commit(); ctx.rerender();
-    toast('空きにしました（流し込みで戻りません）', 'info', 3200, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
-  } else {
-    delete w.cells[key];
-    store.commit(); ctx.rerender();
-    toast('空きに戻しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
-  }
+  store.snapshot('コマを削除');
+  delete w.cells[cellKey(dayIdx, periodId)];
+  store.commit(); ctx.rerender();
+  toast('削除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
 // 本時の中身を空にする(教科・学級は残す)。右クリック「クリア」用。
@@ -1514,7 +1515,7 @@ function wireCells(root, weekStart, ctx) {
     if (clearBtn) {
       clearBtn.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        clearCellQuick(weekStart, Number(td.dataset.day), td.dataset.period, ctx);
+        deleteCellQuick(weekStart, Number(td.dataset.day), td.dataset.period, ctx);
       });
     }
 
@@ -1603,7 +1604,7 @@ function swapCells(fromWeekStart, from, toWeekStart, to) {
 
 // ---------------------------------------------------------------- セル編集モーダル
 
-// 「授業なし」の予定でよく使うもの。ワンタップで入れられる(自由入力も可)。
+// 予定・活動(会議・委員会・クラブなど)でよく使うもの。ワンタップで入れられる(自由入力も可)。
 const MEMO_PRESETS = ['会議', '委員会', 'クラブ', '面談', '出張', '研修'];
 
 export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
@@ -1628,7 +1629,6 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const key = cellKey(dayIdx, periodId);
     if (!w.cells[key]) w.cells[key] = { entries: [] };
     const cell = w.cells[key];
-    cell.blocked = false; cell.note = ''; // 授業を入れるので「予定(非授業)」は解除
     if (s.mode === 'fukushiki') {
       for (const g of s.fukushikiGrades) {
         if (!cell.entries.some(e => e.scope === g)) {
@@ -1652,20 +1652,25 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     return cell;
   };
 
-  // 予定(非授業)にする: 授業entryを外し、会議・面談メモを書ける状態に
-  const makeMemo = () => {
+  // 予定・活動(会議・委員会・クラブ等)にする: 先頭entryを「教科なし・時数に数えない活動」へ。
+  // 授業固有の状態(中止/差し込み/単元切上げ/分数時数/複式指導形態など)は活動では意味を持たないので全て初期化する。
+  const makeActivity = () => {
     const w = store.getWeek(weekStart, true);
     const key = cellKey(dayIdx, periodId);
     const cell = w.cells[key] || (w.cells[key] = { entries: [] });
-    cell.entries = [];
-    cell.blocked = true;
-    cell.note = cell.note || '';
-    return cell;
+    let e = cell.entries[0];
+    if (!e) e = newEntry();
+    cell.entries = [e];                     // 2件目以降(他学級)は活動化で畳む
+    prefilled.delete(e.id);
+    e.subjectKey = ''; e.scope = null; e.pin = null; e.offplan = false;
+    e.noCount = true; e.override = null; e.text = ''; e.auto = true;
+    e.unitName = e.unitName || ''; e.nth = 0; e.unitHours = 0;
+    e.cancelled = false; e.cancelledText = ''; e.endUnit = false; e.fraction = 1; e.guide = null; e.advance = null;
+    return e;
   };
 
-  // 空きコマは授業エディタを直接開く(タップ＝すぐ授業入力)。予定(会議・面談)は中の「授業なし」で切替。
-  // 既に予定(blocked)のコマだけは、授業を作らずメモ編集のまま開く。
-  if (!store.getCell(weekStart, dayIdx, periodId)?.blocked) ensureLesson();
+  // 空きコマもタップで授業エディタを直接開く(タップ＝すぐ授業入力)。会議等は中の「予定・活動」で切替。
+  ensureLesson();
 
   const render = (modal) => {
     const state = store.state;
@@ -1678,40 +1683,18 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         <div class="subject-palette" data-common-palette>${s.subjects.map(x =>
           `<button data-subj="${esc(x.key)}" style="background:${esc(x.color)}">${esc(x.short || x.name)}</button>`).join('')}</div>
       </div>` : '';
-    let inner;
-    if (cellNow.blocked) {
-      // 授業なしエディタ: 会議・委員会・クラブ・面談・出張など(授業ではない予定)のメモ。
-      // 「空きに戻す」はフッター左ボタンが担うので body には「授業に変える」だけ置く。
-      inner = `
-        <div class="field">
-          <label>授業なし（会議・委員会・クラブなど）${infoHTML('授業ではない予定。時数に数えず、流し込みでも埋め直されません。空欄のままでも「授業なし」として固定されます')}</label>
-          <div class="memo-presets">${MEMO_PRESETS.map(x => `<button class="btn small ghost memo-preset" data-preset="${esc(x)}">${esc(x)}</button>`).join('')}</div>
-          <textarea class="oc-memo" name="cellNote" rows="2" placeholder="会議・委員会・クラブ・面談 など">${esc(cellNow.note || '')}</textarea>
-        </div>
-        <div class="oc-memo-acts">
-          <button class="btn small" data-make-lesson>${icon('clipboard')}授業に変える</button>
-        </div>`;
-    } else {
-      // 授業エディタ(空きコマも直接ここを開く)。会議・委員会等はフッター左「授業なし」で切替。
-      // ロック/クリア/移動は右上の「⋯」へ集約(本文には置かない)。
-      const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
-      inner = commonPalette + body
-        + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
-    }
+    // コマ=授業(教科あり) or 活動(会議・委員会等。教科なし)の entry を並べる。会議も「授業」の一種。
+    const hasActivity = cellNow.entries.some(e => isActivity(e));
+    const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
+    const inner = commonPalette + body
+      + (s.mode !== 'fukushiki' && !hasActivity ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
+      + (s.mode !== 'fukushiki' && !hasActivity ? `<button class="btn small ghost oc-to-activity" data-make-activity>${icon('memo')}予定・活動にする（会議・委員会など）</button>` : '');
     modal.querySelector('.cell-editor-body').innerHTML = inner;
-    // フッター左ボタン(クリア位置)を状態で出し分け: 授業中→「授業なし」/予定・空き→「空きに戻す」
-    const clearBtn = modal.querySelector('[data-clear-cell]');
-    if (clearBtn) {
-      const isLesson = !cellNow.blocked && cellNow.entries.length > 0;
-      // 授業中→「削除」(授業を消す)、予定・空き→「空きに戻す」。どちらも消す操作なので赤。
-      clearBtn.innerHTML = isLesson ? `${icon('trash')}削除` : `${icon('trash')}空きに戻す`;
-      clearBtn.classList.add('danger');
-    }
-    // 右上「⋯」(ロック/クリア/移動)は授業コマだけ。予定(blocked)・空きでは隠す。ロック表示も更新。
+    // フッター左の「削除」(授業ごと消す→空き・赤)はフッター静的HTMLで固定。
+    // 右上「⋯」(ロック/クリア/移動)はロック表示を更新(活動コマではクリアの意味が薄いがそのまま)。
     const ocMenu = modal.querySelector('.oc-menu');
     if (ocMenu) {
-      const isLesson = !cellNow.blocked && cellNow.entries.length > 0;
-      ocMenu.style.display = isLesson ? '' : 'none';
+      ocMenu.style.display = cellNow.entries.length ? '' : 'none';
       const lockItem = ocMenu.querySelector('[data-oc-lock]');
       if (lockItem) lockItem.innerHTML = `${icon('lock')}${cellNow.entries.some(e => e.locked) ? 'ロック解除' : 'ロック'}`;
     }
@@ -1745,7 +1728,9 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
           touch();
           entry.subjectKey = b.dataset.subj === entry.subjectKey ? '' : b.dataset.subj;
           if (entry.auto) entry.text = '';
-          entry.pin = null; entry.offplan = false; // 教科を変えたら別単元/計画外はリセット(別教科に持ち越さない)
+          // 教科を変えたら別単元/計画外/上書き/単元切上げ/手入力単元はリセット(別教科に持ち越さない)
+          entry.pin = null; entry.offplan = false; entry.override = null; entry.endUnit = false;
+          entry.unitName = ''; entry.nth = 0; entry.unitHours = 0;
           store.commit();
           render(modal);
           ctx.rerender();
@@ -1829,6 +1814,14 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         store.commit(); render(modal); ctx.rerender();
       };
 
+      // 計画が無いコマの単元・時数の手入力
+      const unitInp = box.querySelector('[name="unitName"]');
+      if (unitInp) { unitInp.addEventListener('input', () => { touch(); entry.unitName = unitInp.value; store.commit(); }); unitInp.addEventListener('change', () => ctx.rerender()); }
+      const nthInp = box.querySelector('[name="nth"]');
+      if (nthInp) nthInp.addEventListener('change', () => { touch(); entry.nth = Math.max(0, Number(nthInp.value) || 0); store.commit(); ctx.rerender(); });
+      const uhInp = box.querySelector('[name="unitHours"]');
+      if (uhInp) uhInp.addEventListener('change', () => { touch(); entry.unitHours = Math.max(0, Number(uhInp.value) || 0); store.commit(); ctx.rerender(); });
+
       // 「この時間にやること」3択(計画どおり/別の単元/計画外)。advance+pin+計画外 を統合。
       box.querySelectorAll('[data-lm]').forEach(b => {
         b.onclick = () => {
@@ -1843,7 +1836,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
               const u = plan?.units?.[0];
               entry.pin = u ? { unitId: String(u.id), nth: 1 } : null;
             }
-          } else if (m === 'offplan') { entry.offplan = true; entry.pin = null; entry.advance = false; }
+          } else if (m === 'offplan') { entry.offplan = true; entry.pin = null; entry.advance = null; }
           store.commit(); render(modal); ctx.rerender();
         };
       });
@@ -1892,28 +1885,36 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       store.commit(); render(modal); ctx.rerender();
     };
 
-    // 予定(授業なし)→授業に戻す(メモ編集の「授業に変える」)
+    // 授業 ⇄ 活動(会議・委員会等)の切替
+    modal.querySelector('[data-make-activity]')?.addEventListener('click', () => {
+      makeActivity(); store.commit(); render(modal); ctx.rerender();
+    });
     modal.querySelector('[data-make-lesson]')?.addEventListener('click', () => {
-      ensureLesson(); store.commit(); render(modal); ctx.rerender();
+      // 活動→授業に戻す: 先頭entryの活動属性を外し、教科を選べる授業entryへ(専科は既定教科を充填=ensureと同じ)
+      const c = store.getCell(weekStart, dayIdx, periodId);
+      const e = c?.entries?.[0];
+      if (e) {
+        e.noCount = false; e.unitName = ''; e.nth = 0; e.unitHours = 0;
+        if (s.mode === 'senka') {
+          e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
+          if (e.scope == null) e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
+          if (e.subjectKey) prefilled.add(e.id);
+        }
+      }
+      store.commit(); render(modal); ctx.rerender();
     });
-    const memoTa = modal.querySelector('[name="cellNote"]');
-    if (memoTa) {
-      memoTa.addEventListener('input', () => {
-        const c = store.getCell(weekStart, dayIdx, periodId);
-        if (c) { c.note = memoTa.value; c.blocked = true; store.commit(); }
+    // 活動(会議・委員会等)の名前 ＋ よく使うプリセット ＋ 備考
+    const actName = modal.querySelector('[name="activityName"]');
+    if (actName) {
+      const e0 = () => store.getCell(weekStart, dayIdx, periodId)?.entries?.[0];
+      actName.addEventListener('input', () => { const e = e0(); if (e) { e.unitName = actName.value; store.commit(); } });
+      actName.addEventListener('change', () => ctx.rerender());
+      modal.querySelectorAll('.memo-preset').forEach(b => b.onclick = () => {
+        const e = e0(); if (!e) return; e.unitName = b.dataset.preset; actName.value = b.dataset.preset; store.commit(); ctx.rerender();
       });
-      memoTa.addEventListener('change', () => ctx.rerender());
+      const actNote = modal.querySelector('[name="actNote"]');
+      if (actNote) { actNote.addEventListener('input', () => { const e = e0(); if (e) { e.note = actNote.value; store.commit(); } }); actNote.addEventListener('change', () => ctx.rerender()); }
     }
-    // よく使う予定をワンタップで入れる(会議・委員会・クラブ…)
-    modal.querySelectorAll('.memo-preset').forEach(b => {
-      b.onclick = () => {
-        const c = store.getCell(weekStart, dayIdx, periodId);
-        if (!c) return;
-        c.note = b.dataset.preset; c.blocked = true;
-        if (memoTa) memoTa.value = b.dataset.preset;
-        store.commit(); ctx.rerender();
-      };
-    });
   };
 
   openModal(`
@@ -1930,7 +1931,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     </div>
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
-      <button class="btn danger left" data-clear-cell></button>
+      <button class="btn danger left" data-clear-cell>${icon('trash')}削除</button>
       <button class="btn ghost" data-revert>取り消す</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
@@ -1957,6 +1958,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       store.snapshot('本時の中身をクリア');
       clearCellContent(c); // 教科・学級は残し、本時の中身(ねらい/活動/評価/全文)を空に
       store.commit(); render(modal); ctx.rerender();
+      toast('本時の中身を空にしました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); render(modal); ctx.rerender(); } });
     };
     modal.querySelector('[data-oc-move]').onclick = () => {
       closeOcMenu();
@@ -1974,21 +1976,14 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       toast('変更を取り消しました', 'info', 2000);
       ctx.rerender();
     };
-    // クリア位置のボタンを「授業なし⇄空きに戻す」に統合(ラベルは render で状態に合わせて設定)
+    // 削除=このコマを消す→空きに戻す(また流し込みで埋まりうる)。
     modal.querySelector('[data-clear-cell]').onclick = () => {
-      const c = store.getCell(weekStart, dayIdx, periodId);
-      if (c && c.entries.length) {
-        // 削除=授業を消す→「授業なし」へ(流し込みで戻らない)。会議・委員会等を書きたければ書ける。
-        store.snapshot('授業を削除');
-        makeMemo(); store.commit(); render(modal); ctx.rerender();
-      } else {
-        // 予定・空き → 完全に空きへ戻す(また流し込みで埋まる)
-        const w = store.getWeek(weekStart, true);
-        store.snapshot('空きに戻す');
-        delete w.cells[editKey];
-        store.commit(); close();
-        toast('空きに戻しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
-      }
+      const w = store.getWeek(weekStart, true);
+      store.snapshot('コマを削除');
+      delete w.cells[editKey];
+      discarded = true; // 削除後の cleanup で再生成しない
+      store.commit(); close();
+      toast('削除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     };
   }, cleanup);
 
@@ -2001,9 +1996,12 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const key = cellKey(dayIdx, periodId);
     const c = w?.cells?.[key];
     if (c) {
-      c.entries = c.entries.filter(e =>
-        (e.subjectKey && !prefilled.has(e.id)) || (e.text && !e.auto) || e.note || e.override);
-      if (!c.entries.length && !c.blocked) delete w.cells[key]; // 予定(非授業)コマは空でも残す
+      // 備考・上書きは授業or活動を伴うときだけ意味を持つ(教科なし非活動の note/override だけのコマは幽霊なので掃除)
+      c.entries = c.entries.filter(e => {
+        const lesson = e.subjectKey && !prefilled.has(e.id);
+        return lesson || isActivity(e) || (e.text && !e.auto) || ((e.note || e.override) && (e.subjectKey || isActivity(e)));
+      });
+      if (!c.entries.length) delete w.cells[key]; // 授業も活動も無ければ空き(コマ削除)
     }
     if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
       && !(w.events || []).some(Boolean)
@@ -2068,6 +2066,18 @@ const OV_PLACEHOLDERS = {
 
 function entryEditorHTML(state, entry, idx, period, ordinals) {
   const s = state.settings;
+  // 活動(会議・委員会・クラブ等。教科なし・時数に数えない)は名前だけのシンプル編集。
+  if (isActivity(entry)) {
+    return `<div class="entry-editor activity-editor">
+      <div class="field">
+        <label>予定・活動（会議・委員会・クラブなど）${infoHTML('授業ではない予定。時数に数えず、流し込みでも埋め直されません')}</label>
+        <div class="memo-presets">${MEMO_PRESETS.map(x => `<button type="button" class="btn small ghost memo-preset" data-preset="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        <input type="text" class="act-name" name="activityName" value="${esc(entry.unitName || '')}" placeholder="会議・委員会・クラブ・面談 など" aria-label="予定・活動の名前">
+      </div>
+      <div class="field"><label>備考</label><input type="text" name="actNote" value="${esc(entry.note || '')}"></div>
+      <button type="button" class="btn small ghost" data-make-lesson>${icon('clipboard')}授業に変える</button>
+    </div>`;
+  }
   const { resolved, details } = resolveEntryPlanDetails(state, entry, ordinals);
   // この時間だけ別の単元の本時をやる(pin)用: 教科・学年に対応する計画と、pin中の単元
   const planForPick = entry.subjectKey
@@ -2173,7 +2183,12 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     const modeHeader = lessonMode === 'offplan'
       ? `<div class="ov-head"><span class="ov-kicker">計画外</span><span class="ov-sub">復習・テスト・予備など（進度は進みません）</span></div>`
       : ed.planless
-        ? `<div class="ov-head"><span class="ov-kicker">本時の記録</span><span class="ov-sub">年間計画に未登録のコマ</span></div>`
+        ? `<div class="ov-head"><span class="ov-kicker">本時の記録</span><span class="ov-sub">年間計画に未登録のコマ（単元・時数も手入力できます）</span></div>
+           <div class="planless-unit">
+             <label class="pu-field"><span>単元</span><input type="text" name="unitName" value="${esc(ed.unitName || '')}" placeholder="（例）ごんぎつね"></label>
+             <label class="pu-field pu-num"><span>何時間目</span><input type="number" name="nth" min="0" inputmode="numeric" value="${ed.nth || ''}"></label>
+             <label class="pu-field pu-num"><span>／総時数</span><input type="number" name="unitHours" min="0" inputmode="numeric" value="${ed.unitHours || ''}"></label>
+           </div>`
         : `<div class="ov-head"><span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}${endUnitInline}<span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span></div>`;
     autoBlock = `<div class="ov-block">
       ${lessonModeSelector}
@@ -2246,7 +2261,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           </select>
         </div>
         <div class="checkline"><input type="checkbox" name="noCount" id="nc-${idx}" ${entry.noCount ? 'checked' : ''}>
-          <label for="nc-${idx}">時数に数えない（教育課程外）</label>${infoHTML('朝活動・テスト監督など、授業時数に含めないコマに。進度とは別の「時数」の話です')}</div>
+          <label for="nc-${idx}">時数に数えない</label>${infoHTML('朝活動・テスト監督など、授業時数に含めないコマに。進度とは別の「時数」の話です')}</div>
         <div class="checkline"><input type="checkbox" name="cancelled" id="cl-${idx}" ${entry.cancelled ? 'checked' : ''}>
           <label for="cl-${idx}">中止</label>${infoHTML('学級閉鎖・行事変更などで実施しなかったコマ。以降の授業内容は自動で繰り下がります')}</div>
         ${s.mode !== 'fukushiki' || !isKnownGrade ? `<button class="btn small danger" data-del-entry>この授業を削除</button>` : ''}

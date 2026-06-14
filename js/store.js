@@ -267,7 +267,7 @@ class Store {
     // 手を入れたコマ(●変更・全文手入力・備考・中止)は上書きせず残す
     const kept = {};
     if (preserveEdits && dst.cells) {
-      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell) || cellIsBlocked(cell)) kept[k] = cell;
+      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
     }
     dst.cells = cloneCells(src.cells, keepText);
     let preserved = 0;
@@ -337,12 +337,14 @@ class Store {
     const kept = {};
     if (!fillEmptyOnly) {
       for (const [k, cell] of Object.entries(w.cells)) {
-        // ロック・予定(非授業)は常に保護。手編集は preserveEdits のときだけ保護。
-        if (cellHasLock(cell) || cellIsBlocked(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+        // ロック・活動(会議等の予定)は常に保護。手編集は preserveEdits のときだけ保護。
+        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
       }
     }
-    if (!fillEmptyOnly) { w.cells = {}; }      // 通常の反映は週を一旦まっさらにする(編集済みは後で戻す)
-    w.dayPatterns = { ...(base.dayPatterns || {}) };
+    if (!fillEmptyOnly) {
+      w.cells = {};                            // 通常の反映は週を一旦まっさらにする(編集済みは後で戻す)
+      w.dayPatterns = { ...(base.dayPatterns || {}) }; // 日課パターンも基本時間割に揃える(fillでは既存週の短縮日課を尊重)
+    }
     const cloned = cloneCells(base.cells, false);
     let placed = 0;
     for (const [key, cell] of Object.entries(cloned)) {
@@ -365,30 +367,43 @@ class Store {
    * 祝日・長期休業・非授業日は常に除外。
    * mode:
    *   'fill'    (既定) 空き週・空きコマだけ作る。既存は一切触らない。
-   *   'reapply' 既存週も基本時間割で作り直す。手編集(●変更/手入力/備考/中止/計画外)は保持。
-   *   'reset'   手編集も含め全コマを計画どおりに作り直す(破壊的)。
-   * 戻り値: { weeks: 対象/更新した週数, placed: 置いたコマ数, preserved: 保持した手編集コマ数 }
+   * ルールは1つ「設定済みのコマは計画に戻す／空き(消したコマ)は触らない」:
+   *   - 空の週     → 基本時間割から骨組みを作る(初期セットアップ)。
+   *   - 設定済みの週 → 授業コマを計画に戻す(本時の上書き・クリア・中止・計画外を消してauto化)。
+   *                   空きコマ(消したコマ)は触らない=戻さない。🔒ロック・予定(会議等)は守る。
+   * 計画の無い教科(手入力で記録するコマ)は戻す先が無いので守る。
+   * 戻り値: { weeks: 触れた週数, placed: 骨組みで新規に置いたコマ数, conformed: 計画に戻したコマ数, kept: 守ったコマ数 }
    */
-  generateRange(fromWeekStart, toWeekStart, id = null, mode = 'fill') {
+  generateRange(fromWeekStart, toWeekStart, id = null) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
-    if (!base) return { weeks: 0, placed: 0, preserved: 0 };
-    const opts = mode === 'reset'
-      ? { skipNoSchool: true, fillEmptyOnly: false, preserveEdits: false, commit: false }
-      : mode === 'reapply'
-        ? { skipNoSchool: true, fillEmptyOnly: false, preserveEdits: true, commit: false }
-        : { skipNoSchool: true, fillEmptyOnly: true, commit: false };
+    if (!base) return { weeks: 0, placed: 0, conformed: 0, kept: 0 };
     let monday = mondayOf(parseDate(fromWeekStart));
     const end = mondayOf(parseDate(toWeekStart));
-    let weeks = 0, placed = 0, preserved = 0;
+    let weeks = 0, placed = 0, conformed = 0, kept = 0;
     let guard = 0;
     while (fmtDate(monday) <= fmtDate(end) && guard++ < 80) {
-      const res = this.applyBaseTimetable(fmtDate(monday), id, opts);
-      if (res.placed > 0 || res.preserved > 0) weeks++;
-      placed += res.placed; preserved += res.preserved;
+      const wk = fmtDate(monday);
+      const w = this.state.weeks[wk];
+      const hasCells = w && Object.keys(w.cells || {}).length > 0;
+      if (!hasCells) {
+        // 空の週: 基本時間割から骨組みを作る
+        const res = this.applyBaseTimetable(wk, id, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
+        placed += res.placed; if (res.placed) weeks++;
+      } else {
+        // 設定済みの週: 授業コマを計画に戻す(空きは触らない・ロック/予定は守る)
+        let touched = false;
+        for (const cell of Object.values(w.cells)) {
+          if (cellHasLock(cell) || cellHasActivity(cell)) { kept++; continue; }
+          let didConform = false;
+          for (const e of cell.entries) { if (conformEntryToPlan(this.state, e)) didConform = true; }
+          if (didConform) { conformed++; touched = true; } else kept++; // 計画なし等は守る
+        }
+        if (touched) weeks++;
+      }
       monday = addDays(monday, 7);
     }
     this.commit();
-    return { weeks, placed, preserved };
+    return { weeks, placed, conformed, kept };
   }
 
   get hasBaseTimetable() {
@@ -515,6 +530,9 @@ export function effectivePeriod(settings, week, dayIdx, period) {
 export function newEntry() {
   return {
     id: uid(), subjectKey: '', scope: null, text: '', auto: true, note: '',
+    // 年間計画が無いコマ用の手入力の単元・進度(計画があれば計画が優先)。
+    // 教科の無い活動(会議・委員会・クラブ等)は subjectKey='' + unitName + noCount で表す。
+    unitName: '', nth: 0, unitHours: 0,
     noCount: false,    // 時数集計から除外
     advance: null,     // 進度カウント(null=校時種別の既定に従う)
     fraction: 1,       // 分数時数: このコマに占める割合(1, 2/3, 1/2, 1/3)
@@ -605,7 +623,7 @@ export function normalizeLesson(l) {
 /** 観点コード→正式名称(印刷・表示用) */
 export const VIEWPOINTS = { 知: '知識・技能', 思: '思考・判断・表現', 態: '主体的に学習に取り組む態度' };
 
-/** このエントリにユーザーの手編集が入っているか(項目別上書き・全文手入力・備考・中止)。一括操作で守る判定に使う。 */
+/** このエントリにユーザーの手編集が入っているか(上書き・手入力・備考・中止・差し込み等)。一括操作で守る判定に使う。 */
 export function isEntryEdited(e) {
   if (!e) return false;
   if (normalizeOverride(e.override)) return true;               // ●変更(項目別の上書き)
@@ -613,6 +631,13 @@ export function isEntryEdited(e) {
   if (e.note && e.note.trim()) return true;                     // 備考
   if (e.cancelled) return true;                                 // 中止指定
   if (e.offplan) return true;                                   // 計画外(復習・テスト等。一括再反映で自動コマに戻さない)
+  if (e.pin) return true;                                       // 別単元の差し込み
+  if (e.endUnit) return true;                                   // この時間で単元を切り上げ
+  if ((e.fraction ?? 1) !== 1) return true;                     // 分数時数(0.5コマ等)
+  if (e.guide) return true;                                     // 複式の指導形態
+  if (e.subjectKey && e.noCount) return true;                   // 授業を時数外にした
+  if (isActivity(e)) return true;                               // 活動(会議・委員会等。手で入れたもの)
+  if ((e.unitName && e.unitName.trim()) || e.nth || e.unitHours) return true; // 計画なしの手入力(単元・時数)
   return false;
 }
 
@@ -626,18 +651,38 @@ export function cellHasLock(cell) {
   return !!cell && Array.isArray(cell.entries) && cell.entries.some(e => e && e.locked);
 }
 
-/** このコマが「予定(非授業)」=会議・面談・出張など、授業を入れない占有コマか。
- * 流し込み・自動配置はこのコマに触れない(教員が意図的に空けた=もう授業を戻さない)。 */
-export function cellIsBlocked(cell) {
-  return !!cell && cell.blocked === true;
+/** 「活動」entry = 教科の無いコマ(会議・委員会・クラブ・出張など)。unitName を見出しに表示し時数に数えない。
+ * 旧「予定(blocked)」をこの形に統一(コマ=授業か空きの2状態に簡素化)。 */
+export function isActivity(entry) {
+  return !!entry && !entry.subjectKey && entry.noCount === true;
 }
 
-/** このコマが「占有済み」=授業entryあり or 予定(blocked)。流し込みで埋める対象から外す判定。 */
+/** セル内に活動(会議・委員会等)があるか。基本時間割に無い週限定の予定を「計画に合わせて更新」で常に守る判定。 */
+export function cellHasActivity(cell) {
+  return !!cell && Array.isArray(cell.entries) && cell.entries.some(isActivity);
+}
+
+/** 授業entryを「計画どおり」に戻す(本時の上書き・クリア・中止・計画外・差し込み・単元切上げ・分数時数・時数外を消してauto化)。
+ * 教科・学級は残す。計画の無い教科(手入力で記録するコマ)は戻す先が無いので触らない。戻したら true。 */
+export function conformEntryToPlan(state, entry) {
+  if (!entry || !entry.subjectKey) return false;       // 空き・活動は対象外
+  const grade = scopeGrade(state.settings, entry.scope);
+  const hasPlan = state.plans.some(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade));
+  if (!hasPlan) return false;                            // 計画なし=手入力で記録 → 残す
+  entry.override = null; entry.text = ''; entry.auto = true;
+  entry.cancelled = false; entry.cancelledText = '';
+  entry.offplan = false; entry.pin = null; entry.endUnit = false;
+  entry.advance = null; entry.fraction = 1; entry.noCount = false;
+  return true;
+}
+
+/** このコマが「占有済み」=entryがある(授業 or 活動)。流し込みで埋める対象から外す判定。 */
 export function cellIsClaimed(cell) {
-  return !!cell && ((Array.isArray(cell.entries) && cell.entries.length > 0) || cellIsBlocked(cell));
+  return !!cell && Array.isArray(cell.entries) && cell.entries.length > 0;
 }
 
-/** セル群を複製。keepText=falseなら手動内容・備考・中止フラグを初期化して自動反映に戻す */
+/** セル群を複製。keepText=falseなら週ごとの実施記録(本時内容・備考・中止・差し込み・単元切上げ・分数時数・進度上書き・上書き)を
+ * 初期化して自動反映に戻す。教科・学級・活動(会議等の unitName/noCount)・複式の指導形態は枠組みなので keepText に関わらず引き継ぐ。 */
 function cloneCells(cells, keepText) {
   const out = {};
   for (const [k, cell] of Object.entries(cells)) {
@@ -649,16 +694,41 @@ function cloneCells(cells, keepText) {
         auto: keepText ? e.auto : true,
         note: keepText ? e.note : '',
         cancelled: false,
+        cancelledText: keepText ? e.cancelledText : '',
+        override: keepText ? e.override : null,   // ●変更(項目別上書き)は週ごとの実施記録
         locked: false,                      // ロックは複製しない(週ごとの保護。ひな形・前週コピーには持ち込まない)
-        pin: keepText ? e.pin : null,       // 別単元・計画外は週ごとの状態。ひな形(keepText=false)には持ち込まない
-        offplan: keepText ? e.offplan : false,
+        pin: keepText ? e.pin : null,       // 別単元・計画外・単元切上げ・分数時数・進度上書きは週ごとの状態。
+        offplan: keepText ? e.offplan : false, // ひな形(keepText=false)には持ち込まない
+        endUnit: keepText ? e.endUnit : false,
+        fraction: keepText ? e.fraction : 1,
+        advance: keepText ? e.advance : null,
       })),
-      // 予定(非授業)=会議・面談などは毎週くり返す枠組みの一部。基本時間割への登録・反映・前週コピーで持ち運ぶ
-      note: String(cell.note ?? ''),
-      blocked: cell.blocked === true,
     };
   }
   return out;
+}
+
+/** 1コマを正規化する(週・基本時間割で共用)。entryを整え、旧「予定(blocked)」を
+ * 「活動entry(会議・委員会等。教科なし＋見出し＋時数に数えない)」へ移行する。
+ * 戻り値: このコマを残すか(=授業 or 活動のentryがあるか)。 */
+function migrateCell(cell) {
+  if (!cell || !Array.isArray(cell.entries)) return false;
+  cell.entries = cell.entries.filter(e => e && typeof e === 'object').map(e => {
+    const ne = { ...newEntry(), ...e, id: e.id || uid() };
+    ne.override = normalizeOverride(ne.override);
+    return ne;
+  });
+  // 旧「予定(blocked)」コマ → 時数に数えない活動entry(会議・委員会など)へ
+  const note = typeof cell.note === 'string' ? cell.note.trim() : '';
+  const wasBlocked = cell.blocked === true || note !== '';
+  if (wasBlocked && !cell.entries.length) {
+    const a = newEntry();
+    a.unitName = note || '予定';
+    a.noCount = true;
+    cell.entries.push(a);
+  }
+  delete cell.blocked; delete cell.note; // セルからは撤廃(状態はentryに集約)
+  return cell.entries.length > 0;
 }
 
 function migrate(data) {
@@ -743,17 +813,7 @@ function migrate(data) {
     w.start = w.start || key;
     w.cells = (w.cells && typeof w.cells === 'object') ? w.cells : {};
     for (const [ck, cell] of Object.entries(w.cells)) {
-      if (!cell || !Array.isArray(cell.entries)) { delete w.cells[ck]; continue; }
-      cell.entries = cell.entries.filter(e => e && typeof e === 'object').map(e => {
-        const ne = { ...newEntry(), ...e, id: e.id || uid() };
-        ne.override = normalizeOverride(ne.override); // 既存データは override 無し(=null)
-        return ne;
-      });
-      // 予定(非授業)コマ: メモがあれば占有扱い(blocked)。授業が無くても消さない。
-      cell.note = String(cell.note ?? '');
-      cell.blocked = cell.blocked === true || cell.note.trim() !== '';
-      // 授業も予定メモも無いコマだけ削除(真の空き)
-      if (!cell.entries.length && !cell.blocked) delete w.cells[ck];
+      if (!migrateCell(cell)) delete w.cells[ck];
     }
     if (!Array.isArray(w.events)) w.events = ['', '', '', '', '', ''];
     if (!Array.isArray(w.dayNotes)) w.dayNotes = ['', '', '', '', '', ''];
@@ -805,6 +865,13 @@ function migrate(data) {
       ? [{ id: uid(), name: '基本', cells: old.cells }]
       : [];
     delete data.baseTimetable;
+  }
+  // 基本時間割のコマも正規化(旧「予定(blocked)」→活動entryへ移行)
+  for (const base of data.baseTimetables) {
+    if (!base || typeof base.cells !== 'object') { if (base) base.cells = {}; continue; }
+    for (const [ck, cell] of Object.entries(base.cells)) {
+      if (!migrateCell(cell)) delete base.cells[ck];
+    }
   }
   data.schemaVersion = SCHEMA_VERSION;
   data.updatedAt = Number(data.updatedAt) || Date.now();
@@ -946,7 +1013,15 @@ export function resolveEntryText(state, entry, ordinals) {
     || null;
   // pin があれば自動の順番を無視して指定単元の本時を出す(この時間だけ別の単元)
   const info = plan ? (entry.pin ? lessonFromPin(plan, entry.pin) : lessonFromPlan(plan, ordinals.get(entry.id))) : null;
-  if (!info) return { text: entry.text || '', auto: true, info: null };
+  if (!info) {
+    // 計画なし(手記録・活動): 手入力の単元名(n/m) + ねらい(override)/手入力 を1行に組む
+    // (auto=false&&text の手入力は冒頭で return 済みなので、ここは auto のケースのみ)
+    const uName = String(entry.unitName || '');
+    const nth = Number(entry.nth) || 0, uHours = Number(entry.unitHours) || 0;
+    const obj = normalizeOverride(entry.override)?.objective || entry.text || '';
+    const counter = (uHours > 1 && nth) ? `(${nth}/${uHours})` : '';
+    return { text: `${uName}${counter}${obj ? ` ${obj}` : ''}`.trim(), auto: true, info: null };
+  }
   if (info.exhausted) return { text: '(計画終了)', auto: true, info };
   const head = info.unitName ? `${info.unitName}` : '';
   // 本時のねらいを override で差し替えていれば1行表示にも反映する(計画の元値はそのまま)
@@ -972,20 +1047,23 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
       || null;
   }
   if (!info || info.exhausted || !info.unit) {
-    // 計画が無い/終了したコマでも、override 単独で活動・評価を記録できるようにする。
+    // 計画が無い/終了したコマ。手入力の単元・時数(nth/総時数)と override で記録する。
+    // 教科の無い活動(会議・委員会等)もここ(unitName を見出しに、時数に数えない)。
     const ov = normalizeOverride(entry.override);
-    if (!ov) return { resolved, details: null };
+    const uName = String(entry.unitName || '');
+    // 手入力(単元名・override)が何も無ければ details なし(表示は空。計画外も計画本文を引かない)
+    if (!ov && !uName) return { resolved, details: null };
     const merged = mergeLessonOverride(null, ov);
     return {
       resolved,
       details: {
-        unitName: '', unitId: '', nth: 0, unitHours: 0,
+        unitName: uName, unitId: '', nth: Number(entry.nth) || 0, unitHours: Number(entry.unitHours) || 0,
         planId: '', textbook: '',
         grade: scopeGrade(state.settings, entry.scope) || null,
         manualText: resolved.auto ? '' : resolved.text,
         unitGoal: '', unitCriteria: { knowledge: '', thinking: '', attitude: '' },
-        planless: true, // 年間計画に紐づかない手記録(編集UIで見出しを変える)
-        ...merged,
+        planless: true,           // 年間計画に紐づかない手記録(編集UIで単元・時数も変える)
+        ...merged,                // objective/activity/assessment/viewpoint(学習活動はここ)
       },
     };
   }
@@ -1016,27 +1094,29 @@ export function resolveEntryPlanDetails(state, entry, ordinals) {
 }
 
 /**
- * 観点別(知/思/態)の評価場面数を集計する。年度内の全コマを走査し、進度を進める
- * (=評価機会のある)非中止コマについて、実効観点(override優先、なければ計画)を数える。
- * 戻り値: Map<scopeKey, {知, 思, 態, total}>。
+ * 観点別(知/思/態)の評価場面数を集計する。年度内・今日までに実施した、時数に数える非中止の授業コマについて、
+ * 実効観点(override優先、なければ計画)を数える。戻り値: Map<scopeKey, {知, 思, 態, total}>。
  * 評定期に「思考の評価場面が足りない」等を、観点別評価の入力済みデータから事前に把握するため。
  */
 export function computeViewpointTally(state, refWeekStart) {
   const { settings, weeks } = state;
   const range = refWeekStart ? fiscalRangeOf(refWeekStart) : null;
   const ordinals = computeOrdinals(state, refWeekStart);
+  const todayStr = fmtDate(new Date());
   const tally = new Map();
   const weekKeys = Object.keys(weeks).sort();
   for (const wk of weekKeys) {
     if (range && (wk < range.from || wk >= range.to)) continue;
     const week = weeks[wk];
+    const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {
+      if (fmtDate(addDays(monday, d)) > todayStr) continue;  // 今日より後の未実施コマは数えない(時数集計と整合)
       for (const p of settings.periods) {
         if (!effectivePeriod(settings, week, d, p)) continue;
         const cell = week.cells[cellKey(d, p.id)];
         if (!cell) continue;
         for (const e of cell.entries) {
-          if (!e.subjectKey || e.cancelled) continue;
+          if (!e.subjectKey || e.noCount || e.cancelled) continue; // 時数外(noCount)は評価場面にも数えない
           const vp = resolveEntryPlanDetails(state, e, ordinals).details?.viewpoint;
           if (vp !== '知' && vp !== '思' && vp !== '態') continue;
           const k = scopeKey(e.subjectKey, e.scope);

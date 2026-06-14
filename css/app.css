@@ -348,17 +348,19 @@ td.cell:hover .cell-clear { display: block; }
 
 .cell-empty { color: #c4ccd8; font-size: 16px; text-align: center; padding-top: 18px; user-select: none; }
 
-/* 予定(非授業)コマ: 会議・面談・出張など。授業カードとも真の空きとも区別する淡色メモ。 */
-td.cell.blocked { background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 6px, #f1f5f9 6px, #f1f5f9 12px); }
-.cell-note { display: flex; align-items: flex-start; gap: 4px; color: #64748b; font-size: 12px; line-height: 1.35; padding: 3px 2px; }
-.cell-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; opacity: .8; }
-.cell-note .cn-text { word-break: break-word; }
+/* 活動(会議・委員会・クラブ等。教科なし・時数に数えない)。授業カードと区別する淡色メモ。 */
+.entry.activity { display: flex; align-items: flex-start; gap: 4px; color: #64748b; font-size: 12px; line-height: 1.35; padding: 2px; background: #f6f8fb; border-radius: 4px; }
+.entry.activity svg { width: 13px; height: 13px; flex: none; margin-top: 1px; opacity: .8; }
+.entry.activity .e-activity-name { word-break: break-word; font-weight: 600; }
 
-/* コマ編集: 予定(会議・委員会・クラブ等)メモ と 授業→予定の切替 */
-.oc-memo { width: 100%; resize: vertical; }
+/* コマ編集: 活動(会議・委員会等)の名前プリセット／計画なしコマの単元・時数入力 */
 .memo-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .memo-preset { padding: 4px 11px; font-size: 12.5px; }
-.oc-memo-acts { display: flex; gap: 8px; margin-top: 10px; }
+.act-name { width: 100%; }
+.planless-unit { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; }
+.planless-unit .pu-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); flex: 1 1 auto; }
+.planless-unit .pu-num { flex: 0 0 84px; }
+.planless-unit input { font-size: 14px; }
 .oc-to-memo { width: 100%; justify-content: center; margin-top: 8px; color: var(--muted); }
 .oc-to-memo svg { width: 15px; height: 15px; }
 /* コマ編集の見出し行: タイトル＋右上「⋯」(このコマへの操作) */
@@ -609,15 +611,6 @@ details.menu .menu-items .btn { text-align: left; justify-content: flex-start; }
    .btn 既定の中央寄せ(justify-content:center)だと、名前が中央に浮いて不格好になる。 */
 .choice-list { display: flex; flex-direction: column; gap: 8px; }
 .choice-list > .btn { justify-content: flex-start; text-align: left; }
-
-/* 期間をまとめて作成の「作り方」モード選択 */
-.gen-mode { display: flex; flex-direction: column; gap: 6px; }
-.gen-mode > label { display: flex; gap: 9px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md, 8px); cursor: pointer; }
-.gen-mode > label:hover { background: var(--accent-50); }
-.gen-mode input { margin-top: 3px; flex: 0 0 auto; width: 16px; height: 16px; }
-.gen-mode span { display: flex; flex-direction: column; }
-.gen-mode b { font-size: 13.5px; }
-.gen-mode small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
 
 
 /* ---------- 中止エントリ ---------- */
@@ -1054,22 +1047,6 @@ td.cell:focus-visible, .day-th:focus-visible {
 .day-chip.sat b { color: var(--accent); }
 .day-chip.sun b { color: #dc2626; }
 
-/* 基本時間割マネージャ(見る・反映・名前変更・削除) */
-.bt-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
-.bt-card { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 12px; background: var(--panel); }
-.bt-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.bt-card-head strong { font-size: var(--t-sm); }
-.bt-card-head .spacer { flex: 1; }
-.bt-rename-input { flex: 1; min-width: 120px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; font-family: inherit; font-size: 13px; }
-.bt-grid-wrap { overflow-x: auto; }
-.bt-grid { border-collapse: collapse; width: 100%; font-size: 11px; table-layout: fixed; }
-.bt-grid th, .bt-grid td { border: 1px solid var(--line); padding: 3px; text-align: center; vertical-align: middle; }
-.bt-grid thead th { background: var(--gray-50); font-weight: 700; color: var(--ink-2); }
-.bt-grid thead th.sat { color: var(--accent); }
-.bt-grid .bt-ph { background: var(--gray-50); font-weight: 700; color: var(--ink-2); width: 36px; }
-.bt-grid td { height: 26px; }
-.bt-chip { display: inline-block; color: #fff; font-weight: 700; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; white-space: nowrap; }
-.bt-chip small { font-weight: 600; opacity: .9; font-size: 9px; }
 /* 設定: 基本時間割の編集グリッド */
 .bt-card-edit { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 12px; margin-bottom: 14px; background: var(--panel); }
 .bt-name-input { border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; font-family: inherit; font-size: 13px; font-weight: 600; }
@@ -1128,8 +1105,7 @@ td.cell:focus-visible, .day-th:focus-visible {
 .dp-body .e-text { font-size: 13px; }
 .dp-body .e-plan-line { font-size: 11.5px; }
 .dp-empty { color: var(--gray-400); font-size: 13px; font-weight: 600; }
-.dp-note { display: flex; align-items: center; gap: 6px; color: #64748b; font-size: 13.5px; font-weight: 600; }
-.dp-note svg { width: 15px; height: 15px; opacity: .8; }
+.day-period .entry.activity { font-size: 13.5px; }
 
 .day-memo { margin-top: 14px; }
 .day-memo label { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink-2); margin-bottom: 5px; }

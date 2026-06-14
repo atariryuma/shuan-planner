@@ -13,7 +13,10 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, cellIsBlocked, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, isActivity, isEntryEdited, conformEntryToPlan, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
+
+// 活動(会議・委員会等)entry: 教科なし＋見出し＋時数に数えない
+const activityEntry = (name) => ({ id: `act-${name}`, subjectKey: '', scope: null, unitName: name, nth: 0, unitHours: 0, noCount: true, fraction: 1, cancelled: false, auto: true, override: null });
 const { buildPrintHoursModel, capSubjectColumns } = await import('../js/print-hours.js');
 const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons, renderPlanDetailPages } = await import('../js/print.js');
 
@@ -356,7 +359,7 @@ test('locked cells survive a destructive reapply (reset); unlocked user edits do
   assert.equal(after.cells[cellKey(1, 'p1')].entries[0].cancelled, false);
 });
 
-test('blocked (予定/非授業) cells survive flow-in and consume neither hours nor progression', () => {
+test('activity (会議/委員会) entries survive flow-in and consume neither hours nor progression', () => {
   const state = defaultState();
   state.settings.grade = 4;
   state.plans = [{
@@ -379,28 +382,26 @@ test('blocked (予定/非授業) cells survive flow-in and consume neither hours
   }];
   store.state = state;
 
-  // 火曜を「予定(会議)」にする = 授業なし・占有
+  // 火曜を「活動(会議)」にする = 教科なしのentry・占有
   state.weeks[WEEK] = state.weeks[WEEK] || { start: WEEK, cells: {}, events: [], dayNotes: [], attendance: [], dayPatterns: {}, goals: '', reflection: '' };
-  state.weeks[WEEK].cells[cellKey(1, 'p1')] = { entries: [], blocked: true, note: '職員会議' };
+  state.weeks[WEEK].cells[cellKey(1, 'p1')] = { entries: [activityEntry('職員会議')] };
 
-  // 空きを埋める(fill): 予定コマは埋め直されない、月曜だけ授業が入る
+  // 空きを埋める(fill): 活動コマは埋め直されない、月曜だけ授業が入る
   store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: true, commit: false });
   const w = store.state.weeks[WEEK];
-  assert.equal(cellIsBlocked(w.cells[cellKey(1, 'p1')]), true);
-  assert.equal(w.cells[cellKey(1, 'p1')].note, '職員会議');
-  assert.equal(w.cells[cellKey(1, 'p1')].entries.length, 0); // 授業は入っていない
+  assert.equal(isActivity(w.cells[cellKey(1, 'p1')].entries[0]), true);
+  assert.equal(w.cells[cellKey(1, 'p1')].entries[0].unitName, '職員会議');
   assert.equal(w.cells[cellKey(0, 'p1')].entries[0].subjectKey, 'kokugo'); // 月曜は埋まった
 
-  // 進度: 予定コマは授業entryが無いので ordinals に現れず、カウンタも消費しない(月曜=L1)
+  // 進度: 活動コマは教科が無いので ordinals に現れず、カウンタも消費しない(月曜=L1)
   const ords = computeOrdinals(state, WEEK);
   const mondayId = w.cells[cellKey(0, 'p1')].entries[0].id;
   assert.equal(ords.get(mondayId), 0); // 月曜=L1
-  assert.equal(w.cells[cellKey(1, 'p1')].entries.length, 0); // 火曜は授業entry無し=進度に出ない
+  assert.equal(ords.has(w.cells[cellKey(1, 'p1')].entries[0].id), false); // 火曜の活動は進度に出ない
 
-  // reset(まっさら)でも予定コマは残る(ロックと同じく常に保護)
-  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: false, commit: false });
-  assert.equal(cellIsBlocked(store.state.weeks[WEEK].cells[cellKey(1, 'p1')]), true);
-  assert.equal(store.state.weeks[WEEK].cells[cellKey(1, 'p1')].note, '職員会議');
+  // reapply(計画どおりに作り直す)でも活動コマは「手で入れたもの」として残る
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: true, commit: false });
+  assert.equal(isActivity(store.state.weeks[WEEK].cells[cellKey(1, 'p1')].entries[0]), true);
 });
 
 test('editing the objective does not auto-blank activity/assessment; explicit blanks persist', () => {
@@ -426,7 +427,7 @@ test('a recurring meeting set in the base timetable flows into the week', () => 
     id: 'base-1', name: '基本', dayPatterns: {}, savedAt: 1,
     cells: {
       [cellKey(0, 'p1')]: { entries: [{ id: 'b0', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false, auto: true }] },
-      [cellKey(2, 'p3')]: { entries: [], blocked: true, note: '職員会議' }, // 毎週水3校時=会議
+      [cellKey(2, 'p3')]: { entries: [activityEntry('職員会議')] }, // 毎週水3校時=会議
     },
   }];
   store.state = state;
@@ -434,10 +435,125 @@ test('a recurring meeting set in the base timetable flows into the week', () => 
   // 空の週へ流し込む(自動材料化と同じ fillEmptyOnly)
   store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: true, commit: false });
   const w = store.state.weeks[WEEK];
-  // 会議コマが週に入っている(blocked＋note保持)
-  assert.equal(cellIsBlocked(w.cells[cellKey(2, 'p3')]), true);
-  assert.equal(w.cells[cellKey(2, 'p3')].note, '職員会議');
-  assert.equal(w.cells[cellKey(2, 'p3')].entries.length, 0); // 授業ではない
+  // 会議の活動コマが週に入っている(教科なし・見出し保持)
+  assert.equal(isActivity(w.cells[cellKey(2, 'p3')].entries[0]), true);
+  assert.equal(w.cells[cellKey(2, 'p3')].entries[0].unitName, '職員会議');
   // 月曜の授業も入っている
   assert.equal(w.cells[cellKey(0, 'p1')].entries[0].subjectKey, 'kokugo');
+});
+
+test('migration converts an old blocked cell to a noCount activity entry', () => {
+  // 旧データ: cell.blocked + note。persist→load(migrate) で活動entryへ移行されるはず
+  const raw = { ...defaultState(), schemaVersion: 1 };
+  raw.weeks = { [WEEK]: { start: WEEK, cells: { [cellKey(0, 'p1')]: { entries: [], blocked: true, note: '委員会' } }, events: [], dayNotes: [], attendance: [], dayPatterns: {}, goals: '', reflection: '' } };
+  // store.state にセット → 一度 persist して migrate 経由で読み直す
+  store.state = raw;
+  store.persist();
+  store.state = store.load();
+  const cell = store.state.weeks[WEEK].cells[cellKey(0, 'p1')];
+  assert.ok(cell, '移行後もコマが残る');
+  assert.equal(isActivity(cell.entries[0]), true);
+  assert.equal(cell.entries[0].unitName, '委員会');
+  assert.equal(cell.entries[0].noCount, true);
+  assert.equal('blocked' in cell, false); // セルからは撤廃
+});
+
+test('isEntryEdited treats pin/endUnit/fraction/guide/教科noCount as manual edits (protected on reapply)', () => {
+  const base = { id: 'x', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false, auto: true };
+  assert.equal(isEntryEdited(base), false);                                   // 素の自動授業は未編集
+  assert.equal(isEntryEdited({ ...base, pin: { unitId: 'u', nth: 1 } }), true); // 別単元の差し込み
+  assert.equal(isEntryEdited({ ...base, endUnit: true }), true);              // 単元切り上げ
+  assert.equal(isEntryEdited({ ...base, fraction: 0.5 }), true);              // 分数時数
+  assert.equal(isEntryEdited({ ...base, guide: 'direct' }), true);           // 複式の指導形態
+  assert.equal(isEntryEdited({ ...base, noCount: true }), true);             // 授業を時数外にした
+});
+
+test('reset keeps week-only activities (会議) even without a lock', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.baseTimetables = [{
+    id: 'base-1', name: '基本', dayPatterns: {}, savedAt: 1,
+    cells: { [cellKey(0, 'p1')]: { entries: [{ id: 'b0', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false, auto: true }] } },
+  }];
+  store.state = state;
+  // その週だけ手で入れた活動(基本時間割には無い)
+  state.weeks[WEEK] = { start: WEEK, cells: { [cellKey(2, 'p3')]: { entries: [activityEntry('保護者面談')] } }, events: [], dayNotes: [], attendance: [], dayPatterns: {}, goals: '', reflection: '' };
+
+  // reset(まっさらに作り直す): ロックが無くても活動は残す(UI・コメントの約束どおり)
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: false, commit: false });
+  const w = store.state.weeks[WEEK];
+  assert.equal(isActivity(w.cells[cellKey(2, 'p3')].entries[0]), true);
+  assert.equal(w.cells[cellKey(2, 'p3')].entries[0].unitName, '保護者面談');
+  assert.equal(w.cells[cellKey(0, 'p1')].entries[0].subjectKey, 'kokugo'); // 月曜は計画どおり作り直し
+});
+
+test('計画に合わせて更新: 設定済みは計画に戻す/空きは触らない/ロック・予定は守る', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.plans = [{
+    id: 'pl', subjectKey: 'kokugo', grade: 4, startOffset: 0,
+    units: [{ id: 'u1', name: '物語', hours: 5, goal: '', criteria: { knowledge: '', thinking: '', attitude: '' },
+      lessons: [0,1,2,3,4].map(i => ({ objective: `L${i+1}`, activity: '', assessment: '', viewpoint: '' })) }],
+  }];
+  state.baseTimetables = [{ id: 'b', name: '基本', dayPatterns: {}, savedAt: 1, cells: {
+    [cellKey(0,'p1')]: { entries: [{ id:'b0', subjectKey:'kokugo', scope:null, fraction:1, noCount:false, cancelled:false, auto:true }] },
+    [cellKey(1,'p1')]: { entries: [{ id:'b1', subjectKey:'kokugo', scope:null, fraction:1, noCount:false, cancelled:false, auto:true }] },
+    [cellKey(2,'p1')]: { entries: [{ id:'b2', subjectKey:'kokugo', scope:null, fraction:1, noCount:false, cancelled:false, auto:true }] },
+  } }];
+  store.state = state;
+  store.applyBaseTimetable(WEEK, 'b', { fillEmptyOnly: true, commit: false }); // 骨組みを作る
+  const w = store.state.weeks[WEEK];
+  // 月=手編集(中止), 火=削除(空きに), 水=ロック, さらに木に予定を手で追加
+  w.cells[cellKey(0,'p1')].entries[0].cancelled = true;
+  w.cells[cellKey(0,'p1')].entries[0].override = { objective: '自前ねらい' };
+  delete w.cells[cellKey(1,'p1')];
+  w.cells[cellKey(2,'p1')].entries[0].locked = true;
+  w.cells[cellKey(2,'p1')].entries[0].override = { objective: 'ロックねらい' };
+  w.cells[cellKey(3,'p3')] = { entries: [activityEntry('学年会')] };
+
+  const res = store.generateRange(WEEK, WEEK, 'b');
+
+  const after = store.state.weeks[WEEK];
+  // 月=手編集 → 計画に戻る(中止解除・override消滅)
+  assert.equal(after.cells[cellKey(0,'p1')].entries[0].cancelled, false);
+  assert.equal(after.cells[cellKey(0,'p1')].entries[0].override, null);
+  // 火=削除した空きは戻らない(消したものは戻さない)
+  assert.equal(after.cells[cellKey(1,'p1')], undefined);
+  // 水=ロックは守られ、override も残る
+  assert.equal(cellHasLock(after.cells[cellKey(2,'p1')]), true);
+  assert.deepEqual(after.cells[cellKey(2,'p1')].entries[0].override, { objective: 'ロックねらい' });
+  // 木=予定(会議)は守られる
+  assert.equal(isActivity(after.cells[cellKey(3,'p3')].entries[0]), true);
+  assert.ok(res.conformed >= 1 && res.kept >= 2);
+});
+
+test('conformEntryToPlan: 計画のある教科だけ戻す/計画なし手入力は守る', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.plans = [{ id:'pl', subjectKey:'kokugo', grade:4, startOffset:0, units:[{ id:'u', name:'U', hours:1, goal:'', criteria:{knowledge:'',thinking:'',attitude:''}, lessons:[{objective:'L1',activity:'',assessment:'',viewpoint:''}] }] }];
+  store.state = state;
+  const planned = { id:'a', subjectKey:'kokugo', scope:null, auto:true, override:{objective:'x'}, cancelled:true, fraction:0.5, noCount:false };
+  const planless = { id:'b', subjectKey:'rika', scope:null, auto:true, override:{objective:'手入力'}, unitName:'実験', nth:1, unitHours:3, noCount:false };
+  assert.equal(conformEntryToPlan(state, planned), true);   // 計画あり → 戻す
+  assert.equal(planned.override, null);
+  assert.equal(planned.cancelled, false);
+  assert.equal(planned.fraction, 1);
+  assert.equal(conformEntryToPlan(state, planless), false); // 計画なし → 触らない
+  assert.deepEqual(planless.override, { objective: '手入力' });
+  assert.equal(planless.unitName, '実験');
+});
+
+test('flow-in resets per-week implementation flags (endUnit/fraction) to auto defaults', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.baseTimetables = [{
+    id: 'base-1', name: '基本', dayPatterns: {}, savedAt: 1,
+    // 万一ひな形に週固有フラグが混じっても、流し込み時に自動既定へ戻す
+    cells: { [cellKey(0, 'p1')]: { entries: [{ id: 'b0', subjectKey: 'kokugo', scope: null, fraction: 0.5, noCount: false, cancelled: false, auto: true, endUnit: true }] } },
+  }];
+  store.state = state;
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: false, commit: false });
+  const e = store.state.weeks[WEEK].cells[cellKey(0, 'p1')].entries[0];
+  assert.equal(e.endUnit, false);
+  assert.equal(e.fraction, 1);
 });

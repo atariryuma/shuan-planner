@@ -1,6 +1,6 @@
 /** 設定ビュー: 基本情報・担任形態・時程(校時)・教科・印刷・GAS連携 */
 
-import { store, defaultPeriods, defaultSubjects, cellKey, newEntry } from '../store.js';
+import { store, defaultPeriods, defaultSubjects, cellKey, newEntry, isActivity } from '../store.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
 import { esc, uid, parseDate, fmtMD, fmtDate, mondayOf, DAY_NAMES } from '../utils.js';
 import { icon } from '../icons.js';
@@ -28,19 +28,18 @@ function baseEditGridHTML(s, base) {
   const dayCount = s.saturday ? 6 : 5;
   const subjOptsFor = (sel) => '<option value="">—</option>' + s.subjects.map(x =>
     `<option value="${esc(x.key)}" ${x.key === sel ? 'selected' : ''}>${esc(x.short || x.name)}</option>`).join('')
-    + `<option value="__memo__" ${sel === '__memo__' ? 'selected' : ''}>予定（授業なし）</option>`;
+    + `<option value="__memo__" ${sel === '__memo__' ? 'selected' : ''}>予定・活動（会議・委員会など）</option>`;
   const scopeOptsFor = (sel) => s.senkaClasses.map(c =>
     `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.label || c.id)}</option>`).join('');
   const head = `<tr><th></th>${Array.from({ length: dayCount }, (_, d) => `<th class="${d === 5 ? 'sat' : ''}">${DAY_NAMES[d]}</th>`).join('')}</tr>`;
   const rows = s.periods.map(p => {
     const cells = Array.from({ length: dayCount }, (_, d) => {
-      const cell = base.cells?.[cellKey(d, p.id)];
-      const blocked = cell?.blocked === true;
-      const e = (cell?.entries || [])[0];
-      const subjSel = `<select class="bt-cell-subj" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${subjOptsFor(blocked ? '__memo__' : (e?.subjectKey || ''))}</select>`;
-      // 予定(会議)なら名前入力欄、専科の授業なら学級セレクト
-      const extra = blocked
-        ? `<input class="bt-cell-note" type="text" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}" value="${esc(cell.note || '')}" placeholder="会議・委員会など" aria-label="予定の名前">`
+      const e = (base.cells?.[cellKey(d, p.id)]?.entries || [])[0];
+      const act = isActivity(e); // 会議・委員会など(教科なしの活動)
+      const subjSel = `<select class="bt-cell-subj" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${subjOptsFor(act ? '__memo__' : (e?.subjectKey || ''))}</select>`;
+      // 活動(会議等)なら名前入力欄、専科の授業なら学級セレクト
+      const extra = act
+        ? `<input class="bt-cell-note" type="text" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}" value="${esc(e.unitName || '')}" placeholder="会議・委員会など" aria-label="活動の名前">`
         : (s.mode === 'senka' && e?.subjectKey && s.senkaClasses.length)
           ? `<select class="bt-cell-scope" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${scopeOptsFor(e?.scope ?? s.senkaClasses[0]?.id)}</select>` : '';
       return `<td>${subjSel}${extra}</td>`;
@@ -238,7 +237,7 @@ export function renderSettingsView(root, ctx) {
         ], s.uiScale)}
       </div>
       <div class="checkline"><input type="checkbox" id="set-autolayout" ${s.autoLayout !== false ? 'checked' : ''}>
-        <label for="set-autolayout">空き週に基本時間割を自動表示</label>${infoHTML('基本時間割を登録済みのとき、空の週を開くと自動で時間割と指導計画を配置します。毎週の「基本時間割を反映」が不要に。違うコマは中止/クリアで調整できます')}</div>
+        <label for="set-autolayout">空き週に基本時間割を自動表示</label>${infoHTML('基本時間割を登録済みのとき、空の週を開くと自動で時間割と指導計画を配置します。毎週の手作業が不要に。違うコマは中止やクリアで調整できます')}</div>
       <div class="checkline"><input type="checkbox" id="set-holidays" ${s.showHolidays ? 'checked' : ''}>
         <label for="set-holidays">祝日を表示</label></div>
       <div class="checkline"><input type="checkbox" id="set-daynotes" ${s.showDayNotes ? 'checked' : ''}>
@@ -532,10 +531,11 @@ function wireSettings(root, ctx) {
       tr.querySelector('[name="label"]').addEventListener('change', (ev) => { s.senkaClasses[i].label = ev.target.value; store.commit(); });
       tr.querySelector('[name="grade"]').addEventListener('change', (ev) => { s.senkaClasses[i].grade = Number(ev.target.value); store.commit(); });
       tr.querySelector('[data-crm]').onclick = async () => {
-        // 入力済みコマ数を数えて正確に伝える
+        // 入力済みコマ数を数えて正確に伝える(週＋基本時間割の両方)
         const id = s.senkaClasses[i].id;
         let count = 0;
-        for (const w of Object.values(store.state.weeks)) {
+        const cellSources = [...Object.values(store.state.weeks), ...(store.state.baseTimetables || [])];
+        for (const w of cellSources) {
           for (const cell of Object.values(w.cells || {})) {
             count += (cell.entries || []).filter(e => e.scope === id).length;
           }
@@ -547,6 +547,13 @@ function wireSettings(root, ctx) {
         if (!ok) return;
         store.snapshot('学級の削除');
         s.senkaClasses.splice(i, 1);
+        // 基本時間割に残った死んだ学級IDを先頭学級へ付け替える(流し込みで集計から消えるのを防ぐ)
+        const fallback = s.senkaClasses[0]?.id ?? null;
+        for (const b of (store.state.baseTimetables || [])) {
+          for (const cell of Object.values(b.cells || {})) {
+            for (const e of cell.entries || []) { if (e.scope === id) e.scope = fallback; }
+          }
+        }
         // 削除した学級が「直前に選んだ学級」(新規コマの既定)なら無効化する
         // (残したままだと以後の新規コマが存在しない学級に割り当てられ、集計から消える)
         if (ctx.lastScope === id) {
@@ -665,25 +672,22 @@ function wireSettings(root, ctx) {
       const key = cellKey(Number(sel.dataset.d), sel.dataset.p);
       base.cells = base.cells || {};
       const subj = sel.value;
+      const prev = base.cells[key]?.entries?.[0];
       if (!subj) {
         delete base.cells[key];
       } else if (subj === '__memo__') {
-        // 予定(会議)コマ: 毎週くり返す会議・面談など。授業ではない。
-        const prev = base.cells[key];
-        base.cells[key] = { entries: [], blocked: true, note: (prev && prev.note) || '' };
+        // 活動(会議・委員会など)コマ: 毎週くり返す会議等。教科なし・時数に数えない。
+        const a = newEntry();
+        a.subjectKey = ''; a.noCount = true;
+        a.unitName = (prev && isActivity(prev)) ? prev.unitName : '';
+        base.cells[key] = { entries: [a] };
       } else {
         const cell = base.cells[key] || (base.cells[key] = { entries: [] });
-        cell.blocked = false; cell.note = ''; // 教科を入れたら予定は解除
-        if (!cell.entries.length) {
-          const e = newEntry(); e.subjectKey = subj;
-          if (s.mode === 'senka') e.scope = s.senkaClasses[0]?.id ?? null;
-          cell.entries = [e];
-        } else {
-          cell.entries[0].subjectKey = subj;
-          if (s.mode === 'senka' && cell.entries[0].scope == null) cell.entries[0].scope = s.senkaClasses[0]?.id ?? null;
-        }
+        const e = cell.entries[0] && !isActivity(cell.entries[0]) ? cell.entries[0] : (cell.entries = [newEntry()])[0];
+        e.subjectKey = subj; e.noCount = false; e.unitName = '';
+        if (s.mode === 'senka' && e.scope == null) e.scope = s.senkaClasses[0]?.id ?? null;
       }
-      store.commit(); ctx.rerender(); // scope/会議名 欄の出入りがあるので再描画
+      store.commit(); ctx.rerender(); // scope/活動名 欄の出入りがあるので再描画
     };
   });
   root.querySelectorAll('.bt-cell-scope').forEach(sel => {
@@ -696,8 +700,8 @@ function wireSettings(root, ctx) {
   root.querySelectorAll('.bt-cell-note').forEach(inp => {
     inp.onchange = () => {
       const base = store.state.baseTimetables.find(b => b.id === inp.dataset.base);
-      const cell = base?.cells?.[cellKey(Number(inp.dataset.d), inp.dataset.p)];
-      if (cell) { cell.note = inp.value; cell.blocked = true; store.commit(); }
+      const e = base?.cells?.[cellKey(Number(inp.dataset.d), inp.dataset.p)]?.entries?.[0];
+      if (e) { e.unitName = inp.value; e.subjectKey = ''; e.noCount = true; store.commit(); }
     };
   });
   root.querySelectorAll('[data-base-name]').forEach(inp => {

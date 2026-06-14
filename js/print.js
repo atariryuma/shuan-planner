@@ -7,7 +7,7 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, VIEWPOINTS, cellIsBlocked } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, isActivity } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
@@ -345,12 +345,7 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
   let entries = cell?.entries || [];
   const cf = printClassFilter(s);
   if (cf) entries = entries.filter(e => (e.scope ?? '') === cf); // 学級別印刷: 対象学級のコマだけ
-  if (!entries.length) {
-    // 予定(非授業): 会議・面談・出張などをコマ内にメモとして印刷
-    return cellIsBlocked(cell)
-      ? `<td class="pcell pcell-note">${esc(cell.note || '授業なし')}</td>`
-      : `<td class="pcell"></td>`;
-  }
+  if (!entries.length) return `<td class="pcell"></td>`;
 
   // 複式: 両学年が完全に同じ授業(合同)なら1段に統合して印刷
   let mergedLabel = '';
@@ -375,7 +370,8 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
   const inner = entries.map(e => {
     const subj = s.subjects.find(x => x.key === e.subjectKey);
     const { resolved, details } = resolveEntryPlanDetails(state, e, ordinals);
-    const text = e.cancelled ? (e.cancelledText || resolved.text) : resolved.text;
+    // 活動(会議等)は見出し未入力でも空白にせず「予定」を出す(画面グリッドと統一)
+    const text = e.cancelled ? (e.cancelledText || resolved.text) : (resolved.text || (isActivity(e) ? '予定' : ''));
     const scopeLabel = mergedLabel || (e.scope != null && e.scope !== ''
       ? (s.mode === 'fukushiki' ? `${e.scope}年` : (s.senkaClasses.find(c => c.id === e.scope)?.label || ''))
       : '');
@@ -387,7 +383,7 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
     const activity = compactPrintText(details?.activity || '');
     const assessment = compactPrintText(details?.assessment || '');
     return `
-      <div class="pp-entry" style="${cancelled}">
+      <div class="pp-entry ${isActivity(e) ? 'pp-activity' : ''}" style="${cancelled}">
         <div class="e-line1">
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
           ${subj ? `<span class="e-subj" style="--subj-color:${esc(subj.color)}">${guideMark}${esc(subj.name)}${frac}</span>` : ''}
