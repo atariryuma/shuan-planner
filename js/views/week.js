@@ -450,14 +450,11 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchoo
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
   const entries = cell?.entries || [];
   const isModule = period.type === 'module';
-  // 非授業日の空きコマ: フラットな淡色＋列の最初の校時に理由ラベルを1つ(斜線は使わない)。
+  // 非授業日の空きコマ: フラットな淡色のみ(理由=祝日名はヘッダーに1度だけ。セルでは繰り返さない)。
   // 「＋」は出さない(授業を入れる場所に見せない)。授業が入っていれば通常表示。
-  const isFirstPeriod = s.periods[0]?.id === period.id;
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
-    : noSchool
-      ? (isFirstPeriod ? `<div class="ns-label">${esc(noSchool.reason)}</div>` : '')
-      : `<div class="cell-empty">＋</div>`;
+    : noSchool ? '' : `<div class="cell-empty">＋</div>`;
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)

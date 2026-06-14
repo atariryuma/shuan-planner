@@ -278,7 +278,9 @@ td.cell { height: 64px; cursor: pointer; position: relative; transition: backgro
 /* ホバー: 塗り＋枠(リング)で示す。授業が入ったコマは中身が背景を覆うため、
    塗りだけだと変化が見えない。枠ならコンテンツの有無に関わらず一目で分かる。 */
 td.cell:hover { background: var(--accent-50); }
-td.cell:not(.no-school):hover { box-shadow: inset 0 0 0 2px var(--accent-300); z-index: 1; }
+/* ホバーの枠は「日課で無効な校時(.off)」以外すべてに出す。祝日・休業のコマも
+   クリックで編集でき(振替授業など)、対話できることを示す。 */
+td.cell:not(.off):hover { box-shadow: inset 0 0 0 2px var(--accent-300); z-index: 1; }
 td.cell.drag-over { outline: 2px dashed var(--accent); outline-offset: -3px; background: var(--accent-soft); }
 td.cell.module-cell { background: var(--gray-50); }
 td.cell.module-cell:hover { background: var(--accent-50); }
@@ -1050,9 +1052,10 @@ td.cell:focus-visible, .day-th:focus-visible {
 /* ---------- 非授業日(祝日・長期休業・任意の休業日)を列で明示 ---------- */
 /* 斜めの淡いハッチで「授業を入れない日」と一目で分かる。理由で色を変える(祝日=赤/休業=青/任意=灰)。
    .no-school.ns-* は td.cell.off(0,2,1)より高い特異度(0,3,0)で背景を確実に上書きする。 */
-/* フラットな淡色で静かに区別(斜線は認知負荷が高いので使わない)。理由は列の最初の校時にピルで明示 */
-.cell.no-school { cursor: default; }
-.cell.no-school:hover { box-shadow: none; }
+/* フラットな淡色で静かに区別(斜線は認知負荷が高いので使わない)。理由はヘッダーに1度だけ出す。
+   祝日・休業のコマもクリックで編集できる(振替授業など)ので、通常コマと同じく対話可能に見せる。
+   枠(リング)は td.cell:not(.off):hover が、塗りはここで軽く沈ませる。 */
+.cell.no-school:hover { filter: brightness(.97); }
 /* 塗りはフラットでも、校時の罫線は残す(時間構造を保つ＝のっぺりさせない)。
    枠線は淡色より一段濃い同系色にして、行の区切りが静かに見えるようにする。 */
 .cell.no-school.ns-holiday { background: #fdecec; border-color: #f3c9c9; }
