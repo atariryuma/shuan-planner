@@ -501,13 +501,14 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchoo
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
     : (noSchool || hiddenOther) ? '' : `<div class="cell-empty">＋</div>`;
+  const onlyActivity = entries.length > 0 && entries.every(isActivity); // 会議・委員会等のみ=淡い面で表示
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && (ctx.swapSource.weekStart == null || ctx.swapSource.weekStart === week.start) && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
   // キーボード操作用のアクセシブルネーム(例: 「月曜1校時 国語」)
   const subjNames = entries.map(e => isActivity(e) ? e.unitName : subjectOf(s, e.subjectKey)?.name).filter(Boolean).join('・');
   const ariaLabel = `${DAY_NAMES[dayIdx]}曜${period.label}${isModule ? '' : '校時'}${noSchool ? ` ${noSchool.reason}` : ''} ${subjNames || '空き'}`;
   return `
-    <td class="cell ${nsClass} ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
+    <td class="cell ${nsClass} ${onlyActivity ? 'activity-cell' : ''} ${isModule ? 'module-cell' : ''} ${isSwapSrc ? 'drag-over' : ''} ${isToday ? 'today-col' : ''}"
         data-day="${dayIdx}" data-period="${esc(period.id)}" ${draggable ? 'draggable="true"' : ''}
         tabindex="0" role="button" aria-label="${esc(ariaLabel)}">
       ${inner}
@@ -1738,7 +1739,19 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     return e;
   };
 
-  // 空きコマもタップで授業エディタを直接開く(タップ＝すぐ授業入力)。会議等は中の「予定・活動」で切替。
+  // 活動→授業に戻す: 先頭entryの活動属性を外し、教科を選べる授業entryへ(専科は既定教科を充填=ensureと同じ)。
+  const makeLesson = () => {
+    const e = store.getCell(weekStart, dayIdx, periodId)?.entries?.[0];
+    if (!e) return;
+    e.noCount = false; e.unitName = ''; e.nth = 0; e.unitHours = 0;
+    if (s.mode === 'senka') {
+      e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
+      if (e.scope == null) e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
+      if (e.subjectKey) prefilled.add(e.id);
+    }
+  };
+
+  // 空きコマもタップで授業エディタを直接開く(タップ＝すぐ授業入力)。会議等は⋯の「予定・活動にする」で切替。
   ensureLesson();
 
   const render = (modal) => {
@@ -1756,16 +1769,19 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const hasActivity = cellNow.entries.some(e => isActivity(e));
     const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
     const inner = commonPalette + body
-      + (s.mode !== 'fukushiki' && !hasActivity ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
-      + (s.mode !== 'fukushiki' && !hasActivity ? `<button class="btn small ghost oc-to-activity" data-make-activity>${icon('memo')}予定・活動にする（会議・委員会など）</button>` : '');
+      + (s.mode !== 'fukushiki' && !hasActivity ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
     modal.querySelector('.cell-editor-body').innerHTML = inner;
     // フッター左の「削除」(授業ごと消す→空き・赤)はフッター静的HTMLで固定。
-    // 右上「⋯」(ロック/クリア/移動)はロック表示を更新(活動コマではクリアの意味が薄いがそのまま)。
+    // 右上「⋯」=このコマの操作。コマの種類で項目を出し分け(授業/活動の切替・クリアは授業のみ)。
     const ocMenu = modal.querySelector('.oc-menu');
     if (ocMenu) {
       ocMenu.style.display = cellNow.entries.length ? '' : 'none';
       const lockItem = ocMenu.querySelector('[data-oc-lock]');
       if (lockItem) lockItem.innerHTML = `${icon('lock')}${cellNow.entries.some(e => e.locked) ? 'ロック解除' : 'ロック'}`;
+      const ocToggle = (sel, show) => { const el = ocMenu.querySelector(sel); if (el) el.style.display = show ? '' : 'none'; };
+      ocToggle('[data-oc-make-activity]', s.mode !== 'fukushiki' && !hasActivity); // 授業→予定・活動
+      ocToggle('[data-oc-make-lesson]', hasActivity);                              // 活動→授業
+      ocToggle('[data-oc-clear]', !hasActivity);                                   // 活動には本時が無いのでクリア非表示
     }
     wireEditor(modal);
     associateLabels(modal); // 内部再描画でラベル関連付けが消えないように
@@ -1954,24 +1970,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       store.commit(); render(modal); ctx.rerender();
     };
 
-    // 授業 ⇄ 活動(会議・委員会等)の切替
-    modal.querySelector('[data-make-activity]')?.addEventListener('click', () => {
-      makeActivity(); store.commit(); render(modal); ctx.rerender();
-    });
-    modal.querySelector('[data-make-lesson]')?.addEventListener('click', () => {
-      // 活動→授業に戻す: 先頭entryの活動属性を外し、教科を選べる授業entryへ(専科は既定教科を充填=ensureと同じ)
-      const c = store.getCell(weekStart, dayIdx, periodId);
-      const e = c?.entries?.[0];
-      if (e) {
-        e.noCount = false; e.unitName = ''; e.nth = 0; e.unitHours = 0;
-        if (s.mode === 'senka') {
-          e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
-          if (e.scope == null) e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
-          if (e.subjectKey) prefilled.add(e.id);
-        }
-      }
-      store.commit(); render(modal); ctx.rerender();
-    });
+    // 授業⇄活動の切替は右上「⋯」(data-oc-make-activity/lesson)へ集約済み。
     // 活動(会議・委員会等)の名前 ＋ よく使うプリセット ＋ 備考
     const actName = modal.querySelector('[name="activityName"]');
     if (actName) {
@@ -1993,6 +1992,8 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         <summary class="btn small ghost" aria-label="このコマの操作">⋯</summary>
         <div class="menu-items">
           <button class="btn ghost menu-item" data-oc-lock title="「計画に合わせて更新」しても上書きされません">${icon('lock')}ロック</button>
+          <button class="btn ghost menu-item" data-oc-make-activity title="この時間を会議・委員会・クラブなどの予定にする（時数に数えません）">${icon('memo')}予定・活動にする</button>
+          <button class="btn ghost menu-item" data-oc-make-lesson title="予定をやめて授業に戻す">${icon('book')}授業に変える</button>
           <button class="btn ghost menu-item" data-oc-clear title="本時のねらい・活動・評価を空に。教科・学級は残ります">${icon('eraser')}クリア</button>
           <button class="btn ghost menu-item" data-oc-move>${icon('refresh')}別の時間へ移動</button>
         </div>
@@ -2028,6 +2029,14 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       clearCellContent(c); // 教科・学級は残し、本時の中身(ねらい/活動/評価/全文)を空に
       store.commit(); render(modal); ctx.rerender();
       toast('本時の中身を空にしました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); render(modal); ctx.rerender(); } });
+    };
+    modal.querySelector('[data-oc-make-activity]').onclick = () => {
+      closeOcMenu();
+      makeActivity(); store.commit(); render(modal); ctx.rerender();
+    };
+    modal.querySelector('[data-oc-make-lesson]').onclick = () => {
+      closeOcMenu();
+      makeLesson(); store.commit(); render(modal); ctx.rerender();
     };
     modal.querySelector('[data-oc-move]').onclick = () => {
       closeOcMenu();
@@ -2144,7 +2153,6 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         <input type="text" class="act-name" name="activityName" value="${esc(entry.unitName || '')}" placeholder="会議・委員会・クラブ・面談 など" aria-label="予定・活動の名前">
       </div>
       <div class="field"><label>備考</label><input type="text" name="actNote" value="${esc(entry.note || '')}"></div>
-      <button type="button" class="btn small ghost" data-make-lesson>${icon('clipboard')}授業に変える</button>
     </div>`;
   }
   const { resolved, details } = resolveEntryPlanDetails(state, entry, ordinals);
