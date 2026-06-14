@@ -354,8 +354,10 @@ td.cell.blocked { background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc
 .cell-note svg { width: 13px; height: 13px; flex: none; margin-top: 1px; opacity: .8; }
 .cell-note .cn-text { word-break: break-word; }
 
-/* コマ編集: 予定(会議・面談)メモ と 授業→予定の切替 */
+/* コマ編集: 予定(会議・委員会・クラブ等)メモ と 授業→予定の切替 */
 .oc-memo { width: 100%; resize: vertical; }
+.memo-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.memo-preset { padding: 4px 11px; font-size: 12.5px; }
 .oc-memo-acts { display: flex; gap: 8px; margin-top: 10px; }
 .oc-to-memo { width: 100%; justify-content: center; margin-top: 8px; color: var(--muted); }
 .oc-to-memo svg { width: 15px; height: 15px; }
@@ -1069,8 +1071,9 @@ td.cell:focus-visible, .day-th:focus-visible {
 .bt-edit-grid th.sat { color: var(--accent); }
 .bt-edit-grid td { border: 1px solid var(--line); padding: 2px; vertical-align: top; }
 .bt-edit-grid .bt-ph { width: 38px; text-align: right; padding-right: 6px; white-space: nowrap; }
-.bt-edit-grid select { width: 100%; font-size: 12px; padding: 3px 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-family: inherit; }
-.bt-edit-grid .bt-cell-scope { margin-top: 2px; color: var(--muted); }
+.bt-edit-grid select, .bt-edit-grid input { width: 100%; font-size: 12px; padding: 3px 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-family: inherit; box-sizing: border-box; }
+.bt-edit-grid .bt-cell-scope, .bt-edit-grid .bt-cell-note { margin-top: 2px; }
+.bt-edit-grid .bt-cell-scope { color: var(--muted); }
 
 /* 今週の時数(下部の集計欄): 数字を主役に。等幅数字・ゆとり・色は識別のみ */
 .mini-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 11px 16px; }

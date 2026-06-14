@@ -28,7 +28,7 @@ function baseEditGridHTML(s, base) {
   const dayCount = s.saturday ? 6 : 5;
   const subjOptsFor = (sel) => '<option value="">—</option>' + s.subjects.map(x =>
     `<option value="${esc(x.key)}" ${x.key === sel ? 'selected' : ''}>${esc(x.short || x.name)}</option>`).join('')
-    + `<option value="__memo__" ${sel === '__memo__' ? 'selected' : ''}>予定/会議</option>`;
+    + `<option value="__memo__" ${sel === '__memo__' ? 'selected' : ''}>予定（授業なし）</option>`;
   const scopeOptsFor = (sel) => s.senkaClasses.map(c =>
     `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.label || c.id)}</option>`).join('');
   const head = `<tr><th></th>${Array.from({ length: dayCount }, (_, d) => `<th class="${d === 5 ? 'sat' : ''}">${DAY_NAMES[d]}</th>`).join('')}</tr>`;
@@ -40,7 +40,7 @@ function baseEditGridHTML(s, base) {
       const subjSel = `<select class="bt-cell-subj" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${subjOptsFor(blocked ? '__memo__' : (e?.subjectKey || ''))}</select>`;
       // 予定(会議)なら名前入力欄、専科の授業なら学級セレクト
       const extra = blocked
-        ? `<input class="bt-cell-note" type="text" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}" value="${esc(cell.note || '')}" placeholder="会議名" aria-label="予定の名前">`
+        ? `<input class="bt-cell-note" type="text" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}" value="${esc(cell.note || '')}" placeholder="会議・委員会など" aria-label="予定の名前">`
         : (s.mode === 'senka' && e?.subjectKey && s.senkaClasses.length)
           ? `<select class="bt-cell-scope" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${scopeOptsFor(e?.scope ?? s.senkaClasses[0]?.id)}</select>` : '';
       return `<td>${subjSel}${extra}</td>`;

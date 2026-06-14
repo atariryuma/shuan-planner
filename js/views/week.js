@@ -1588,6 +1588,9 @@ function swapCells(fromWeekStart, from, toWeekStart, to) {
 
 // ---------------------------------------------------------------- セル編集モーダル
 
+// 「授業なし」の予定でよく使うもの。ワンタップで入れられる(自由入力も可)。
+const MEMO_PRESETS = ['会議', '委員会', 'クラブ', '面談', '出張', '研修'];
+
 export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   const s = store.settings;
   const period = s.periods.find(p => p.id === periodId);
@@ -1656,22 +1659,23 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       </div>` : '';
     let inner;
     if (cellNow.blocked) {
-      // 予定(非授業)エディタ: 会議・面談・出張などのメモ
+      // 授業なしエディタ: 会議・委員会・クラブ・面談・出張など(授業ではない予定)のメモ
       inner = `
         <div class="field">
-          <label>予定（授業なし）${infoHTML('会議・面談・出張・研修など。授業ではないので時数に数えず、流し込みでも埋め直されません')}</label>
-          <textarea class="oc-memo" name="cellNote" rows="2" placeholder="会議・面談・出張・研修 など">${esc(cellNow.note || '')}</textarea>
+          <label>授業なし（会議・委員会・クラブなど）${infoHTML('授業ではない予定。時数に数えず、流し込みでも埋め直されません')}</label>
+          <div class="memo-presets">${MEMO_PRESETS.map(x => `<button class="btn small ghost memo-preset" data-preset="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+          <textarea class="oc-memo" name="cellNote" rows="2" placeholder="会議・委員会・クラブ・面談 など">${esc(cellNow.note || '')}</textarea>
         </div>
         <div class="oc-memo-acts">
           <button class="btn small" data-make-lesson>${icon('clipboard')}授業に変える</button>
           <button class="btn small ghost" data-unblock>空きに戻す</button>
         </div>`;
     } else {
-      // 授業エディタ(空きコマも直接ここを開く)。会議等は下の「授業なし」で予定に切替。
+      // 授業エディタ(空きコマも直接ここを開く)。会議・委員会等は下の「授業なし」で切替。
       const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
       inner = commonPalette + body
         + (s.mode !== 'fukushiki' ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '')
-        + `<button class="btn small ghost oc-to-memo" data-make-memo>${icon('memo')}この時間は授業なし（会議・面談など）</button>`;
+        + `<button class="btn small ghost oc-to-memo" data-make-memo>${icon('memo')}この時間は授業なし（会議・委員会など）</button>`;
     }
     modal.querySelector('.cell-editor-body').innerHTML = inner;
     wireEditor(modal);
@@ -1871,6 +1875,16 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       });
       memoTa.addEventListener('change', () => ctx.rerender());
     }
+    // よく使う予定をワンタップで入れる(会議・委員会・クラブ…)
+    modal.querySelectorAll('.memo-preset').forEach(b => {
+      b.onclick = () => {
+        const c = store.getCell(weekStart, dayIdx, periodId);
+        if (!c) return;
+        c.note = b.dataset.preset; c.blocked = true;
+        if (memoTa) memoTa.value = b.dataset.preset;
+        store.commit(); ctx.rerender();
+      };
+    });
   };
 
   openModal(`
