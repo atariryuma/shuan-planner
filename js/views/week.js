@@ -278,8 +278,12 @@ export function renderWeekView(root, ctx) {
           <button class="btn ghost menu-item" id="wk-import">${icon('flag')}行事を取り込み…</button>
           ${store.hasBaseTimetable ? `<div class="menu-group-label">計画から</div>
           <span style="display:flex; align-items:center;">
+            <button class="btn ghost menu-item" id="wk-restore" style="flex:1;">${icon('calendar')}基本時間割から復元…</button>
+            ${infoHTML('空きコマ（消したコマ）に、基本時間割の授業（教科・学級）を入れ直します。入力済み・予定・ロックには触れません')}
+          </span>
+          <span style="display:flex; align-items:center;">
             <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('refresh')}計画に合わせて更新…</button>
-            ${infoHTML('この週／期間を、基本時間割と年間指導計画に合わせて整えます。入力済み・予定・ロックは守られます。基本時間割の作成・編集は「設定 → 基本時間割」へ')}
+            ${infoHTML('設定済みのコマの本時を、年間指導計画どおりに戻します。教科や学年で絞れます。入力済みも計画に戻ります（守るには🔒ロック）')}
           </span>` : ''}
           ${s.mode !== 'senka' || gas ? '<div class="menu-group-label">書き出し・提出</div>' : ''}
           ${s.mode !== 'senka' ? `<span style="display:flex; align-items:center;">
@@ -590,86 +594,121 @@ function wireNav(root, ctx, monday) {
     });
   });
 
-  // 計画に合わせて更新(基本時間割+年間指導計画→この週/期間を整える。祝日・休業・非授業日は除外)
-  const genBtn = root.querySelector('#wk-generate');
-  if (genBtn) genBtn.onclick = () => {
+  // 計画から(基本時間割からの穴埋め／計画に合わせて更新)の共通部品
+  const periodTargets = () => {
     const fy = fiscalYearOf(addDays(monday, 3));
     const terms = termRanges(store.settings, fy);
     const here = fmtDate(monday);
     const term = terms.find(t => t.from <= here && here <= t.to) || terms[terms.length - 1];
     const monthEnd = fmtDate(new Date(monday.getFullYear(), monday.getMonth() + 1, 0));
-    const yearEnd = `${fy + 1}-03-31`;
+    return { here, term, monthEnd, yearEnd: `${fy + 1}-03-31` };
+  };
+  const targetButtonsHTML = (t) => `
+    <div class="field"><label>対象</label>
+    <div class="choice-list">
+      <button class="btn primary" data-to="${t.here}">この週だけ</button>
+      <button class="btn" data-to="${t.term.to}">今週〜学期末(${fmtMD(parseDate(t.term.to))})</button>
+      <button class="btn" data-to="${t.monthEnd}">今週〜今月末(${fmtMD(parseDate(t.monthEnd))})</button>
+      <button class="btn" data-to="${t.yearEnd}">今週〜年度末(3/31)</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="date" id="gen-to" value="${t.term.to}" style="flex:1;">
+        <button class="btn" data-to-input>この日まで</button>
+      </div>
+    </div></div>`;
+  // 基本時間割が複数あれば「どの時間割で?」を挟んでから run(toDate, baseId)
+  const pickBaseAndRun = (toDate, run) => {
     const bases = store.state.baseTimetables;
-    // 計画に戻すと中身が変わる「手を入れた授業コマ」と、守る「ロック・予定」を数える(上書きを明示するため)
-    const countAffected = (fromWeek, toWeek) => {
-      let edits = 0, kept = 0;
-      const hasPlan = (e) => {
-        const grade = scopeGrade(store.settings, e.scope);
-        return store.state.plans.some(p => p.subjectKey === e.subjectKey && (p.grade == null || p.grade === grade));
+    if (bases.length <= 1) return run(toDate, null);
+    openModal(`<h2>どの時間割で?</h2>
+      <div class="choice-list">${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}</div>
+      <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>`,
+      (m, close) => { m.querySelector('[data-cancel]').onclick = close; m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base); }); });
+  };
+
+  // 基本時間割から復元(穴埋め): 空きコマに教科・学級を入れ直す
+  const restoreBtn = root.querySelector('#wk-restore');
+  if (restoreBtn) restoreBtn.onclick = () => {
+    const t = periodTargets();
+    const run = (toDate, baseId) => {
+      store.snapshot('基本時間割から復元');
+      const res = store.restoreRangeFromBase(t.here, fmtDate(mondayOf(parseDate(toDate))), baseId);
+      if (!res.placed) { toast('入れ直せる空きコマがありませんでした', 'info', 3500); return; }
+      toast(`${res.weeks}週・${res.placed}コマを基本時間割から入れました`, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      ctx.rerender();
+    };
+    openModal(`
+      <h2>基本時間割から復元</h2>
+      <p class="hint">空きコマ（消したコマ）に、基本時間割の授業（教科・学級）を入れ直します。<br><b>入力済み・予定（会議など）・🔒ロックには触れません。</b></p>
+      ${targetButtonsHTML(t)}
+      <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
+    `, (modal, close) => {
+      modal.querySelector('[data-cancel]').onclick = close;
+      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { close(); pickBaseAndRun(b.dataset.to, run); });
+      modal.querySelector('[data-to-input]').onclick = () => {
+        const v = modal.querySelector('#gen-to').value;
+        if (!v) { toast('日付を選んでください', 'error'); return; }
+        close(); pickBaseAndRun(v, run);
       };
-      for (let m = mondayOf(parseDate(fromWeek)); fmtDate(m) <= toWeek; m = addDays(m, 7)) {
+    });
+  };
+
+  // 計画に合わせて更新: 設定済みコマの本時を年間計画に戻す(教科/学年/学級で絞れる)
+  const genBtn = root.querySelector('#wk-generate');
+  if (genBtn) genBtn.onclick = () => {
+    const t = periodTargets();
+    const s2 = store.settings;
+    // 絞り込みセレクタ(担任=教科 / 専科=学年・学級 / 複式=学年)
+    const scopeOpts = (() => {
+      if (s2.mode === 'fukushiki') return '<option value="">全学年</option>' + (s2.fukushikiGrades || []).map(g => `<option value="grade:${g}">${g}年</option>`).join('');
+      if (s2.mode === 'senka') {
+        const grades = [...new Set((s2.senkaClasses || []).map(c => scopeGrade(s2, c.id)).filter(Boolean))].sort((a, b) => a - b);
+        return '<option value="">全学級</option>' + grades.map(g => `<optgroup label="${g}年"><option value="grade:${g}">${g}年すべて</option>${(s2.senkaClasses || []).filter(c => scopeGrade(s2, c.id) === g).map(c => `<option value="scope:${esc(c.id)}">${esc(c.label || c.id)}</option>`).join('')}</optgroup>`).join('');
+      }
+      return '<option value="">全教科</option>' + (s2.subjects || []).map(x => `<option value="subj:${esc(x.key)}">${esc(x.name)}</option>`).join('');
+    })();
+    const parseScope = (val) => { if (!val) return null; const [k, v] = val.split(':'); return k === 'subj' ? { subjectKey: v } : k === 'scope' ? { scopeId: v } : k === 'grade' ? { grade: Number(v) } : null; };
+    // 計画に戻ると中身が変わる「手を入れた授業コマ(絞り込み内)」と守る「ロック・予定」を数える
+    const countAffected = (toWeek, scope) => {
+      let edits = 0, kept = 0;
+      const hasPlan = (e) => store.state.plans.some(p => p.subjectKey === e.subjectKey && (p.grade == null || p.grade === scopeGrade(s2, e.scope)));
+      for (let m = mondayOf(parseDate(t.here)); fmtDate(m) <= toWeek; m = addDays(m, 7)) {
         const w = store.state.weeks[fmtDate(m)];
         if (!w) continue;
         for (const cell of Object.values(w.cells || {})) {
           if (cellHasLock(cell) || cellHasActivity(cell)) kept++;
-          else if (cellHasUserEdits(cell) && cell.entries.some(e => e.subjectKey && hasPlan(e))) edits++;
+          else if (cellHasUserEdits(cell) && cell.entries.some(e => e.subjectKey && hasPlan(e) && store.entryMatchesScope(store.state, e, scope))) edits++;
         }
       }
       return { edits, kept };
     };
-    const run = async (toDate, baseId) => {
+    const run = async (toDate, baseId, scope) => {
       const toWeek = fmtDate(mondayOf(parseDate(toDate)));
-      // 手を入れたコマも計画に戻る(=上書き)ことを、件数つきで明示する
-      const { edits, kept } = countAffected(here, toWeek);
+      const { edits, kept } = countAffected(toWeek, scope);
       if (edits > 0) {
         const tail = kept ? `🔒ロック・予定の ${kept}コマと、空きコマは触りません。` : '🔒ロック・予定・空きコマは触りません。';
-        const ok = await confirmDialog(`手を入れた ${edits}コマ(●変更・手入力・中止など)も計画に戻します。${tail}よろしいですか?`,
-          { okLabel: '計画に戻す', danger: true });
+        const ok = await confirmDialog(`手を入れた ${edits}コマ(●変更・手入力・中止など)も計画に戻します。${tail}よろしいですか?`, { okLabel: '計画に戻す', danger: true });
         if (!ok) return;
       }
       store.snapshot('計画に合わせて更新');
-      const res = store.generateRange(here, toWeek, baseId);
-      if (!res.weeks) { toast('対象の週がありませんでした', 'error', 4000); return; }
-      const parts = [];
-      if (res.placed) parts.push(`空き${res.placed}コマを作成`);
-      if (res.conformed) parts.push(`${res.conformed}コマを計画に`);
-      toast(`${res.weeks}週を更新${parts.length ? `（${parts.join('・')}）` : ''}`, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      const res = store.generateRange(t.here, toWeek, baseId, scope);
+      if (!res.weeks) { toast('対象のコマがありませんでした', 'info', 3500); return; }
+      toast(`${res.weeks}週・${res.conformed}コマを計画に戻しました`, 'info', 4000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
-    };
-    const pickBaseThen = async (toDate) => {
-      if (bases.length <= 1) return run(toDate, null);
-      openModal(`<h2>どの時間割で更新しますか?</h2>
-        <div class="choice-list">
-          ${bases.map(b => `<button class="btn" data-base="${esc(b.id)}">${esc(b.name)}</button>`).join('')}
-        </div>
-        <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>`,
-        (m, close) => {
-          m.querySelector('[data-cancel]').onclick = close;
-          m.querySelectorAll('[data-base]').forEach(b => b.onclick = () => { close(); run(toDate, b.dataset.base); });
-        });
     };
     openModal(`
       <h2>計画に合わせて更新</h2>
-      <p class="hint">設定済みのコマ（教科・学級が入っているコマ）を、年間指導計画どおりの本時に戻します。<br><b>空きコマ（消したコマ）・予定（会議など）・🔒ロックは触りません。</b>手を入れたコマも計画に戻ります（戻したくないコマは🔒ロック）。</p>
-      <div class="field"><label>対象</label>
-      <div class="choice-list">
-        <button class="btn primary" data-to="${here}">この週だけ</button>
-        <button class="btn" data-to="${term.to}">今週〜学期末(${fmtMD(parseDate(term.to))})</button>
-        <button class="btn" data-to="${monthEnd}">今週〜今月末(${fmtMD(parseDate(monthEnd))})</button>
-        <button class="btn" data-to="${yearEnd}">今週〜年度末(3/31)</button>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input type="date" id="gen-to" value="${term.to}" style="flex:1;">
-          <button class="btn" data-to-input>この日まで</button>
-        </div>
-      </div></div>
+      <p class="hint">設定済みのコマの本時を、年間指導計画どおりに戻します。<br><b>空きコマ（消したコマ）・予定（会議など）・🔒ロックは触りません。</b>手を入れたコマも計画に戻ります（戻したくないコマは🔒ロック）。</p>
+      <div class="field"><label>対象を絞る（任意）</label><select id="gen-scope" style="width:100%;">${scopeOpts}</select></div>
+      ${targetButtonsHTML(t)}
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
     `, (modal, close) => {
+      const go = (toDate) => { const scope = parseScope(modal.querySelector('#gen-scope')?.value || ''); close(); pickBaseAndRun(toDate, (d, baseId) => run(d, baseId, scope)); };
       modal.querySelector('[data-cancel]').onclick = close;
-      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => { close(); pickBaseThen(b.dataset.to); });
+      modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => go(b.dataset.to));
       modal.querySelector('[data-to-input]').onclick = () => {
         const v = modal.querySelector('#gen-to').value;
         if (!v) { toast('日付を選んでください', 'error'); return; }
-        close(); pickBaseThen(v);
+        go(v);
       };
     });
   };

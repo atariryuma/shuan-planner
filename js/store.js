@@ -363,47 +363,62 @@ class Store {
   }
 
   /**
-   * 期間内の各週へ基本時間割をまとめて流し込む(年間指導計画の進度は自動で連続する)。
-   * 祝日・長期休業・非授業日は常に除外。
-   * mode:
-   *   'fill'    (既定) 空き週・空きコマだけ作る。既存は一切触らない。
-   * ルールは1つ「設定済みのコマは計画に戻す／空き(消したコマ)は触らない」:
-   *   - 空の週     → 基本時間割から骨組みを作る(初期セットアップ)。
-   *   - 設定済みの週 → 授業コマを計画に戻す(本時の上書き・クリア・中止・計画外を消してauto化)。
-   *                   空きコマ(消したコマ)は触らない=戻さない。🔒ロック・予定(会議等)は守る。
-   * 計画の無い教科(手入力で記録するコマ)は戻す先が無いので守る。
-   * 戻り値: { weeks: 触れた週数, placed: 骨組みで新規に置いたコマ数, conformed: 計画に戻したコマ数, kept: 守ったコマ数 }
+   * 「計画に合わせて更新」: 期間内の各週の設定済みコマの本時を、年間指導計画どおりに戻す
+   * (本時の上書き・クリア・中止・計画外を消してauto化)。空きコマ(消したコマ)は触らない=戻さない
+   * (穴埋めは restoreRangeFromBase)。🔒ロック・予定(会議等)・計画の無い教科は守る。
+   * scope(任意)で対象を絞れる: { subjectKey?(教科), scopeId?(学級ID), grade?(学年) }。
+   * 戻り値: { weeks: 触れた週数, conformed: 計画に戻したコマ数, kept: 守ったコマ数 }
    */
-  generateRange(fromWeekStart, toWeekStart, id = null) {
-    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
-    if (!base) return { weeks: 0, placed: 0, conformed: 0, kept: 0 };
+  generateRange(fromWeekStart, toWeekStart, id = null, scope = null) {
     let monday = mondayOf(parseDate(fromWeekStart));
     const end = mondayOf(parseDate(toWeekStart));
-    let weeks = 0, placed = 0, conformed = 0, kept = 0;
-    let guard = 0;
+    let weeks = 0, conformed = 0, kept = 0, guard = 0;
     while (fmtDate(monday) <= fmtDate(end) && guard++ < 80) {
-      const wk = fmtDate(monday);
-      const w = this.state.weeks[wk];
-      const hasCells = w && Object.keys(w.cells || {}).length > 0;
-      if (!hasCells) {
-        // 空の週: 基本時間割から骨組みを作る
-        const res = this.applyBaseTimetable(wk, id, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
-        placed += res.placed; if (res.placed) weeks++;
-      } else {
-        // 設定済みの週: 授業コマを計画に戻す(空きは触らない・ロック/予定は守る)
+      const w = this.state.weeks[fmtDate(monday)];
+      if (w && Object.keys(w.cells || {}).length) {
         let touched = false;
         for (const cell of Object.values(w.cells)) {
           if (cellHasLock(cell) || cellHasActivity(cell)) { kept++; continue; }
           let didConform = false;
-          for (const e of cell.entries) { if (conformEntryToPlan(this.state, e)) didConform = true; }
-          if (didConform) { conformed++; touched = true; } else kept++; // 計画なし等は守る
+          for (const e of cell.entries) {
+            if (scope && !entryMatchesScope(this.state, e, scope)) continue; // 絞り込み対象外は触らない
+            if (conformEntryToPlan(this.state, e)) didConform = true;
+          }
+          if (didConform) { conformed++; touched = true; } else kept++; // 計画なし・対象外は守る
         }
         if (touched) weeks++;
       }
       monday = addDays(monday, 7);
     }
     this.commit();
-    return { weeks, placed, conformed, kept };
+    return { weeks, conformed, kept };
+  }
+
+  /**
+   * 「基本時間割から復元(穴埋め)」: 期間内の各週の空きコマに、基本時間割の授業(教科・学級)を入れ直す。
+   * 非破壊=既に授業・予定があれば触らない。非授業日は除外。戻り値: { weeks, placed }。
+   */
+  restoreRangeFromBase(fromWeekStart, toWeekStart, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
+    if (!base) return { weeks: 0, placed: 0 };
+    let monday = mondayOf(parseDate(fromWeekStart));
+    const end = mondayOf(parseDate(toWeekStart));
+    let weeks = 0, placed = 0, guard = 0;
+    while (fmtDate(monday) <= fmtDate(end) && guard++ < 80) {
+      const wk = fmtDate(monday);
+      const existed = !!this.state.weeks[wk];
+      const w = this.getWeek(wk, true);
+      let n = 0;
+      for (let d = 0; d < 7; d++) {
+        if (isNoSchoolDay(this.settings, fmtDate(addDays(monday, d)))) continue; // 非授業日は入れない
+        for (const p of this.settings.periods) n += this._placeBaseCell(w, base, d, p.id);
+      }
+      if (n) { placed += n; weeks++; }
+      else if (!existed && !Object.keys(w.cells).length) delete this.state.weeks[wk]; // 空のまま作った週は残さない
+      monday = addDays(monday, 7);
+    }
+    this.commit();
+    return { weeks, placed };
   }
 
   get hasBaseTimetable() {
@@ -723,6 +738,15 @@ export function conformEntryToPlan(state, entry) {
   entry.cancelled = false; entry.cancelledText = '';
   entry.offplan = false; entry.pin = null; entry.endUnit = false;
   entry.advance = null; entry.fraction = 1; entry.noCount = false;
+  return true;
+}
+
+/** entryが絞り込み条件 scope({subjectKey?, scopeId?(学級ID), grade?(学年)}) に合致するか。「計画に合わせて更新」の対象判定。 */
+export function entryMatchesScope(state, entry, scope) {
+  if (!scope) return true;
+  if (scope.subjectKey && entry.subjectKey !== scope.subjectKey) return false;
+  if (scope.scopeId != null && scope.scopeId !== '' && String(entry.scope ?? '') !== String(scope.scopeId)) return false;
+  if (scope.grade != null && scopeGrade(state.settings, entry.scope) !== scope.grade) return false;
   return true;
 }
 
