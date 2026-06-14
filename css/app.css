@@ -532,10 +532,12 @@ details.menu .menu-items .btn { text-align: left; }
 /* ---------- toast ---------- */
 #toast-layer { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; }
 .toast {
-  background: #1f2937; color: #fff; border-radius: 8px; padding: 10px 18px; font-size: 13.5px;
-  box-shadow: var(--shadow); animation: toast-in .2s ease;
+  background: rgba(28, 28, 30, .82); color: #fff; border-radius: var(--r-full); padding: 11px 20px; font-size: 13.5px;
+  -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+  border: .5px solid rgba(255, 255, 255, .1);
+  box-shadow: var(--e-3); animation: toast-in var(--dur-3) var(--ease-out);
 }
-.toast.error { background: var(--danger); }
+.toast.error { background: rgba(190, 30, 30, .86); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- print dialog options ---------- */
@@ -1077,6 +1079,11 @@ td.cell:focus-visible, .day-th:focus-visible {
   .modal .modal-foot { bottom: 0; margin-bottom: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+
+/* タイポグラフィ: 大見出しは字間を少し詰める。数字は等幅で桁を揃える(Apple/プロの作法) */
+.panel h2, .modal h2, .day-title, .ob-card h1, .pe-header .pe-title, .week-title { letter-spacing: -.014em; }
+.week-grid, .stats-table, .units-table, .edit-table, .mini-stats, .hours-legend,
+.week-no, .p-time, .dp-clock, .day-chip span, .unit-bar { font-variant-numeric: tabular-nums; }
 
 /* ---------- モーション抑制(OS設定を尊重) ---------- */
 @media (prefers-reduced-motion: reduce) {
