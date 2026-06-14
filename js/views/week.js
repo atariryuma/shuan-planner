@@ -1995,7 +1995,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         lessonSel = `<label class="up-label">本時</label><select name="pinLesson">${opts}</select>`;
       }
       return `<details class="unit-pick" ${entry.pin ? 'open' : ''}>
-        <summary class="up-summary">${entry.pin ? `<span class="up-badge">別の単元</span>${esc(pinUnit ? pinUnit.name : '(削除された単元)')}` : 'この時間だけ別の単元にする'}${infoHTML('天候・準備の都合などで、この時間だけ計画の順番と違う単元の本時をやるとき。他のコマの進度(順番)は動きません')}</summary>
+        <summary class="up-summary">${entry.pin ? '別の単元に変更中' : 'この時間だけ別の単元にする'}${infoHTML('天候・準備の都合などで、この時間だけ計画の順番と違う単元の本時をやるとき。他のコマの進度(順番)は動きません')}</summary>
         <div class="up-body"><label class="up-label">単元</label><select name="pinUnit">${unitOpts}</select>${lessonSel}</div>
       </details>`;
     })() : '';
