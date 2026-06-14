@@ -263,10 +263,16 @@ export function renderWeekView(root, ctx) {
           <div class="menu-group-label">週の操作</div>
           ${store.hasBaseTimetable && viewMode === 'week' ? `<button class="btn ghost menu-item ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置">${icon('pencil')}まとめて配置</button>` : ''}
           <button class="btn ghost menu-item" id="wk-copy">${icon('clipboard')}前週をコピー</button>
-          ${viewMode === 'week' ? `<button class="btn ghost menu-item" id="wk-weekend">${icon('calendar')}土日の列を出す${infoHTML('日曜参観・運動会など、この週に土日の授業・行事があるとき列を出します')}</button>` : ''}
+          ${viewMode === 'week' ? `<span style="display:flex; align-items:center;">
+            <button class="btn ghost menu-item" id="wk-weekend" style="flex:1;">${icon('calendar')}土日の列を出す</button>
+            ${infoHTML('日曜参観・運動会など、この週に土日の授業・行事があるとき列を出します')}
+          </span>` : ''}
           ${gas ? `<button class="btn ghost menu-item" id="wk-calendar">${icon('calendar')}この週に行事を取り込み</button>` : ''}
           <div class="menu-group-label">時間割・計画</div>
-          ${store.hasBaseTimetable ? `<button class="btn ghost menu-item" id="wk-base-manager">${icon('clipboard')}基本時間割を見る・反映${infoHTML('登録した基本時間割の中身を見て、この週に反映・名前変更・削除ができます')}</button>` : ''}
+          ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
+            <button class="btn ghost menu-item" id="wk-base-manager" style="flex:1;">${icon('clipboard')}基本時間割を見る・反映</button>
+            ${infoHTML('登録した基本時間割の中身を見て、この週に反映・名前変更・削除ができます')}
+          </span>` : ''}
           ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
             <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('calendar')}期間をまとめて作成</button>
             ${infoHTML('基本時間割と年間指導計画から、今週〜学期末などをまとめて自動作成します。祝日・長期休業・非授業日には授業を入れません。入力済みの週は上書きしません')}
@@ -1912,18 +1918,20 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     objective: '', activity: '', assessment: '', viewpoint: '',
     planObjective: '', planActivity: '', planAssessment: '', planViewpoint: '',
     overridden: { objective: false, activity: false, assessment: false, viewpoint: false },
+    autoBlanked: { activity: false, assessment: false },
   } : null);
 
   // 1項目分の編集フィールド。計画値はプレースホルダ(薄字)、上書き時のみ実値を表示＋「変更」バッジ。
-  const ovField = (key, label, planVal, effVal, isOv, extra = '') => `
+  // autoBlank=true は「ねらいを変更したので自動で空にした」項目(計画文は出さず、書き方の型を促す)。
+  const ovField = (key, label, planVal, effVal, isOv, extra = '', autoBlank = false) => `
     <div class="ov-field${isOv ? ' is-ov' : ''}">
       <div class="ov-flabel"><b>${label}</b>
         ${isOv
           ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>`
-          : (planVal ? '<span class="ov-asplan">計画どおり</span>' : '')}
+          : (autoBlank ? '<span class="ov-blanked">ねらい変更で空</span>' : (planVal ? '<span class="ov-asplan">計画どおり</span>' : ''))}
       </div>
       <textarea class="ov-input" data-ov="${key}" rows="2"
-        placeholder="${esc(planVal || OV_PLACEHOLDERS[key] || '（計画に記載なし・自由に記録できます）')}">${isOv ? esc(effVal) : ''}</textarea>
+        placeholder="${esc(autoBlank ? (OV_PLACEHOLDERS[key] || '') : (planVal || OV_PLACEHOLDERS[key] || '（計画に記載なし・自由に記録できます）'))}">${isOv ? esc(effVal) : ''}</textarea>
       ${extra}
     </div>`;
 
@@ -1942,12 +1950,12 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
           : `<span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}`}
         <span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span>
       </div>
-      ${(!ed.planless && ed.overridden.objective && ((!ed.overridden.activity && ed.planActivity) || (!ed.overridden.assessment && ed.planAssessment)))
-        ? `<div class="ov-mismatch">${icon('warning')}<span>ねらいを変更しています。学習活動・評価規準は<b>計画のまま</b>です。授業に合わせて直すか、そのままでよければ触らなくてOKです。</span></div>` : ''}
+      ${(!ed.planless && (ed.autoBlanked.activity || ed.autoBlanked.assessment))
+        ? `<div class="ov-mismatch">${icon('warning')}<span>ねらいを変更したので、学習活動・評価規準は<b>空にしました</b>。授業に合わせて記入してください（ねらいを「↺ 計画に戻す」と元の計画に戻ります）。</span></div>` : ''}
       ${ovField('objective', '本時のねらい', ed.planObjective, ed.objective, ed.overridden.objective)}
-      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity)}
+      ${ovField('activity', '学習活動', ed.planActivity, ed.activity, ed.overridden.activity, '', ed.autoBlanked.activity)}
       ${ovField('assessment', '評価規準', ed.planAssessment, ed.assessment, ed.overridden.assessment,
-        `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`)}
+        `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`, ed.autoBlanked.assessment)}
       ${(details && (details.unitGoal || criteriaRows)) ? `<details class="auto-unit-details"><summary>単元全体の目標・評価規準</summary>
         ${details.unitGoal ? `<div class="auto-plan-item"><b>単元の目標</b><span>${esc(details.unitGoal)}</span></div>` : ''}
         ${criteriaRows ? `<dl class="auto-criteria">${criteriaRows}</dl>` : ''}

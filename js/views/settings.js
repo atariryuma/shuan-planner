@@ -274,7 +274,7 @@ export function renderSettingsView(root, ctx) {
           <input type="password" data-gas="token" value="${esc(s.gas.token)}"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn" id="gas-test">接続テスト</button>
-          ${s.gas.url && s.gas.token ? `<button class="btn" id="gas-add-device">他の端末を追加${infoHTML('スマホや別のPCを、URLと合言葉を手入力せずリンクを開くだけで接続できます')}</button>` : ''}
+          ${s.gas.url && s.gas.token ? `<span style="display:inline-flex; align-items:center;"><button class="btn" id="gas-add-device">他の端末を追加</button>${infoHTML('スマホや別のPCを、URLと合言葉を手入力せずリンクを開くだけで接続できます')}</span>` : ''}
         </div>
 
         <h3>行事の取り込み元</h3>
