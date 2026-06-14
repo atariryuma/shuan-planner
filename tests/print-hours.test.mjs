@@ -13,7 +13,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, resolveEntryPlanDetails, cellHasLock, store } = await import('../js/store.js');
 const { buildPrintHoursModel, capSubjectColumns } = await import('../js/print-hours.js');
 const { renderWeeklyHoursBox, buildWeekPlanDetailModel, splitDetailLessons, renderPlanDetailPages } = await import('../js/print.js');
 
@@ -322,4 +322,36 @@ test('offplan cells do not consume the annual-plan progression counter', () => {
   const offEntry = state.weeks[WEEK].cells[cellKey(1, 'p1')].entries[0];
   const { details } = resolveEntryPlanDetails(state, offEntry, ords);
   assert.equal(details, null); // override も無いので details なし
+});
+
+test('locked cells survive a destructive reapply (reset); unlocked user edits do not', () => {
+  const state = defaultState();
+  state.settings.grade = 4;
+  state.baseTimetables = [{
+    id: 'base-1', name: '基本', dayPatterns: {}, savedAt: 1,
+    cells: {
+      [cellKey(0, 'p1')]: { entries: [{ id: 'b0', subjectKey: 'kokugo', scope: null, fraction: 1, noCount: false, cancelled: false }] },
+      [cellKey(1, 'p1')]: { entries: [{ id: 'b1', subjectKey: 'sansu', scope: null, fraction: 1, noCount: false, cancelled: false }] },
+    },
+  }];
+  store.state = state;
+
+  // まず基本時間割を週へ流し込む
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: true, commit: false });
+  const week = store.state.weeks[WEEK];
+  // 月曜=ロック＋手編集(中止)、火曜=手編集(中止)のみ
+  week.cells[cellKey(0, 'p1')].entries[0].locked = true;
+  week.cells[cellKey(0, 'p1')].entries[0].cancelled = true;
+  week.cells[cellKey(1, 'p1')].entries[0].cancelled = true;
+
+  // reset(まっさらに作り直す): ロックしたコマだけ守る
+  store.applyBaseTimetable(WEEK, 'base-1', { fillEmptyOnly: false, preserveEdits: false, commit: false });
+  const after = store.state.weeks[WEEK];
+
+  // 月曜=ロックされていたので中身(中止指定)ごと残る
+  assert.equal(cellHasLock(after.cells[cellKey(0, 'p1')]), true);
+  assert.equal(after.cells[cellKey(0, 'p1')].entries[0].cancelled, true);
+  // 火曜=ロックなしの手編集はresetで消える(計画どおりに作り直される)
+  assert.equal(cellHasLock(after.cells[cellKey(1, 'p1')]), false);
+  assert.equal(after.cells[cellKey(1, 'p1')].entries[0].cancelled, false);
 });

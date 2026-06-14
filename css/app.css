@@ -321,6 +321,10 @@ td.cell.module-cell:hover { background: var(--accent-50); }
 }
 .entry .e-note { font-size: 10.5px; color: var(--muted); margin-top: 1px; word-break: break-word; }
 .entry .e-flag { font-size: 9.5px; color: #b45309; }
+/* ロック表示: 鍵チップ＋コマ左に淡いオレンジの帯(控えめ。重いハッチは不採用) */
+.entry .e-flag.e-lock { display: inline-flex; align-items: center; color: #ea580c; }
+.entry .e-flag.e-lock svg { width: 12px; height: 12px; }
+.entry.locked { box-shadow: inset 2.5px 0 0 #fb923c; padding-left: 4px; border-radius: 3px; }
 .cell-clear {
   position: absolute; top: 2px; right: 2px; border: none; background: rgba(255,255,255,.85);
   color: var(--muted); border-radius: 4px; cursor: pointer; font-size: 11px; line-height: 1;
@@ -669,6 +673,13 @@ table.week-grid.painting td.cell:not(.off) { cursor: copy; }
   padding: 8px 16px; margin-bottom: 12px; font-size: 13.5px; color: #9a3412;
   display: flex; align-items: center; gap: 10px;
 }
+.mode-banner.auto-fill-hint {
+  background: #eff6ff; border-color: #93c5fd; color: #1e40af; align-items: flex-start;
+}
+.mode-banner.auto-fill-hint .ic { flex: none; margin-top: 1px; }
+.mode-banner.auto-fill-hint span { flex: 1; line-height: 1.55; }
+.mode-banner.auto-fill-hint b { font-weight: 600; }
+.mode-banner.auto-fill-hint button { flex: none; align-self: center; }
 
 /* ---------- 専科の学級フィルタ ---------- */
 .class-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
@@ -1025,6 +1036,16 @@ td.cell:focus-visible, .day-th:focus-visible {
 .bt-grid td { height: 26px; }
 .bt-chip { display: inline-block; color: #fff; font-weight: 700; border-radius: 4px; padding: 1px 5px; font-size: 10.5px; white-space: nowrap; }
 .bt-chip small { font-weight: 600; opacity: .9; font-size: 9px; }
+/* 設定: 基本時間割の編集グリッド */
+.bt-card-edit { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px 12px; margin-bottom: 14px; background: var(--panel); }
+.bt-name-input { border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 5px 8px; font-family: inherit; font-size: 13px; font-weight: 600; }
+.bt-edit-grid { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.bt-edit-grid th { font-size: 11px; color: var(--ink-2); font-weight: 700; padding: 2px 4px; background: var(--gray-50); }
+.bt-edit-grid th.sat { color: var(--accent); }
+.bt-edit-grid td { border: 1px solid var(--line); padding: 2px; vertical-align: top; }
+.bt-edit-grid .bt-ph { width: 38px; text-align: right; padding-right: 6px; white-space: nowrap; }
+.bt-edit-grid select { width: 100%; font-size: 12px; padding: 3px 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-family: inherit; }
+.bt-edit-grid .bt-cell-scope { margin-top: 2px; color: var(--muted); }
 
 /* 今週の時数(下部の集計欄): 数字を主役に。等幅数字・ゆとり・色は識別のみ */
 .mini-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 11px 16px; }

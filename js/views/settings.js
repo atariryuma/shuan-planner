@@ -1,14 +1,47 @@
 /** 設定ビュー: 基本情報・担任形態・時程(校時)・教科・印刷・GAS連携 */
 
-import { store, defaultPeriods, defaultSubjects, cellKey } from '../store.js';
+import { store, defaultPeriods, defaultSubjects, cellKey, newEntry } from '../store.js';
 import { openModal, toast, confirmDialog, selectHTML, infoHTML } from '../ui.js';
-import { esc, uid, parseDate, fmtMD, DAY_NAMES } from '../utils.js';
+import { esc, uid, parseDate, fmtMD, fmtDate, mondayOf, DAY_NAMES } from '../utils.js';
 import { icon } from '../icons.js';
 
 /** 非授業日の日付を「6/14(土)」形に整形 */
 function fmtOffday(d) {
   const dt = parseDate(d);
   return `${fmtMD(dt)}(${DAY_NAMES[(dt.getDay() + 6) % 7]})`;
+}
+
+/** 基本時間割1つ分のカード(名前・削除・編集グリッド) */
+function baseCardHTML(s, base) {
+  return `<div class="bt-card-edit" data-base="${esc(base.id)}">
+    <div class="inline" style="gap:8px; align-items:center; margin-bottom:8px;">
+      <input type="text" class="bt-name-input" data-base-name="${esc(base.id)}" value="${esc(base.name)}" aria-label="基本時間割の名前" style="max-width:160px;">
+      <span class="spacer"></span>
+      <button class="btn small danger" data-base-del="${esc(base.id)}">削除</button>
+    </div>
+    ${baseEditGridHTML(s, base)}
+  </div>`;
+}
+
+/** 基本時間割の校時×曜日の編集グリッド(各セル=教科[＋専科は学級]のセレクト) */
+function baseEditGridHTML(s, base) {
+  const dayCount = s.saturday ? 6 : 5;
+  const subjOptsFor = (sel) => '<option value="">—</option>' + s.subjects.map(x =>
+    `<option value="${esc(x.key)}" ${x.key === sel ? 'selected' : ''}>${esc(x.short || x.name)}</option>`).join('');
+  const scopeOptsFor = (sel) => s.senkaClasses.map(c =>
+    `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.label || c.id)}</option>`).join('');
+  const head = `<tr><th></th>${Array.from({ length: dayCount }, (_, d) => `<th class="${d === 5 ? 'sat' : ''}">${DAY_NAMES[d]}</th>`).join('')}</tr>`;
+  const rows = s.periods.map(p => {
+    const cells = Array.from({ length: dayCount }, (_, d) => {
+      const e = (base.cells?.[cellKey(d, p.id)]?.entries || [])[0];
+      const subjSel = `<select class="bt-cell-subj" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${subjOptsFor(e?.subjectKey || '')}</select>`;
+      const scopeSel = (s.mode === 'senka' && e?.subjectKey && s.senkaClasses.length)
+        ? `<select class="bt-cell-scope" data-base="${esc(base.id)}" data-d="${d}" data-p="${esc(p.id)}">${scopeOptsFor(e?.scope ?? s.senkaClasses[0]?.id)}</select>` : '';
+      return `<td>${subjSel}${scopeSel}</td>`;
+    }).join('');
+    return `<tr><th class="bt-ph">${esc(p.label)}</th>${cells}</tr>`;
+  }).join('');
+  return `<div class="table-scroll"><table class="bt-edit-grid"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 export function renderSettingsView(root, ctx) {
@@ -22,6 +55,7 @@ export function renderSettingsView(root, ctx) {
     <button class="set-chip" data-goto="sp-basic">${icon('school')}基本</button>
     <button class="set-chip" data-goto="sp-mode">${icon('person')}担任形態</button>
     <button class="set-chip" data-goto="sp-schedule">${icon('clock')}時程</button>
+    <button class="set-chip" data-goto="sp-base">${icon('clipboard')}基本時間割</button>
     <button class="set-chip" data-goto="sp-year">${icon('calendar')}年間・学期</button>
     <button class="set-chip" data-goto="sp-display">${icon('eye')}表示</button>
     <button class="set-chip" data-goto="sp-subjects">${icon('swatches')}教科</button>
@@ -112,6 +146,17 @@ export function renderSettingsView(root, ctx) {
           </div>`).join('')}
       </div>
       <button class="btn small" id="pattern-add" style="margin-top:8px;">＋ パターンを追加</button>
+    </div>
+
+    <div class="panel" id="sp-base">
+      <h2>基本時間割${infoHTML('毎週の骨組み(校時×曜日の教科)。週を開くと自動で流し込まれ、「⋯ → 計画に合わせて更新」のもとになります。最大3つ')}</h2>
+      ${(store.state.baseTimetables || []).length
+        ? store.state.baseTimetables.map(b => baseCardHTML(s, b)).join('')
+        : '<p class="hint">まだ基本時間割がありません。下のボタンで作成します。空のグリッドに教科を入れるか、週案で1週間入力してから「今週から作る」が簡単です。</p>'}
+      <div class="inline" style="gap:8px; margin-top:12px; flex-wrap:wrap;">
+        ${(store.state.baseTimetables || []).length < 3 ? `<button class="btn small" id="base-new">${icon('plus')}空の基本時間割を作る</button>` : ''}
+        <button class="btn small" id="base-from-week">${icon('clipboard')}今週から作る</button>
+      </div>
     </div>
 
     <div class="panel" id="sp-year">
@@ -604,6 +649,66 @@ function wireSettings(root, ctx) {
       s.periodPatterns = s.periodPatterns.filter(p => p.id !== pat.id);
       store.commit(); ctx.rerender();
     };
+  });
+
+  // 基本時間割エディタ
+  root.querySelectorAll('.bt-cell-subj').forEach(sel => {
+    sel.onchange = () => {
+      const base = store.state.baseTimetables.find(b => b.id === sel.dataset.base);
+      if (!base) return;
+      const key = cellKey(Number(sel.dataset.d), sel.dataset.p);
+      base.cells = base.cells || {};
+      const subj = sel.value;
+      if (!subj) {
+        delete base.cells[key];
+      } else {
+        const cell = base.cells[key] || (base.cells[key] = { entries: [] });
+        if (!cell.entries.length) {
+          const e = newEntry(); e.subjectKey = subj;
+          if (s.mode === 'senka') e.scope = s.senkaClasses[0]?.id ?? null;
+          cell.entries = [e];
+        } else {
+          cell.entries[0].subjectKey = subj;
+          if (s.mode === 'senka' && cell.entries[0].scope == null) cell.entries[0].scope = s.senkaClasses[0]?.id ?? null;
+        }
+      }
+      store.commit(); ctx.rerender(); // scope セレクトの出入りがあるので再描画
+    };
+  });
+  root.querySelectorAll('.bt-cell-scope').forEach(sel => {
+    sel.onchange = () => {
+      const base = store.state.baseTimetables.find(b => b.id === sel.dataset.base);
+      const cell = base?.cells?.[cellKey(Number(sel.dataset.d), sel.dataset.p)];
+      if (cell?.entries?.[0]) { cell.entries[0].scope = sel.value; store.commit(); }
+    };
+  });
+  root.querySelectorAll('[data-base-name]').forEach(inp => {
+    inp.onchange = () => { store.renameBaseTimetable(inp.dataset.baseName, inp.value.trim() || '基本'); };
+  });
+  root.querySelectorAll('[data-base-del]').forEach(btn => {
+    btn.onclick = async () => {
+      const base = store.state.baseTimetables.find(b => b.id === btn.dataset.baseDel);
+      const ok = await confirmDialog(`基本時間割「${base?.name || ''}」を削除しますか?`, { okLabel: '削除', danger: true });
+      if (!ok) return;
+      store.snapshot('基本時間割の削除');
+      store.removeBaseTimetable(btn.dataset.baseDel);
+      ctx.rerender();
+    };
+  });
+  root.querySelector('#base-new')?.addEventListener('click', () => {
+    if (store.state.baseTimetables.length >= 3) return;
+    store.snapshot('基本時間割の作成');
+    store.state.baseTimetables.push({ id: uid(), name: `基本${store.state.baseTimetables.length + 1}`, cells: {}, dayPatterns: {}, savedAt: 0 });
+    store.commit(); ctx.rerender();
+  });
+  root.querySelector('#base-from-week')?.addEventListener('click', () => {
+    const here = fmtDate(mondayOf(new Date()));
+    if (!store.state.weeks[here] || !Object.keys(store.state.weeks[here].cells || {}).length) {
+      toast('今週にまだ授業が入っていません。週案で入力してから実行してください', 'error', 4000); return;
+    }
+    const ok = store.saveAsBaseTimetable(here, store.state.baseTimetables.length ? `基本${store.state.baseTimetables.length + 1}` : null);
+    if (ok) { toast('今週を基本時間割に登録しました', 'info', 2600); ctx.rerender(); }
+    else toast('基本時間割は最大3つまでです', 'error', 3000);
   });
 
   // 学期

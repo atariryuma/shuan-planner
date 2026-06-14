@@ -13,14 +13,15 @@ import { icon } from '../icons.js';
  * 通知(commit)は使わず persist 直書きで保存し、描画中の再描画ループを避ける。
  */
 function autoMaterializeWeek(weekStart) {
-  if (!store.hasBaseTimetable) return;
-  if (store.state.settings.autoLayout === false) return;
+  if (!store.hasBaseTimetable) return false;
+  if (store.state.settings.autoLayout === false) return false;
   const existed = !!store.state.weeks[weekStart];
   const w = store.state.weeks[weekStart];
-  if (w && Object.keys(w.cells).length) return; // 既に中身がある週は触らない
+  if (w && Object.keys(w.cells).length) return false; // 既に中身がある週は触らない
   const res = store.applyBaseTimetable(weekStart, null, { skipNoSchool: true, fillEmptyOnly: true, commit: false });
-  if (res.placed) store.persist();
-  else if (!existed) delete store.state.weeks[weekStart]; // 0コマ(全休等)なら空週を残さない
+  if (res.placed) { store.persist(); return true; } // 自動作成した
+  if (!existed) delete store.state.weeks[weekStart]; // 0コマ(全休等)なら空週を残さない
+  return false;
 }
 
 export function renderWeekView(root, ctx) {
@@ -28,7 +29,7 @@ export function renderWeekView(root, ctx) {
   const s = state.settings;
   const weekStart = ctx.getWeekStart();
   const monday = parseDate(weekStart);
-  autoMaterializeWeek(weekStart); // 空き週なら基本時間割＋計画を自動配置(毎週の反映操作を不要に)
+  const justMaterialized = autoMaterializeWeek(weekStart); // 空き週なら基本時間割＋計画を自動配置(毎週の反映操作を不要に)
   const week = store.getWeek(weekStart);
   // その週に表示する曜日(月〜金＋必要なら土/日)。土日に授業・行事・振替授業日がある週だけ土日列が出る
   const days = weekDayOffsets(s, week, monday);
@@ -76,6 +77,9 @@ export function renderWeekView(root, ctx) {
   }
   const breakBanner = breakDays === dayCount
     ? `<div class="mode-banner" style="background:#f0f9ff; border-color:#7dd3fc; color:#075985;">${esc(breakLabel)}の週です</div>` : '';
+  // この週が基本時間割＋計画から自動作成されたとき、初回だけ仕組みを説明する
+  const autoFillHint = (justMaterialized && localStorage.getItem('shuan-seen-autofill') !== '1')
+    ? `<div class="mode-banner auto-fill-hint">${icon('refresh')}<span>この週は<b>基本時間割と年間指導計画から自動作成</b>しました。授業に合わせて直し、ずれたら「⋯ → 計画に合わせて更新」。骨組みは「設定 → 基本時間割」で変えられます。</span><button class="btn small" id="wk-autofill-ok">わかった</button></div>` : '';
   const todayIdx = (() => {
     for (const d of days) if (fmtDate(addDays(monday, d)) === todayStr) return d;
     return -1;
@@ -256,7 +260,7 @@ export function renderWeekView(root, ctx) {
       <span class="spacer"></span>
       ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
       ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置(もう一度で消去・Escで終了)">${icon('pencil')}まとめて配置</button>` : ''}` : ''}
-      ${!store.hasBaseTimetable ? infoHTML('コマをクリックして1週間分を入力し「⋯ → 基本時間割に登録」すると、毎週自動で呼び出せます') : ''}
+      ${!store.hasBaseTimetable ? infoHTML('まず「設定 → 基本時間割」で骨組み（毎週の教科の並び）を作ると、週を開くだけで前週からの進度を引き継いで自動で流し込みます') : ''}
       <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
@@ -268,17 +272,13 @@ export function renderWeekView(root, ctx) {
             ${infoHTML('日曜参観・運動会など、この週に土日の授業・行事があるとき列を出します')}
           </span>` : ''}
           ${gas ? `<button class="btn ghost menu-item" id="wk-calendar">${icon('calendar')}この週に行事を取り込み</button>` : ''}
-          <div class="menu-group-label">時間割・計画</div>
-          ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
-            <button class="btn ghost menu-item" id="wk-base-manager" style="flex:1;">${icon('clipboard')}基本時間割を見る・反映</button>
-            ${infoHTML('登録した基本時間割の中身を見て、この週に反映・名前変更・削除ができます')}
-          </span>` : ''}
-          ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
-            <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('calendar')}期間をまとめて作成</button>
-            ${infoHTML('基本時間割と年間指導計画から、今週〜学期末などをまとめて自動作成します。祝日・長期休業・非授業日には授業を入れません。入力済みの週は上書きしません')}
-          </span>` : ''}
-          <button class="btn ghost menu-item" id="wk-save-base">${icon('clipboard')}基本時間割に登録</button>
           <button class="btn ghost menu-item" id="wk-import-events">${icon('flag')}年間行事の取り込み</button>
+          <div class="menu-group-label">計画から</div>
+          ${store.hasBaseTimetable ? `<span style="display:flex; align-items:center;">
+            <button class="btn ghost menu-item" id="wk-generate" style="flex:1;">${icon('refresh')}計画に合わせて更新…</button>
+            ${infoHTML('この週／期間を、基本時間割と年間指導計画に合わせて作り直します。ロックしたコマは守られます。基本時間割の作成・編集は「設定 → 基本時間割」へ')}
+          </span>` : ''}
+          <button class="btn ghost menu-item" id="wk-save-base">${icon('clipboard')}今週を基本時間割に登録</button>
           ${s.mode !== 'senka' || gas ? '<div class="menu-group-label">書き出し・提出</div>' : ''}
           ${s.mode !== 'senka' ? `<span style="display:flex; align-items:center;">
             <button class="btn ghost menu-item" id="wk-kids-print" style="flex:1;">${icon('doc')}おたより印刷</button>
@@ -293,6 +293,7 @@ export function renderWeekView(root, ctx) {
         </div>
       </details>
     </div>
+    ${autoFillHint}
     ${breakBanner}
     ${classFilterBar}
     ${paintBar}
@@ -349,14 +350,15 @@ function renderEntriesHTML(state, entries, ordinals) {
       ? `<span class="e-changed-dot" title="計画から変更あり" aria-label="計画から変更あり">●</span>` : '';
     const pinned = e.pin ? `<span class="e-flag" style="color:#7c3aed;" title="この時間だけ別の単元(差し込み)">別単元</span>` : '';
     const offplan = e.offplan ? `<span class="e-flag" style="color:#0369a1;" title="計画外(復習・テスト・予備など。進度は進みません)">計画外</span>` : '';
+    const lockFlag = e.locked ? `<span class="e-flag e-lock" title="ロック中: 計画に合わせて更新しても守られます">${icon('lock')}</span>` : '';
     // 単元の進度を●●○のドット(または長単元はミニバー)で一目に
     const progress = !e.cancelled ? unitProgressHTML(details?.nth, details?.unitHours) : '';
     return `
-      <div class="entry ${e.cancelled ? 'cancelled' : ''}">
+      <div class="entry ${e.cancelled ? 'cancelled' : ''} ${e.locked ? 'locked' : ''}">
         <div class="e-head">
           ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
-          ${guide}${frac}${unsetClass}${changed}${pinned}${offplan}
+          ${guide}${frac}${unsetClass}${changed}${pinned}${offplan}${lockFlag}
           ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           ${!e.cancelled && e.endUnit ? `<span class="e-flag" style="color:#15803d;" title="この時間で単元を終え、次のコマから次の単元へ">単元終</span>` : ''}
           ${progress}
@@ -607,7 +609,7 @@ function wireNav(root, ctx, monday) {
   const genBtn = root.querySelector('#wk-generate');
   if (genBtn) genBtn.onclick = () => {
     const fy = fiscalYearOf(addDays(monday, 3));
-    const terms = termRanges(s, fy);
+    const terms = termRanges(store.settings, fy);
     const here = fmtDate(monday);
     const term = terms.find(t => t.from <= here && here <= t.to) || terms[terms.length - 1];
     const monthEnd = fmtDate(new Date(monday.getFullYear(), monday.getMonth() + 1, 0));
@@ -645,24 +647,26 @@ function wireNav(root, ctx, monday) {
         });
     };
     openModal(`
-      <h2>期間をまとめて作成</h2>
-      <p class="hint">今週(${fmtMD(monday)})から下の期間まで、基本時間割と年間指導計画で自動作成します。祝日・長期休業・非授業日は除きます。</p>
+      <h2>計画に合わせて更新</h2>
+      <p class="hint">基本時間割と年間指導計画に合わせて、この週／期間を作り直します。祝日・長期休業・非授業日は除きます。</p>
       <div class="field"><label>作り方</label>
         <div class="gen-mode" role="radiogroup">
-          <label><input type="radio" name="genmode" value="fill" checked><span><b>空いている週・コマだけ作る</b><small>入力済みは触りません（おすすめ）</small></span></label>
-          <label><input type="radio" name="genmode" value="reapply"><span><b>計画に合わせて作り直す</b><small>基本時間割や年間計画を直したとき。●変更・手入力・備考・中止・計画外は残します</small></span></label>
-          <label><input type="radio" name="genmode" value="reset"><span><b>まっさらにして作り直す</b><small>手を入れたコマも消して計画どおりに戻します</small></span></label>
+          <label><input type="radio" name="genmode" value="reapply" checked><span><b>計画どおりに作り直す</b><small>基本時間割や年間計画を直したとき。●変更・手入力・備考・中止・計画外・🔒ロックしたコマは残します</small></span></label>
+          <label><input type="radio" name="genmode" value="fill"><span><b>空いている所だけ作る</b><small>入力済みは一切触りません</small></span></label>
+          <label><input type="radio" name="genmode" value="reset"><span><b>まっさらにして作り直す</b><small>手を入れたコマも消して計画どおりに。🔒ロックしたコマだけ残します</small></span></label>
         </div>
       </div>
+      <div class="field"><label>対象</label>
       <div class="choice-list">
-        <button class="btn primary" data-to="${term.to}">学期末まで(${fmtMD(parseDate(term.to))})</button>
-        <button class="btn" data-to="${monthEnd}">今月末まで(${fmtMD(parseDate(monthEnd))})</button>
-        <button class="btn" data-to="${yearEnd}">年度末まで(3/31)</button>
+        <button class="btn primary" data-to="${here}">この週だけ</button>
+        <button class="btn" data-to="${term.to}">今週〜学期末(${fmtMD(parseDate(term.to))})</button>
+        <button class="btn" data-to="${monthEnd}">今週〜今月末(${fmtMD(parseDate(monthEnd))})</button>
+        <button class="btn" data-to="${yearEnd}">今週〜年度末(3/31)</button>
         <div style="display:flex; gap:8px; align-items:center;">
           <input type="date" id="gen-to" value="${term.to}" style="flex:1;">
           <button class="btn" data-to-input>この日まで</button>
         </div>
-      </div>
+      </div></div>
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
     `, (modal, close) => {
       const getMode = () => modal.querySelector('input[name="genmode"]:checked')?.value || 'fill';
@@ -760,6 +764,11 @@ function wireNav(root, ctx, monday) {
     const { printKidsLetter } = await import('../print.js');
     printKidsLetter(fmtDate(monday));
   };
+
+  root.querySelector('#wk-autofill-ok')?.addEventListener('click', () => {
+    try { localStorage.setItem('shuan-seen-autofill', '1'); } catch {}
+    root.querySelector('.auto-fill-hint')?.remove();
+  });
 
   root.querySelector('#wk-copy').onclick = async () => {
     const from = fmtDate(addDays(monday, -7));
@@ -1239,11 +1248,13 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       } else {
         dayToggle = { act: 'offday', icon: 'stop', title: '非授業日にする', desc: '開校記念日・振替休業・学級閉鎖など。自動配置や「まとめて作成」で授業が入りません' };
       }
+      const dayLocked = store.settings.periods.some(p => (store.state.weeks[weekStart]?.cells?.[cellKey(d, p.id)]?.entries || []).some(e => e.locked));
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div class="day-ops">
           <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>休講にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
           ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">${icon('clipboard')}</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
+          <button class="btn day-op" data-act="${dayLocked ? 'unlock-day' : 'lock-day'}"><span class="op-ic">${icon('lock')}</span><span class="op-tx"><b>${dayLocked ? 'この日のロックを解除' : 'この日をロック'}</b><small>「計画に合わせて更新」しても、この日のコマは上書きされず守られます</small></span></button>
           <button class="btn day-op" data-act="${dayToggle.act}"><span class="op-ic">${icon(dayToggle.icon)}</span><span class="op-tx"><b>${dayToggle.title}</b><small>${dayToggle.desc}</small></span></button>
           <button class="btn day-op danger" data-act="clear"><span class="op-ic">${icon('trash')}</span><span class="op-tx"><b>この日をクリア</b><small>この日の入力をすべて削除します</small></span></button>
         </div>
@@ -1294,8 +1305,16 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
                 const src = w.cells[cellKey(d - 1, p.id)];
                 if (!src) continue;
                 w.cells[cellKey(d, p.id)] = {
-                  entries: src.entries.map(e => ({ ...e, id: uid(), text: '', auto: true, note: '', cancelled: false, cancelledText: '' })),
+                  entries: src.entries.map(e => ({ ...e, id: uid(), text: '', auto: true, note: '', cancelled: false, cancelledText: '', locked: false })),
                 };
+                n++;
+              }
+            } else if (act === 'lock-day' || act === 'unlock-day') {
+              const on = act === 'lock-day';
+              for (const p of store.settings.periods) {
+                const cell = w.cells[cellKey(d, p.id)];
+                if (!cell?.entries?.length) continue;
+                for (const e of cell.entries) e.locked = on;
                 n++;
               }
             }
@@ -1327,11 +1346,13 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   const hasEntries = entries.length > 0;
   const hasClip = Array.isArray(ctx.cellClipboard) && ctx.cellClipboard.length > 0;
   const anyCancelled = hasEntries && entries.some(e => e.cancelled);
+  const anyLocked = hasEntries && entries.some(e => e.locked);
 
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
   if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
   if (hasClip) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
+  if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'trash', label: 'クリア', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
 
@@ -1420,6 +1441,19 @@ function clearCellQuick(weekStart, dayIdx, periodId, ctx) {
   store.commit();
   ctx.rerender();
   toast('コマをクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+// このコマをロック/解除(「計画に合わせて更新」で守られる)
+function toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) {
+  const w = store.getWeek(weekStart, true);
+  const cell = w.cells?.[cellKey(dayIdx, periodId)];
+  if (!cell?.entries?.length) return;
+  const turningOn = !cell.entries.some(e => e.locked);
+  store.snapshot(turningOn ? 'コマをロック' : 'ロック解除');
+  for (const e of cell.entries) e.locked = turningOn;
+  store.commit();
+  ctx.rerender();
+  toast(turningOn ? 'ロックしました(更新で守られます)' : 'ロックを解除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
 // ---------------------------------------------------------------- セル操作
@@ -1797,12 +1831,23 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
       <button class="btn danger left" data-clear-cell>クリア</button>
+      <button class="btn" data-lock-cell>${icon('lock')}${(store.getCell(weekStart, dayIdx, periodId)?.entries || []).some(e => e.locked) ? 'ロック解除' : 'ロック'}</button>
       <button class="btn" data-swap>⇄ 移動</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
   `, (modal, close) => {
     render(modal);
     modal.querySelector('[data-close]').onclick = () => close();
+    modal.querySelector('[data-lock-cell]').onclick = () => {
+      const c = store.getCell(weekStart, dayIdx, periodId);
+      if (!c?.entries?.length) return;
+      const on = !c.entries.some(e => e.locked);
+      store.snapshot(on ? 'コマをロック' : 'ロック解除');
+      c.entries.forEach(e => { e.locked = on; });
+      store.commit();
+      modal.querySelector('[data-lock-cell]').innerHTML = `${icon('lock')}${on ? 'ロック解除' : 'ロック'}`;
+      ctx.rerender();
+    };
     modal.querySelector('[data-swap]').onclick = () => {
       ctx.swapSource = { weekStart, day: dayIdx, period: periodId };
       close();

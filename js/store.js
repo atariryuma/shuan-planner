@@ -332,10 +332,13 @@ class Store {
     if (!base || !Object.keys(base.cells).length) return { placed: 0, preserved: 0 };
     const monday = parseDate(weekStart);
     const w = this.getWeek(weekStart, true);
-    // 一旦まっさらにする反映でも、手を入れたコマ(●変更・手入力・備考・中止)は守る
+    // 一旦まっさらにする反映でも、ロックしたコマは常に守る。手編集(●変更・手入力・備考・中止・計画外)は
+    // preserveEdits のときだけ守る(reapply=守る / reset=ロックのみ守る)。
     const kept = {};
-    if (preserveEdits && !fillEmptyOnly) {
-      for (const [k, cell] of Object.entries(w.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
+    if (!fillEmptyOnly) {
+      for (const [k, cell] of Object.entries(w.cells)) {
+        if (cellHasLock(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+      }
     }
     if (!fillEmptyOnly) { w.cells = {}; }      // 通常の反映は週を一旦まっさらにする(編集済みは後で戻す)
     w.dayPatterns = { ...(base.dayPatterns || {}) };
@@ -520,6 +523,7 @@ export function newEntry() {
     guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
     pin: null,         // この時間だけ別の単元の本時をやる {unitId, nth}|null。自動の順番から外して差し込む(自転車操業対応)
     offplan: false,    // 計画外(復習・テスト・予備など)。年間計画の本時に紐づかず、進度カウンタを消費しない
+    locked: false,     // ロック。「計画に合わせて更新」で上書きされず守られる(週ごとの保護。明示操作)
     override: null,    // 年間計画の本時項目を「このコマだけ」上書きした差分。形 {objective?,activity?,assessment?,viewpoint?}
                        // 設定された項目のみ保持(計画全文は重複保存しない)。実施記録=計画との差分。
   };
@@ -622,6 +626,11 @@ export function cellHasUserEdits(cell) {
   return !!cell && Array.isArray(cell.entries) && cell.entries.some(isEntryEdited);
 }
 
+/** セル内のいずれかのエントリがロックされているか。「計画に合わせて更新」で常に守る判定。 */
+export function cellHasLock(cell) {
+  return !!cell && Array.isArray(cell.entries) && cell.entries.some(e => e && e.locked);
+}
+
 /** セル群を複製。keepText=falseなら手動内容・備考・中止フラグを初期化して自動反映に戻す */
 function cloneCells(cells, keepText) {
   const out = {};
@@ -634,6 +643,9 @@ function cloneCells(cells, keepText) {
         auto: keepText ? e.auto : true,
         note: keepText ? e.note : '',
         cancelled: false,
+        locked: false,                      // ロックは複製しない(週ごとの保護。ひな形・前週コピーには持ち込まない)
+        pin: keepText ? e.pin : null,       // 別単元・計画外は週ごとの状態。ひな形(keepText=false)には持ち込まない
+        offplan: keepText ? e.offplan : false,
       })),
     };
   }
