@@ -348,6 +348,14 @@ if (store.loadError) {
 if ('serviceWorker' in navigator
   && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   && !localStorage.getItem('shuan-no-sw')) {
+  // 新しいSWが制御を取った瞬間に1回だけリロードして、全モジュールを新版で読み直す。
+  // (古いモジュールが読み込まれた状態に、新版の動的importがぶつかる版混在=skewを防ぐ)
+  let swReloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swReloading) return;
+    swReloading = true;
+    location.reload();
+  });
   navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(e => console.info('SW登録スキップ:', e.message));
 }
 

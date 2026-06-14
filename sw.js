@@ -1,8 +1,12 @@
 /* 週案プランナー Service Worker
- * 戦略: 同一オリジンのGETは stale-while-revalidate(キャッシュ即返し+裏で更新)。
- * ファイルを更新したら VERSION を必ず上げること(上げないと旧キャッシュが配信され続ける)。
+ * 戦略: 版ごとのキャッシュに precache し、同一オリジンGETは cache-first で配信する。
+ *   - 1回の表示は必ず同じ版のファイル群になる(ESモジュールの版混在=skewを防ぐ)。
+ *   - 更新は VERSION を上げる→新SWが新キャッシュをprecache→activateでclaim。
+ *     ページ側(app.js)は controllerchange を検知して1回だけreloadし、全モジュールを
+ *     新版で読み直す(古いモジュールに新しい動的importがぶつかる事故を防ぐ)。
+ * ファイルを更新したら VERSION を必ず上げること。
  */
-const VERSION = 'v2.44.0';
+const VERSION = 'v2.45.0';
 const CACHE = `shuan-planner-${VERSION}`;
 
 const PRECACHE = [
@@ -53,19 +57,17 @@ self.addEventListener('activate', (ev) => {
 self.addEventListener('fetch', (ev) => {
   const url = new URL(ev.request.url);
   if (ev.request.method !== 'GET' || url.origin !== location.origin) return; // GAS等の外部リクエストは素通し
+  // cache-first: この版のキャッシュにあれば必ずそれを返す(裏更新で版が混ざらない)。
+  // 無いものだけネットワークから取り、この版のキャッシュに足す。更新はVERSION昇格で行う。
   ev.respondWith(
-    caches.open(CACHE).then((cache) => {
-      return cache.match(ev.request).then((cached) => {
-        const fetching = fetch(ev.request)
-          .then(res => {
-            if (res.ok) cache.put(ev.request, res.clone());
-            return res;
-          })
-          .catch(() => cached);
-        // 応答返却後もSWを生かして裏側のキャッシュ更新を完了させる
-        ev.waitUntil(fetching.catch(() => {}));
-        return cached || fetching;
-      });
-    })
+    caches.open(CACHE).then((cache) =>
+      cache.match(ev.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(ev.request).then((res) => {
+          if (res.ok) cache.put(ev.request, res.clone());
+          return res;
+        });
+      })
+    )
   );
 });

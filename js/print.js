@@ -224,7 +224,8 @@ function renderPrintPage(state, weekStart, { innerW }) {
   const s = state.settings;
   const monday = parseDate(weekStart);
   const week = store.getWeek(weekStart);
-  const days = weekDayOffsets(s, week, monday); // 月〜金＋必要なら土/日(その週に授業・行事のある土日)  const ordinals = computeOrdinals(state, weekStart);
+  const days = weekDayOffsets(s, week, monday); // 月〜金＋必要なら土/日(その週に授業・行事のある土日)
+  const ordinals = computeOrdinals(state, weekStart);
   const weekNo = weekNumberInFiscalYear(monday);
   const lastDay = addDays(monday, days[days.length - 1]);
 
@@ -276,7 +277,7 @@ function renderTablePeriods(state, week, monday, days, ordinals, innerW) {
     const reason = noSchoolReason(s, ds);           // 振替授業日はnull(授業日)
     const hol = s.showHolidays && reason ? holidayName(date) : null;
     const makeup = (s.classDays || []).includes(ds) && (holidayName(date) || ((d === 5 || d === 6))); // 本来休みを授業日に
-    return `<th><span class="dow">${DAY_NAMES[d]}</span> <span class="date">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : makeup ? `<span class="hol" style="background:#dcfce7;color:#15803d;">振替</span>` : ''}</th>`;
+    return `<th><span class="dow">${DAY_NAMES[d]}</span> <span class="date">${fmtMD(date)}</span>${hol ? `<span class="hol">${esc(hol)}</span>` : makeup ? `<span class="hol" style="background:#dcfce7;color:#15803d;">授業日</span>` : ''}</th>`;
   }).join('')}</tr>`;
 
   const eventsRow = `<tr class="pp-events"><td class="ph">行事</td>${days.map(d =>
@@ -611,7 +612,8 @@ export function buildKidsPrintDOM(weekStart) {
   const s = state.settings;
   const monday = parseDate(weekStart);
   const week = store.getWeek(weekStart);
-  const days = weekDayOffsets(s, week, monday); // 土日に授業・行事のある週は土/日列も出す  const lastDay = addDays(monday, days[days.length - 1]);
+  const days = weekDayOffsets(s, week, monday); // 土日に授業・行事のある週は土/日列も出す
+  const lastDay = addDays(monday, days[days.length - 1]);
 
   let styleEl = document.getElementById('print-page-style');
   if (!styleEl) {

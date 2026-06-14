@@ -61,11 +61,11 @@ export function renderWeekView(root, ctx) {
     const isToday = ds === todayStr;
     dayHeads.push(`
       <th class="day-th" data-day="${d}" title="クリックで一括操作" tabindex="0" role="button"
-          aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作${makeup ? ' 振替授業日' : ''}">
+          aria-label="${DAY_NAMES[d]}曜日 ${fmtMD(date)} の一括操作${makeup ? ' 授業日' : ''}">
         <div class="day-head ${d === 5 ? 'sat' : ''} ${d === 6 ? 'sun' : ''} ${hol ? 'holiday-mark' : ''} ${isToday ? 'today' : ''} ${brk || isOff ? 'in-break' : ''} ${makeup ? 'makeup-day' : ''}">
           <span class="dow">${DAY_NAMES[d]}<span class="day-caret">▾</span></span>
           <span class="date">${fmtMD(date)}</span>
-          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : isOff ? `<span class="brk-name">休業日</span>` : makeup ? `<span class="makeup-name" title="本来は${esc(makeup)}">振替授業</span>` : ''}
+          ${hol ? `<span class="hol-name">${esc(hol)}</span>` : brk ? `<span class="brk-name">${esc(brk)}</span>` : isOff ? `<span class="brk-name">休業日</span>` : makeup ? `<span class="makeup-name" title="本来は${esc(makeup)}(授業日に設定)">授業日</span>` : ''}
         </div>
       </th>`);
   }
@@ -241,13 +241,13 @@ export function renderWeekView(root, ctx) {
       </span>
       <span class="spacer"></span>
       ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
-      ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んでコマを連続入力">${icon('pencil')}連続入力</button>` : ''}` : ''}
+      ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置(もう一度で消去・Escで終了)">${icon('pencil')}まとめて配置</button>` : ''}` : ''}
       ${!store.hasBaseTimetable ? infoHTML('コマをクリックして1週間分を入力し「⋯ → 基本時間割に登録」すると、毎週自動で呼び出せます') : ''}
       <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
         <div class="menu-items">
           <div class="menu-group-label">週の操作</div>
-          ${store.hasBaseTimetable && viewMode === 'week' ? `<button class="btn ghost menu-item ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}">${icon('pencil')}連続入力</button>` : ''}
+          ${store.hasBaseTimetable && viewMode === 'week' ? `<button class="btn ghost menu-item ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置">${icon('pencil')}まとめて配置</button>` : ''}
           <button class="btn ghost menu-item" id="wk-copy">${icon('clipboard')}前週をコピー</button>
           ${viewMode === 'week' ? `<button class="btn ghost menu-item" id="wk-weekend">${icon('calendar')}土日の列を出す${infoHTML('日曜参観・運動会など、この週に土日の授業・行事があるとき列を出します')}</button>` : ''}
           ${gas ? `<button class="btn ghost menu-item" id="wk-calendar">${icon('calendar')}この週に行事を取り込み</button>` : ''}
@@ -1173,11 +1173,11 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       const noSchoolR = noSchoolReason(store.settings, dateStr); // classDay考慮済み(振替ならnull)
       let dayToggle;
       if (isClassDay) {
-        dayToggle = { act: 'classday', icon: 'refresh', title: '振替授業日を解除', desc: 'この日を本来の休み(祝日・休業など)に戻します' };
+        dayToggle = { act: 'classday', icon: 'refresh', title: '授業日を解除(休みに戻す)', desc: 'この日を本来の休み(祝日・休業など)に戻します' };
       } else if (isOff) {
         dayToggle = { act: 'offday', icon: 'refresh', title: '非授業日を解除', desc: 'この日を授業日に戻します' };
       } else if (noSchoolR) {
-        dayToggle = { act: 'classday', icon: 'book', title: '授業日にする(振替)', desc: `${noSchoolR}ですが授業日として扱います。基本時間割の自動配置・時数集計の対象になります` };
+        dayToggle = { act: 'classday', icon: 'book', title: '授業日にする', desc: `${noSchoolR}ですが授業日として扱います(日曜参観・運動会など)。基本時間割の自動配置・時数集計の対象になります` };
       } else {
         dayToggle = { act: 'offday', icon: 'stop', title: '非授業日にする', desc: '開校記念日・振替休業・学級閉鎖など。自動配置や「まとめて作成」で授業が入りません' };
       }
@@ -1205,7 +1205,7 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
             if (act === 'classday') {
               const nowClass = store.toggleClassDay(dateStr);
               close();
-              toast(nowClass ? '振替授業日にしました' : '振替授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleClassDay(dateStr); ctx.rerender(); } });
+              toast(nowClass ? '授業日にしました' : '授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleClassDay(dateStr); ctx.rerender(); } });
               ctx.rerender();
               return;
             }
