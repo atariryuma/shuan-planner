@@ -1928,7 +1928,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
       <div class="ov-flabel"><b>${label}</b>
         ${isOv
           ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>`
-          : (autoBlank ? '<span class="ov-blanked">ねらい変更で空</span>' : (planVal ? '<span class="ov-asplan">計画どおり</span>' : ''))}
+          : (autoBlank ? '' : (planVal ? '<span class="ov-asplan">計画どおり</span>' : ''))}
       </div>
       <textarea class="ov-input" data-ov="${key}" rows="2"
         placeholder="${esc(autoBlank ? (OV_PLACEHOLDERS[key] || '') : (planVal || OV_PLACEHOLDERS[key] || '（計画に記載なし・自由に記録できます）'))}">${isOv ? esc(effVal) : ''}</textarea>
