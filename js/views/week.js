@@ -1176,9 +1176,94 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
   });
 }
 
+// ---------------------------------------------------------------- セルの右クリック・クイック操作
+
+// PC向けアクセラレータ。主クリック(編集を開く)はそのまま、右クリックで頻出操作を即出しする。
+function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
+  closeCellContextMenu();
+  const cell = store.state.weeks[weekStart]?.cells?.[cellKey(dayIdx, periodId)];
+  const entries = cell?.entries || [];
+  const hasEntries = entries.length > 0;
+  const hasClip = Array.isArray(ctx.cellClipboard) && ctx.cellClipboard.length > 0;
+  const anyCancelled = hasEntries && entries.some(e => e.cancelled);
+
+  const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
+  if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
+  if (hasClip) acts.push({ ic: 'download', label: '貼り付け', run: () => pasteCellQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { day: dayIdx, period: periodId }; ctx.rerender(); } });
+  if (hasEntries) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
+  if (hasEntries) acts.push({ ic: 'trash', label: 'クリア', danger: true, run: () => clearCellQuick(weekStart, dayIdx, periodId, ctx) });
+
+  const menu = document.createElement('div');
+  menu.className = 'context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = acts.map((a, i) => `<button class="cm-item ${a.danger ? 'danger' : ''}" data-cm="${i}" role="menuitem">${icon(a.ic)}${a.label}</button>`).join('');
+  document.body.appendChild(menu);
+  menu.style.left = Math.max(6, Math.min(x, window.innerWidth - menu.offsetWidth - 6)) + 'px';
+  menu.style.top = Math.max(6, Math.min(y, window.innerHeight - menu.offsetHeight - 6)) + 'px';
+  menu.querySelectorAll('[data-cm]').forEach(b => { b.onclick = () => { const a = acts[Number(b.dataset.cm)]; closeCellContextMenu(); a.run(); }; });
+
+  const onDoc = (ev) => { if (!menu.contains(ev.target)) closeCellContextMenu(); };
+  const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); closeCellContextMenu(); } };
+  closeCellContextMenu._cleanup = () => {
+    document.removeEventListener('mousedown', onDoc, true);
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('scroll', closeCellContextMenu, true);
+    window.removeEventListener('resize', closeCellContextMenu);
+  };
+  setTimeout(() => {
+    document.addEventListener('mousedown', onDoc, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', closeCellContextMenu, true);
+    window.addEventListener('resize', closeCellContextMenu);
+  }, 0);
+  menu.querySelector('.cm-item')?.focus();
+}
+
+function closeCellContextMenu() {
+  document.querySelectorAll('.context-menu').forEach(m => m.remove());
+  if (closeCellContextMenu._cleanup) { closeCellContextMenu._cleanup(); closeCellContextMenu._cleanup = null; }
+}
+
+function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
+  if (!Array.isArray(ctx.cellClipboard) || !ctx.cellClipboard.length) return;
+  const w = store.getWeek(weekStart, true);
+  store.snapshot('コマの貼り付け');
+  w.cells[cellKey(dayIdx, periodId)] = { entries: ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '' })) };
+  store.commit();
+  ctx.rerender();
+  toast('貼り付けました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+function toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) {
+  const w = store.getWeek(weekStart, true);
+  const cell = w.cells?.[cellKey(dayIdx, periodId)];
+  if (!cell?.entries?.length) return;
+  const ordinals = computeOrdinals(store.state, weekStart);
+  const turningOn = !cell.entries.some(e => e.cancelled);
+  store.snapshot(turningOn ? 'コマの中止' : '中止の解除');
+  for (const e of cell.entries) {
+    if (turningOn) { if (!e.cancelled) { e.cancelledText = resolveEntryText(store.state, e, ordinals).text; e.cancelled = true; } }
+    else { e.cancelled = false; e.cancelledText = ''; }
+  }
+  store.commit();
+  ctx.rerender();
+  toast(turningOn ? '中止にしました' : '中止を解除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+function clearCellQuick(weekStart, dayIdx, periodId, ctx) {
+  const w = store.getWeek(weekStart, true);
+  store.snapshot('コマのクリア');
+  delete w.cells[cellKey(dayIdx, periodId)];
+  store.commit();
+  ctx.rerender();
+  toast('コマをクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
 // ---------------------------------------------------------------- セル操作
 
 function wireCells(root, weekStart, ctx) {
+  closeCellContextMenu(); // 再描画で古いメニューが残らないように
   root.querySelectorAll('td.cell').forEach(td => {
     td.addEventListener('click', (ev) => {
       if (td.classList.contains('off')) return;
@@ -1204,6 +1289,12 @@ function wireCells(root, weekStart, ctx) {
       if (ev.target !== td) return; // セル内のボタン(×)のキー操作はそのまま
       ev.preventDefault();
       td.click();
+    });
+    // PC: 右クリックでクイック操作メニュー(主クリックの「編集を開く」はそのまま)
+    td.addEventListener('contextmenu', (ev) => {
+      if (td.classList.contains('off')) return; // 日課で無効な校時には出さない
+      ev.preventDefault();
+      openCellContextMenu(weekStart, Number(td.dataset.day), td.dataset.period, ctx, ev.clientX, ev.clientY);
     });
     const clearBtn = td.querySelector('[data-clear]');
     if (clearBtn) {

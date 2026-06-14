@@ -878,6 +878,25 @@ td.cell:focus-visible, .day-th:focus-visible {
 .set-chip { display: inline-flex; align-items: center; gap: 5px; }
 .menu-item { display: flex; align-items: center; gap: 8px; }
 
+/* セルの右クリック・クイック操作メニュー(PC) */
+.context-menu {
+  position: fixed; z-index: 400; min-width: 178px;
+  background: var(--panel); border: 1px solid var(--gray-200); border-radius: var(--r-md);
+  box-shadow: var(--e-3); padding: 5px; display: flex; flex-direction: column; gap: 1px;
+  animation: cm-in var(--dur-1) var(--ease-out);
+}
+@keyframes cm-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+.cm-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  border: none; background: none; cursor: pointer; font-family: inherit; font-size: 13.5px;
+  color: var(--ink); padding: 7px 10px; border-radius: var(--r-sm);
+}
+.cm-item .ic { width: 16px; height: 16px; color: var(--ink-2); }
+.cm-item:hover, .cm-item:focus-visible { background: var(--gray-100); outline: none; }
+.cm-item.danger { color: var(--danger); }
+.cm-item.danger .ic { color: var(--danger); }
+.cm-item.danger:hover { background: var(--danger-soft); }
+
 /* ---------- 曜日の一括操作(アイコン＋説明の二段ボタン) ---------- */
 .day-ops { display: flex; flex-direction: column; gap: 8px; }
 .day-op { display: flex; align-items: center; gap: 12px; text-align: left; padding: 10px 14px; }
