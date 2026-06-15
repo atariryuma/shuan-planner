@@ -94,7 +94,7 @@ export function renderWeekView(root, ctx) {
     ? `<div class="mode-banner" style="background:#f0f9ff; border-color:#7dd3fc; color:#075985;">${esc(breakLabel)}の週です</div>` : '';
   // この週が基本時間割＋計画から自動作成されたとき、初回だけ仕組みを説明する
   const autoFillHint = (justMaterialized && localStorage.getItem('shuan-seen-autofill') !== '1')
-    ? `<div class="mode-banner auto-fill-hint">${icon('refresh')}<span>この週は<b>基本時間割と年間指導計画から自動作成</b>しました。授業に合わせて直し、ずれたら「⋯ → 計画に合わせて更新」。骨組みは「設定 → 基本時間割」で変えられます。</span><button class="btn small" id="wk-autofill-ok">わかった</button></div>` : '';
+    ? `<div class="mode-banner auto-fill-hint">${icon('refresh')}<span><b>基本時間割から自動作成</b>しました</span><button class="btn small" id="wk-autofill-ok">OK</button></div>` : '';
   const todayIdx = (() => {
     for (const d of days) if (fmtDate(addDays(monday, d)) === todayStr) return d;
     return -1;
@@ -135,7 +135,7 @@ export function renderWeekView(root, ctx) {
       cells.push(`<td style="background:#f0fdf4;"><textarea class="event-input daynote-input" data-day="${d}" rows="1"
         style="color:#166534;" placeholder="" aria-label="${DAY_NAMES[d]}曜のメモ">${esc(week.dayNotes?.[d] || '')}</textarea></td>`);
     }
-    dayNotesRow = `<tr><th class="period-head" style="font-size:11.5px; background:#dcfce7; color:#166534;">メモ${infoHTML('自分用のメモ欄です。印刷されません')}</th>${cells.join('')}</tr>`;
+    dayNotesRow = `<tr><th class="period-head" style="font-size:11.5px; background:#dcfce7; color:#166534;">メモ${infoHTML('印刷されません')}</th>${cells.join('')}</tr>`;
   }
 
   const eventCells = [];
@@ -152,7 +152,7 @@ export function renderWeekView(root, ctx) {
       cells.push(`<td style="background:#fdf4ff;"><textarea class="event-input attendance-input" data-day="${d}" rows="1"
         style="color:#86198f;" placeholder="" aria-label="${DAY_NAMES[d]}曜の出欠">${esc(week.attendance?.[d] || '')}</textarea></td>`);
     }
-    attendanceRow = `<tr><th class="period-head" style="font-size:11.5px; background:#fae8ff; color:#86198f;">出欠${infoHTML('欠席・遅刻・早退のメモ(例: 欠1 遅1)。個人名は書かない運用を推奨。印刷にも出ます')}</th>${cells.join('')}</tr>`;
+    attendanceRow = `<tr><th class="period-head" style="font-size:11.5px; background:#fae8ff; color:#86198f;">出欠${infoHTML('例: 欠1 遅1（個人名は書かない）')}</th>${cells.join('')}</tr>`;
   }
 
   const bodyRows = s.periods.map(p => {
@@ -279,7 +279,7 @@ export function renderWeekView(root, ctx) {
           <button class="vt-btn ${viewMode === 'week' ? 'active' : ''}" id="wk-view-week" aria-pressed="${viewMode === 'week'}" title="1週間をまとめて表示">週</button>
         </span>
         ${viewMode === 'week' ? `<button class="btn" id="wk-density" aria-pressed="${density === 'detail'}" title="学習活動・評価規準の表示を切り替え">${density === 'detail' ? '詳細表示' : '簡潔表示'}</button>
-        ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選び、コマを次々クリックして同じ教科を配置(もう一度で消去・Escで終了)">${icon('pencil')}まとめて配置</button>` : ''}` : ''}
+        ${!store.hasBaseTimetable ? `<button class="btn ${paint.open ? 'active' : ''}" id="wk-paint" aria-pressed="${paint.open}" title="教科を選んで連続配置（Escで終了）">${icon('pencil')}まとめて配置</button>` : ''}` : ''}
         ${!store.hasBaseTimetable ? infoHTML('まず「設定 → 基本時間割」で骨組み（毎週の教科の並び）を作ると、週を開くだけで前週からの進度を引き継いで自動で流し込みます') : ''}
         <details class="menu">
         <summary class="btn" aria-label="その他">⋯</summary>
@@ -410,7 +410,7 @@ function renderLoopCardHTML(state, monday) {
   const ref = String(pw.reflection || '').trim();
   if (!goals && !ref) return '';
   return `<div class="loop-card">
-    <div class="loop-head">先週のふりかえり${infoHTML('先週のめあて・反省です。今週の計画に活かして、週案を「出すだけ」で終わらせないための欄です')}</div>
+    <div class="loop-head">先週のふりかえり${infoHTML('先週のめあて・反省。今週に活かす')}</div>
     <div class="loop-body">
       ${goals ? `<div class="loop-item"><span class="loop-label">めあて</span><span class="loop-text">${esc(goals)}</span></div>` : ''}
       ${ref ? `<div class="loop-item"><span class="loop-label">反省</span><span class="loop-text">${esc(ref)}</span></div>` : ''}
@@ -2553,7 +2553,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
     </div>`;
     // 本時の内容(ねらい・学習活動・評価規準・観点)。計画どおりなら欄に計画文が濃く出て、
     // そのまま直接書き換えられる(開く=編集なので別の「編集」ボタンは置かない)。計画と同じに戻すと記録は消える。
-    const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}</span>${vpSeg}${ed.overridden.viewpoint ? '<span class="ov-badge ov-vp-badge">変更</span>' : ''}</div>`;
+    const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('知=知識・技能／思=思考・判断・表現／態=主体的に学習に取り組む態度')}</span>${vpSeg}${ed.overridden.viewpoint ? '<span class="ov-badge ov-vp-badge">変更</span>' : ''}</div>`;
     // 「この時間だけ別の単元の本時をやる」ピッカー(自転車操業対応)。計画に単元があるときだけ出す。
     const pinUnits = planForPick?.units || [];
     // 「別の単元」用の単元×本時セレクト(pinモードのときだけ表示)
@@ -2575,7 +2575,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
     // 「この時間にやること」3択(計画どおり/別の単元/計画外)。advance+pin+計画外 を統合し「詳細」から昇格。
     const lmBtn = (val, label) => `<button type="button" class="lm-btn ${lessonMode === val ? 'selected' : ''}" data-lm="${val}" aria-pressed="${lessonMode === val}">${label}</button>`;
     const lessonModeSelector = planForPick ? `
-      <div class="field"><label>この時間にやること${infoHTML('計画どおり＝年間計画の順番。本時を選ぶ＝この時間だけ指定の本時をやる(他コマの順番は不変。同じ本時の再実施も可)。計画外＝復習・テスト・予備など計画に紐づかない授業で、進度は進みません')}</label>
+      <div class="field"><label>この時間にやること${infoHTML('計画どおり＝計画の順番／本時を選ぶ＝この時間だけ指定の本時／計画外＝復習・テスト等で進度は進まない')}</label>
         <div class="lesson-mode" role="group">${lmBtn('plan', '計画どおり')}${pinUnits.length ? lmBtn('pin', '本時を選ぶ') : ''}${lmBtn('offplan', '計画外')}</div>
         ${lessonMode === 'pin' ? pinSelects : ''}
       </div>` : '';

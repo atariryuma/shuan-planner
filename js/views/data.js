@@ -27,7 +27,7 @@ export function renderDataView(root, ctx) {
 
       <div class="panel">
         <h2>${icon('undo')}復元（バックアップから戻す）</h2>
-        <p class="hint">消し間違い・上書き・週クリアを、後からでも巻き戻せます。<b>この端末の控え</b>（オフラインでも即）と、<b>Googleドライブの控え</b>（どの端末からでも）の両方から戻せます。</p>
+        <p class="hint">消し間違い・上書き・週クリアを後から巻き戻せます。<b>この端末</b>とGoogleドライブの両方から。</p>
         <div class="bk-group">
           <div class="bk-group-head">${icon('archive')}この端末（オフラインでも）</div>
           <div id="bk-list" class="bk-list"></div>

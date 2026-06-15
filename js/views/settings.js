@@ -237,7 +237,7 @@ export function renderSettingsView(root, ctx) {
         ], s.uiScale)}
       </div>
       <div class="checkline"><input type="checkbox" id="set-autolayout" ${s.autoLayout !== false ? 'checked' : ''}>
-        <label for="set-autolayout">空き週に基本時間割を自動表示</label>${infoHTML('基本時間割を登録済みのとき、空の週を開くと自動で時間割と指導計画を配置します。毎週の手作業が不要に。違うコマは中止やクリアで調整できます')}</div>
+        <label for="set-autolayout">空き週に基本時間割を自動表示</label>${infoHTML('空の週を開くと時間割と計画を自動配置。毎週の手作業が不要に')}</div>
       <div class="checkline"><input type="checkbox" id="set-holidays" ${s.showHolidays ? 'checked' : ''}>
         <label for="set-holidays">祝日を表示</label></div>
       <div class="checkline"><input type="checkbox" id="set-daynotes" ${s.showDayNotes ? 'checked' : ''}>
