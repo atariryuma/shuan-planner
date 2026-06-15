@@ -5797,8 +5797,17 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   const anyCancelled = hasEntries && entries.some(e => e.cancelled);
   const anyLocked = hasEntries && entries.some(e => e.locked);
 
+  const s = store.settings;
+  const state = store.state;
   const lessonEntries = entries.filter(e => e.subjectKey && !isActivity(e));
+  // 「計画どおりに戻す」を出すか: 手直し(override)・別本時(pin)・計画外(offplan)・切り上げ(endUnit)のうち
+  // どれかがあり、かつ戻れる計画がある授業コマのときだけ(planlessな手書きはクリアと役割が被るので出さない)。
+  const hasPlanFor = (e) => state.plans.some(p => p.subjectKey === e.subjectKey && (p.grade == null || p.grade === scopeGrade(s, e.scope)));
+  const canResetToPlan = lessonEntries.some(e => (e.override || e.pin || e.offplan || e.endUnit) && hasPlanFor(e));
+
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
+  // 空きコマ: 会議・委員会などの予定をその場でドロップ(担任/専科のみ。エディタが開いて名前を入れられる)。
+  if (!hasEntries && s.mode !== 'fukushiki') acts.push({ ic: 'memo', label: '予定・活動にする…', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx, { asActivity: true }) });
   // 基本時間割から復元(削除の逆): 空きはまるごと、設定済みは不足学級だけ。追加対象があるときだけ出す。
   if (store.hasBaseTimetable && !onlyActivity) {
     const blabel = store.baseRestoreLabel(weekStart, dayIdx, periodId);
@@ -5809,6 +5818,10 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   // 授業コマ(1コマ): この時間にやる本時を選ぶ(別の単元の本時・同じ本時の再実施。進度は進めない)
   if (lessonEntries.length === 1) acts.push({ ic: 'book', label: '本時を選ぶ…', run: () => openPinPicker(weekStart, dayIdx, periodId, ctx) });
+  // 手直し/別本時/計画外/切り上げを一括で計画どおりへ(ズレ調整の核。1タップで戻せる)
+  if (canResetToPlan) acts.push({ ic: 'undo', label: '計画どおりに戻す', run: () => resetCellToPlanQuick(weekStart, dayIdx, periodId, ctx) });
+  // 予定・活動コマ: 会議などを授業に戻す(担任/専科のみ。エディタで教科を選べる)
+  if (onlyActivity && s.mode !== 'fukushiki') acts.push({ ic: 'book', label: '授業に変える…', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx, { asLesson: true }) });
   if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries && !onlyActivity) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
   // 破壊系は下にまとめて区切り線で分ける。語彙はエディタと統一(クリア=中身を空に / 削除=コマごと消す)。赤は「削除」だけ。
@@ -5999,6 +6012,19 @@ function deleteCellQuick(weekStart, dayIdx, periodId, ctx) {
   delete w.cells[cellKey(dayIdx, periodId)];
   store.commit(); ctx.rerender();
   toast('削除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+// 手直し(override)・別本時(pin)・計画外(offplan)・切り上げ(endUnit)を一括で解除し、
+// 年間指導計画どおりへ戻す(教科・学級・時数・中止・ロックは触らない=「内容のズレだけ計画に戻す」)。
+function resetCellToPlanQuick(weekStart, dayIdx, periodId, ctx) {
+  const cell = store.getCell(weekStart, dayIdx, periodId);
+  const targets = (cell?.entries || []).filter(e => e.subjectKey && !isActivity(e) && (e.override || e.pin || e.offplan || e.endUnit));
+  if (!targets.length) return;
+  store.snapshot('計画どおりに戻す');
+  for (const e of targets) { e.override = null; e.pin = null; e.offplan = false; e.endUnit = false; }
+  store.commit();
+  ctx.rerender();
+  toast('計画どおりに戻しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
 // 本時の中身を空にする(教科・学級は残す)。右クリック「クリア」用。
@@ -6248,7 +6274,7 @@ function swapCells(fromWeekStart, from, toWeekStart, to) {
 // 一度埋まった週で1コマ消しても入れ直されない)。予定=会議等の実体があるものだけに絞る。
 const MEMO_PRESETS = ['会議', '委員会', 'クラブ', '面談', '出張', '研修', '自習'];
 
-function openCellEditor(weekStart, dayIdx, periodId, ctx) {
+function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
   const s = store.settings;
   const period = s.periods.find(p => p.id === periodId);
   const monday = parseDate(weekStart);
@@ -6337,6 +6363,10 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx) {
 
   // 空きコマもタップで授業エディタを直接開く(タップ＝すぐ授業入力)。会議等は⋯の「予定・活動にする」で切替。
   ensureLesson();
+  // 右クリックの「予定・活動にする…」「授業に変える…」から開いたときは、開いた直後に種類を変えておく
+  // (このあとエディタで名前・教科を入れてもらう。fukushikiの活動化は学年別で破綻するため担任/専科のみ)。
+  if (opts.asActivity && s.mode !== 'fukushiki') { makeActivity(); store.commit(); }
+  else if (opts.asLesson) { makeLesson(); store.commit(); }
 
   const render = (modal) => {
     const state = store.state;
