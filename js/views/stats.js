@@ -343,9 +343,14 @@ function renderManagement(state, weekStart) {
     // 他担当(分担)＝この単元は別の先生が受け持つ。自分の見込みから外し、淡く表示。タップで自分に戻す。
     const share = `<button class="mng-ushare${u.status === 'shared' ? ' on' : ''}" data-subj="${esc(f.subjectKey)}" data-scope="${esc(f.scope ?? '')}" data-unit="${esc(u.id)}" title="${u.status === 'shared' ? '自分の担当に戻す' : '他の先生と分担（自分の見込みから外す）'}" aria-pressed="${u.status === 'shared'}">${icon('person')}</button>`;
     if (u.status === 'shared') {
+      // 自分が「本時を選ぶ」で受け持った分があれば、その時数(N/H)も淡く出す＝肩代わりが消えない
+      const mine = u.done > 0
+        ? `<span class="mng-ubar"><span class="mng-ubar-fill" style="width:${Math.round(u.done / u.hours * 100)}%"></span></span><span class="mng-ufrac">${u.done}/${u.hours}</span>`
+        : '<span class="mng-ushared">他担当</span>';
       return `<div class="mng-unit shared">
         <span class="mng-uname">${esc(u.name)}</span>
-        <span class="mng-ushared">他担当</span>
+        ${mine}
+        <span class="mng-ustat shared">他担当</span>
         ${share}
       </div>`;
     }

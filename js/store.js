@@ -1151,10 +1151,10 @@ export function scopeKey(subjectKey, scope) {
   return `${subjectKey}|${scope ?? ''}`;
 }
 
-/** その教科・学級で「他担当(分担)」にした単元idの集合。無ければ空集合。 */
+/** その教科・学級で「他担当(分担)」にした単元idの集合(文字列に正規化)。無ければ空集合。 */
 export function sharedUnitSet(settings, subjectKey, scope) {
   const list = settings?.sharedUnits?.[scopeKey(subjectKey, scope)];
-  return new Set(Array.isArray(list) ? list : []);
+  return new Set((Array.isArray(list) ? list : []).map(String));
 }
 
 /**
@@ -1209,14 +1209,14 @@ export function computeOrdinals(state, refWeekStart) {
           // 他担当(分担)の単元の位置は飛ばし、自分の本時だけに割り当てる(分担している学級の流し込みが正しくなる)。
           const shared = settings.sharedUnits?.[k];
           if (shared && shared.length) {
-            const sharedSet = new Set(shared);
+            const sharedSet = sharedUnitSet(settings, e.subjectKey, e.scope);
             const grade = scopeGrade(settings, e.scope);
             const plan = state.plans.find(pl => pl.subjectKey === e.subjectKey && (pl.grade == null || pl.grade === grade));
             if (plan) {
               let guard = 0;
               while (guard++ < 1000) {
                 const info = lessonFromPlan(plan, n);
-                if (info && !info.exhausted && info.unit && sharedSet.has(info.unit.id)) n++; else break;
+                if (info && !info.exhausted && info.unit && sharedSet.has(String(info.unit.id))) n++; else break;
               }
             }
           }
@@ -1465,7 +1465,21 @@ export function computeProgressForecast(state, refWeekStart) {
         const cell = week.cells[cellKey(d, p.id)];
         if (!cell) continue;
         for (const e of cell.entries) {
-          if (!e.subjectKey || e.cancelled || e.noCount || e.pin || e.offplan) continue; // 時数外も進度に数えない(時数と一致)
+          if (!e.subjectKey || e.cancelled || e.noCount) continue;
+          if (e.pin) {
+            // 「本時を選ぶ」で他担当(分担)の単元を実際に教えた分は、その単元の実施として数える
+            // (肩代わりした時数が見えるように)。通常のpin(自分の単元の差し込み・再実施)は従来どおり進度に数えない。
+            if (dateStr <= todayStr && planFor(e.subjectKey, e.scope)) {
+              const shared = sharedUnitSet(settings, e.subjectKey, e.scope);
+              if (shared.has(String(e.pin.unitId))) {
+                const a = ensure(e.subjectKey, e.scope);
+                a.doneByUnit.set(String(e.pin.unitId), (a.doneByUnit.get(String(e.pin.unitId)) || 0) + 1);
+                a.sharedDone = (a.sharedDone || 0) + 1; // 他担当単元で自分が受け持った実施数
+              }
+            }
+            continue;
+          }
+          if (e.offplan) continue; // 計画外(復習・テスト等)は進度に数えない
           const advances = e.advance == null ? p.type !== 'module' : !!e.advance;
           if (!advances) continue;
           const o = ordinals.get(e.id);
@@ -1509,7 +1523,7 @@ export function computeProgressForecast(state, refWeekStart) {
     const shared = sharedUnitSet(settings, a.subjectKey, a.scope); // 他担当(分担)の単元 = 自分の担当から外す
     const unitHours = plan.units.map(u => Math.max(1, Math.round(u.hours || u.lessons?.length || 1)));
     // 自分の担当ぶんだけ計画総数に数える(他担当の単元は計画から除外=見込みが自分の分になる)
-    const planTotal = plan.units.reduce((s, u, i) => shared.has(u.id) ? s : s + unitHours[i], 0);
+    const planTotal = plan.units.reduce((s, u, i) => shared.has(String(u.id)) ? s : s + unitHours[i], 0);
     if (!planTotal) continue;
     const taught = a.doneTotal;
     const remaining = Math.max(0, planTotal - taught);
@@ -1536,7 +1550,8 @@ export function computeProgressForecast(state, refWeekStart) {
     let currentIdx = -1;
     const units = plan.units.map((u, i) => {
       const hours = unitHours[i];
-      if (shared.has(u.id)) return { id: u.id, name: u.name || `単元${i + 1}`, hours, done: 0, cut: false, shared: true, _full: false };
+      // 他担当(分担)の単元: 自分が「本時を選ぶ」で実際に教えた分(doneByUnit)があれば表示=肩代わりした時数を見せる
+      if (shared.has(String(u.id))) return { id: u.id, name: u.name || `単元${i + 1}`, hours, done: Math.min(hours, a.doneByUnit.get(String(u.id)) || 0), cut: false, shared: true, _full: false };
       const done = Math.min(hours, a.doneByUnit.get(u.id) || 0);
       const full = a.cut.has(u.id) || done >= hours;
       if (!full && currentIdx === -1) currentIdx = i;

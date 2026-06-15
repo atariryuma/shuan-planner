@@ -1393,6 +1393,8 @@ td.cell:focus-visible, .day-th:focus-visible {
 /* 他担当(分担): 自分は教えない単元。淡く沈め、ラベルは右寄せ */
 .mng-unit.shared .mng-uname { color: #94a3b8; text-decoration: line-through; text-decoration-color: #cbd5e1; }
 .mng-ushared { flex: 1; text-align: right; font-size: 11px; color: #94a3b8; }
+.mng-ustat.shared { color: #7c3aed; }                 /* 単元行の「他担当」ステータス */
+.mng-unit.shared .mng-ubar-fill { background: #c4b5fd; } /* 肩代わりして教えた分は紫の淡色 */
 /* 分担トグル(人型): 既定は薄いゴースト、他担当のときだけ色付き */
 .mng-ushare { flex: none; width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   border: none; background: transparent; color: #cbd5e1; border-radius: 7px; cursor: pointer; opacity: .55; transition: opacity .12s, color .12s, background .12s; }
