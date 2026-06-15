@@ -13,7 +13,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, computeHours, computeProgressForecast, scopeKey, resolveEntryPlanDetails, cellHasLock, isActivity, isEntryEdited, conformEntryToPlan, entryMatchesScope, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, computeHours, computeProgressForecast, computeAttendance, scopeKey, resolveEntryPlanDetails, cellHasLock, isActivity, isEntryEdited, conformEntryToPlan, entryMatchesScope, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
 
 // 活動(会議・委員会等)entry: 教科なし＋見出し＋時数に数えない
 const activityEntry = (name) => ({ id: `act-${name}`, subjectKey: '', scope: null, unitName: name, nth: 0, unitHours: 0, noCount: true, fraction: 1, cancelled: false, auto: true, override: null });
@@ -620,6 +620,19 @@ test('授業なし(予定として): 時数に数えず、基本時間割の流�
   const h = computeHours(store.state, W);
   assert.equal((h.get(scopeKey('kokugo',''))?.yearTotal) || 0, 0); // 授業なしは時数に乗らない
   assert.equal(h.get(scopeKey('sansu',''))?.yearTotal, 1);
+});
+
+test('出欠の月別集計: 欠/遅/早をメモから読み取り合計', () => {
+  const state = defaultState();
+  const W = '2020-06-01'; // FY2020・6月
+  state.weeks = { [W]: { start:W, cells:{}, events:[], dayNotes:[], attendance:['欠2 遅1', '', '早1', '', '', ''], dayPatterns:{}, goals:'', reflection:'' } };
+  store.state = state;
+  const a = computeAttendance(store.state, W);
+  assert.equal(a.any, true);
+  assert.equal(a.total.abs, 2);
+  assert.equal(a.total.late, 1);
+  assert.equal(a.total.early, 1);
+  assert.equal(a.months.get(6).abs, 2);  // 6月に集計
 });
 
 test('前年度の年間行事を翌年度へ複製(年度はじめ軽量スタート)', () => {

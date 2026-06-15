@@ -1440,6 +1440,41 @@ export function computeProgressForecast(state, refWeekStart) {
   return out;
 }
 
+/**
+ * 出欠メモ(週ごと・日ごとのフリーテキスト)から「欠席/遅刻/早退」の数を拾い、月別に合計する。
+ * 形式は自由だが「欠2 遅1 早1」「欠席2」等のラベル+数字を best-effort で読む(出席簿への転記を1段省く)。
+ * 戻り値: { months: Map<monthNum, {abs,late,early}>, total: {abs,late,early}, any: boolean }
+ */
+export function computeAttendance(state, refWeekStart) {
+  const { weeks } = state;
+  const fy = refWeekStart ? fiscalYearOf(addDays(parseDate(refWeekStart), 3)) : fiscalYearOf(new Date());
+  const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`;
+  const g = (txt, re) => { const m = String(txt || '').match(re); return m ? Number(m[1]) : 0; };
+  const months = new Map();
+  const total = { abs: 0, late: 0, early: 0 };
+  let any = false;
+  for (const [ws, wk] of Object.entries(weeks)) {
+    const att = wk.attendance || [];
+    if (!att.some(a => String(a || '').trim())) continue;
+    const monday = parseDate(ws);
+    for (let d = 0; d < att.length; d++) {
+      const a = String(att[d] || '').trim();
+      if (!a) continue;
+      const dateStr = fmtDate(addDays(monday, d));
+      if (dateStr < fyStart || dateStr > fyEnd) continue;
+      const rec = { abs: g(a, /欠(?:席)?\s*(\d+)/), late: g(a, /遅(?:刻)?\s*(\d+)/), early: g(a, /早(?:退)?\s*(\d+)/) };
+      if (!rec.abs && !rec.late && !rec.early) continue;
+      any = true;
+      const month = Number(dateStr.slice(5, 7));
+      const cur = months.get(month) || { abs: 0, late: 0, early: 0 };
+      cur.abs += rec.abs; cur.late += rec.late; cur.early += rec.early;
+      months.set(month, cur);
+      total.abs += rec.abs; total.late += rec.late; total.early += rec.early;
+    }
+  }
+  return { months, total, any };
+}
+
 /** scope(専科=classId / 複式=学年番号)から学年を解決 */
 export function scopeGrade(settings, scope) {
   if (settings.mode === 'fukushiki') return typeof scope === 'number' ? scope : settings.fukushikiGrades[0];

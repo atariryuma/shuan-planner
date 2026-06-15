@@ -3555,6 +3555,41 @@ function computeProgressForecast(state, refWeekStart) {
   return out;
 }
 
+/**
+ * 出欠メモ(週ごと・日ごとのフリーテキスト)から「欠席/遅刻/早退」の数を拾い、月別に合計する。
+ * 形式は自由だが「欠2 遅1 早1」「欠席2」等のラベル+数字を best-effort で読む(出席簿への転記を1段省く)。
+ * 戻り値: { months: Map<monthNum, {abs,late,early}>, total: {abs,late,early}, any: boolean }
+ */
+function computeAttendance(state, refWeekStart) {
+  const { weeks } = state;
+  const fy = refWeekStart ? fiscalYearOf(addDays(parseDate(refWeekStart), 3)) : fiscalYearOf(new Date());
+  const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`;
+  const g = (txt, re) => { const m = String(txt || '').match(re); return m ? Number(m[1]) : 0; };
+  const months = new Map();
+  const total = { abs: 0, late: 0, early: 0 };
+  let any = false;
+  for (const [ws, wk] of Object.entries(weeks)) {
+    const att = wk.attendance || [];
+    if (!att.some(a => String(a || '').trim())) continue;
+    const monday = parseDate(ws);
+    for (let d = 0; d < att.length; d++) {
+      const a = String(att[d] || '').trim();
+      if (!a) continue;
+      const dateStr = fmtDate(addDays(monday, d));
+      if (dateStr < fyStart || dateStr > fyEnd) continue;
+      const rec = { abs: g(a, /欠(?:席)?\s*(\d+)/), late: g(a, /遅(?:刻)?\s*(\d+)/), early: g(a, /早(?:退)?\s*(\d+)/) };
+      if (!rec.abs && !rec.late && !rec.early) continue;
+      any = true;
+      const month = Number(dateStr.slice(5, 7));
+      const cur = months.get(month) || { abs: 0, late: 0, early: 0 };
+      cur.abs += rec.abs; cur.late += rec.late; cur.early += rec.early;
+      months.set(month, cur);
+      total.abs += rec.abs; total.late += rec.late; total.early += rec.early;
+    }
+  }
+  return { months, total, any };
+}
+
 /** scope(専科=classId / 複式=学年番号)から学年を解決 */
 function scopeGrade(settings, scope) {
   if (settings.mode === 'fukushiki') return typeof scope === 'number' ? scope : settings.fukushikiGrades[0];
@@ -3878,7 +3913,7 @@ function standardTotalHoursFor(settings, grade) {
 const store = new Store();
 
 
-return { SCHEMA_VERSION, defaultPeriods, defaultSubjects, defaultSettings, blankWeek, defaultState, cellKey, effectivePeriod, newEntry, normalizeOverride, mergeLessonOverride, normalizeLesson, VIEWPOINTS, isEntryEdited, cellHasUserEdits, cellHasLock, isActivity, cellHasActivity, conformEntryToPlan, entryMatchesScope, cellIsClaimed, scopeKey, computeOrdinals, lessonFromPlan, lessonFromPin, resolveEntryText, resolveEntryPlanDetails, computeViewpointTally, computeProgressForecast, scopeGrade, doneRefWeek, computeHours, teachingWeeksLeft, teachingWeeksElapsed, breakNameOf, isNoSchoolDay, weekDayOffsets, noSchoolReason, computeMonthlyHours, termRanges, fmtHours, standardHoursFor, standardTotalHoursFor, store, parseDate };
+return { SCHEMA_VERSION, defaultPeriods, defaultSubjects, defaultSettings, blankWeek, defaultState, cellKey, effectivePeriod, newEntry, normalizeOverride, mergeLessonOverride, normalizeLesson, VIEWPOINTS, isEntryEdited, cellHasUserEdits, cellHasLock, isActivity, cellHasActivity, conformEntryToPlan, entryMatchesScope, cellIsClaimed, scopeKey, computeOrdinals, lessonFromPlan, lessonFromPin, resolveEntryText, resolveEntryPlanDetails, computeViewpointTally, computeProgressForecast, computeAttendance, scopeGrade, doneRefWeek, computeHours, teachingWeeksLeft, teachingWeeksElapsed, breakNameOf, isNoSchoolDay, weekDayOffsets, noSchoolReason, computeMonthlyHours, termRanges, fmtHours, standardHoursFor, standardTotalHoursFor, store, parseDate };
 })();
 __M["gas.js"] = (function(){
 /**
@@ -5252,8 +5287,30 @@ function wireNav(root, ctx, monday) {
         else dup++;
       }
       store.commit();
-      const msg = dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`;
-      toast(msg, 'info', 3000, n ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
+      // 行事↔コマ連動: 終日の行事(時刻なし=運動会・遠足など)がある日に授業があれば、1問でまとめて中止できる(二重作業の解消)
+      const allDayDays = [...new Set(target.filter(ev => !ev.time).map(ev => ev.idx))];
+      const cancelDays = allDayDays.filter(idx => store.settings.periods.some(p =>
+        (week.cells[cellKey(idx, p.id)]?.entries || []).some(e => e.subjectKey && !e.cancelled)));
+      let cancelledCount = 0;
+      if (cancelDays.length) {
+        const names = cancelDays.map(idx => DAY_NAMES[idx] + '曜').join('・');
+        const ok2 = await confirmDialog(`終日の行事がある ${names} の授業を中止にしますか?\n運動会・遠足など。中止すると以降の計画コマが繰り下がります。`, { okLabel: '中止にする' });
+        if (ok2) {
+          const ords = computeOrdinals(store.state, fmtDate(monday));
+          for (const idx of cancelDays) {
+            for (const p of store.settings.periods) {
+              for (const e of (week.cells[cellKey(idx, p.id)]?.entries || [])) {
+                if (e.cancelled || !e.subjectKey) continue;
+                e.cancelledText = resolveEntryText(store.state, e, ords).text;
+                e.cancelled = true; cancelledCount++;
+              }
+            }
+          }
+          store.commit();
+        }
+      }
+      const msg = (dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`) + (cancelledCount ? `／授業${cancelledCount}コマ中止` : '');
+      toast(msg, 'info', 3200, (n || cancelledCount) ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 5000);
@@ -7541,7 +7598,7 @@ return { renderPlansView };
 __M["views/stats.js"] = (function(){
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-const {store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek} = __M["store.js"];
+const {store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, computeAttendance, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek} = __M["store.js"];
 const {weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc} = __M["utils.js"];
 const {toast, infoHTML} = __M["ui.js"];
 const {icon} = __M["icons.js"];
@@ -7570,6 +7627,7 @@ function renderStatsView(root, ctx) {
   const sections = scopes.map(sc => renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail)).filter(Boolean).join('');
   const management = renderManagement(state, weekStart);
   const viewpoints = renderViewpointSummary(state, scopes, weekStart);
+  const attendance = renderAttendance(state, weekStart);
 
   root.innerHTML = `
     <div class="panel">
@@ -7591,6 +7649,7 @@ function renderStatsView(root, ctx) {
       ${classSummary}
       ${management}
       ${viewpoints}
+      ${attendance}
       ${sections || `<div class="empty-state">
         <div class="empty-ic">${icon('chart')}</div>
         <p class="empty-title">まだ集計するコマがありません</p>
@@ -7800,6 +7859,24 @@ function renderViewpointSummary(state, scopes, weekStart) {
 }
 
 // ---------------------------------------------------------------- 進度一覧(専科・複式の核心ビュー)
+
+/** 出欠の月別集計: 日々の出欠メモから「欠N/遅N/早N」を読み取り月別に合計(出席簿への転記の目安)。データが無ければ非表示。 */
+function renderAttendance(state, weekStart) {
+  const att = computeAttendance(state, weekStart);
+  if (!att.any) return '';
+  const rows = MONTH_ORDER.filter(m => att.months.has(m)).map(m => {
+    const r = att.months.get(m);
+    return `<tr><td>${m}月</td><td>${r.abs || ''}</td><td>${r.late || ''}</td><td>${r.early || ''}</td></tr>`;
+  }).join('');
+  return `
+    <h3>出欠（月別）${infoHTML('日々の「出欠」メモから「欠2 遅1 早1」のような数字を読み取って合計します。出席簿への転記の目安に。個人名は数字に反映されません')}</h3>
+    <table class="stats-table" style="max-width:340px; margin-bottom:18px;">
+      <thead><tr><th style="width:64px;">月</th><th>欠席</th><th>遅刻</th><th>早退</th></tr></thead>
+      <tbody>${rows}
+        <tr style="font-weight:700; background:#f8fafc;"><td>計</td><td>${att.total.abs || ''}</td><td>${att.total.late || ''}</td><td>${att.total.early || ''}</td></tr>
+      </tbody>
+    </table>`;
+}
 
 /**
  * 授業マネジメント: 教科×学級ごとに、計画に対する進み(実施/残り)・計画通り/遅れ/先行・

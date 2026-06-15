@@ -937,8 +937,30 @@ function wireNav(root, ctx, monday) {
         else dup++;
       }
       store.commit();
-      const msg = dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`;
-      toast(msg, 'info', 3000, n ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
+      // 行事↔コマ連動: 終日の行事(時刻なし=運動会・遠足など)がある日に授業があれば、1問でまとめて中止できる(二重作業の解消)
+      const allDayDays = [...new Set(target.filter(ev => !ev.time).map(ev => ev.idx))];
+      const cancelDays = allDayDays.filter(idx => store.settings.periods.some(p =>
+        (week.cells[cellKey(idx, p.id)]?.entries || []).some(e => e.subjectKey && !e.cancelled)));
+      let cancelledCount = 0;
+      if (cancelDays.length) {
+        const names = cancelDays.map(idx => DAY_NAMES[idx] + '曜').join('・');
+        const ok2 = await confirmDialog(`終日の行事がある ${names} の授業を中止にしますか?\n運動会・遠足など。中止すると以降の計画コマが繰り下がります。`, { okLabel: '中止にする' });
+        if (ok2) {
+          const ords = computeOrdinals(store.state, fmtDate(monday));
+          for (const idx of cancelDays) {
+            for (const p of store.settings.periods) {
+              for (const e of (week.cells[cellKey(idx, p.id)]?.entries || [])) {
+                if (e.cancelled || !e.subjectKey) continue;
+                e.cancelledText = resolveEntryText(store.state, e, ords).text;
+                e.cancelled = true; cancelledCount++;
+              }
+            }
+          }
+          store.commit();
+        }
+      }
+      const msg = (dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`) + (cancelledCount ? `／授業${cancelledCount}コマ中止` : '');
+      toast(msg, 'info', 3200, (n || cancelledCount) ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 5000);

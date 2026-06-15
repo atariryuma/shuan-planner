@@ -1,6 +1,6 @@
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
+import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, computeAttendance, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
 import { weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
 import { icon } from '../icons.js';
@@ -29,6 +29,7 @@ export function renderStatsView(root, ctx) {
   const sections = scopes.map(sc => renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail)).filter(Boolean).join('');
   const management = renderManagement(state, weekStart);
   const viewpoints = renderViewpointSummary(state, scopes, weekStart);
+  const attendance = renderAttendance(state, weekStart);
 
   root.innerHTML = `
     <div class="panel">
@@ -50,6 +51,7 @@ export function renderStatsView(root, ctx) {
       ${classSummary}
       ${management}
       ${viewpoints}
+      ${attendance}
       ${sections || `<div class="empty-state">
         <div class="empty-ic">${icon('chart')}</div>
         <p class="empty-title">まだ集計するコマがありません</p>
@@ -259,6 +261,24 @@ function renderViewpointSummary(state, scopes, weekStart) {
 }
 
 // ---------------------------------------------------------------- 進度一覧(専科・複式の核心ビュー)
+
+/** 出欠の月別集計: 日々の出欠メモから「欠N/遅N/早N」を読み取り月別に合計(出席簿への転記の目安)。データが無ければ非表示。 */
+function renderAttendance(state, weekStart) {
+  const att = computeAttendance(state, weekStart);
+  if (!att.any) return '';
+  const rows = MONTH_ORDER.filter(m => att.months.has(m)).map(m => {
+    const r = att.months.get(m);
+    return `<tr><td>${m}月</td><td>${r.abs || ''}</td><td>${r.late || ''}</td><td>${r.early || ''}</td></tr>`;
+  }).join('');
+  return `
+    <h3>出欠（月別）${infoHTML('日々の「出欠」メモから「欠2 遅1 早1」のような数字を読み取って合計します。出席簿への転記の目安に。個人名は数字に反映されません')}</h3>
+    <table class="stats-table" style="max-width:340px; margin-bottom:18px;">
+      <thead><tr><th style="width:64px;">月</th><th>欠席</th><th>遅刻</th><th>早退</th></tr></thead>
+      <tbody>${rows}
+        <tr style="font-weight:700; background:#f8fafc;"><td>計</td><td>${att.total.abs || ''}</td><td>${att.total.late || ''}</td><td>${att.total.early || ''}</td></tr>
+      </tbody>
+    </table>`;
+}
 
 /**
  * 授業マネジメント: 教科×学級ごとに、計画に対する進み(実施/残り)・計画通り/遅れ/先行・
