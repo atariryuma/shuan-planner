@@ -4519,17 +4519,8 @@ function renderWeekView(root, ctx) {
     ? localStorage.getItem('shuan-class-filter') : '';
   ctx.classFilter = classFilter; // renderCell が読む(グリッドの絞り込み)
 
-  // 提出トラッキング: 週案は毎週提出が義務の学校が多い。今週以前で授業があるのに未提出なら注意を促す。
-  const wkObj = store.state.weeks[weekStart];
-  const hasLessons = !!wkObj && Object.values(wkObj.cells).some(c => c.entries?.some(e => e.subjectKey));
-  const submittedAt = wkObj?.submittedAt;
-  const submitDue = hasLessons && weekStart <= fmtDate(mondayOf(new Date())); // 今週以前で授業あり
-  // チップは状態が見れば分かるのでツールチップは付けない(未提出=赤・提出済=緑＋日付。クリックで切替)。
-  const submitChip = submittedAt
-    ? `<button class="submit-chip done" id="wk-submit">✓ 提出済 ${fmtMD(new Date(submittedAt))}</button>`
-    : submitDue
-      ? `<button class="submit-chip due" id="wk-submit">未提出</button>`
-      : '';
+  // 提出チップ(✓提出済/未提出)はユーザー要望で撤去。提出済みフラグ(week.submittedAt)のデータ自体は
+  // 残す(復元の保護・既存データ互換)。再表示したくなったらここにチップを戻すだけ。
 
   const dayHeads = [];
   const noSchoolDays = {}; // 各曜日(d)の非授業情報 {reason,type} | null。day番号キー(土日=5,6も入るため位置配列にしない)
@@ -4740,7 +4731,6 @@ function renderWeekView(root, ctx) {
       <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, days[days.length - 1]))}
         <span class="week-no">第${weekNo}週</span>
       </span>
-      ${submitChip}
       <input type="date" id="wk-date" value="${weekStart}" aria-label="表示する週の日付">
       <span class="spacer"></span>
       <div class="wn-actions">
@@ -5051,14 +5041,6 @@ function wireNav(root, ctx, monday) {
   root.querySelector('#wk-prev').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, -7)));
   root.querySelector('#wk-next').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, 7)));
   root.querySelector('#wk-today').onclick = () => ctx.setWeekStart(null);
-  // 提出トラッキング: この週の週案を提出済み/未提出に切り替える(印刷=提出が多いので印刷後にも押せる位置)
-  root.querySelector('#wk-submit')?.addEventListener('click', () => {
-    const w = store.getWeek(fmtDate(monday), true);
-    const on = !w.submittedAt;
-    w.submittedAt = on ? Date.now() : null;
-    store.commit(); ctx.rerender();
-    toast(on ? '提出済みにしました' : '提出を取り消しました', 'info', 2200);
-  });
   const dateInput = root.querySelector('#wk-date');
   dateInput.onchange = (ev) => {
     if (ev.target.value) ctx.setWeekStart(ev.target.value);
