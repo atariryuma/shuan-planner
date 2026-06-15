@@ -360,9 +360,6 @@ td.cell:hover .cell-clear { display: block; }
 .cell-clear:hover { color: var(--danger); }
 
 .cell-empty { color: #c4ccd8; font-size: 16px; text-align: center; padding-top: 18px; user-select: none; }
-/* 専科の担当外コマ: ＋でなく淡い点で静かに(無理に授業を勧めない)。タップで追加は可能 */
-.cell-empty.off-duty { color: #e5e9ef; font-size: 18px; line-height: 1; }
-td.cell:hover .cell-empty.off-duty { color: #c4ccd8; }
 
 /* 活動(会議・委員会・クラブ等。教科なし・時数に数えない)。授業カードと区別する淡色メモ。 */
 .entry.activity { display: flex; align-items: flex-start; gap: 4px; color: #64748b; font-size: 12px; line-height: 1.35; padding: 2px; background: #f6f8fb; border-radius: 4px; }
@@ -989,6 +986,10 @@ td.cell:focus-visible, .day-th:focus-visible {
 
 .ov-vprow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .ov-vplabel { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--ink-2); }
+/* 「変更」バッジは観点ボタンより右へ寄せる(ラベルの ⓘ に重ならずツールチップが素直に出る) */
+.ov-vp-badge { margin-left: auto; }
+/* 複数学級が同じコマにある時だけ出す「この学級だけ削除」。コマ全体の削除(フッター)と区別 */
+.entry-editor .block-del { display: block; margin-top: 12px; }
 .ov-vp { display: inline-flex; gap: 4px; background: var(--gray-100); border-radius: var(--r-full); padding: 3px; }
 .ov-vp button {
   border: none; background: transparent; border-radius: var(--r-full); cursor: pointer;
@@ -4876,13 +4877,9 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchoo
   // 非授業日の空きコマ: フラットな淡色のみ(理由=祝日名はヘッダーに1度だけ。セルでは繰り返さない)。
   // 「＋」は出さない(授業を入れる場所に見せない)。授業・活動が入っていれば通常表示。
   // フィルタで隠れた他学級のコマがある場合も「＋」は出さない(空きと誤認させない)。
-  // 専科で基本時間割に無い校時(=自分が教えていない時間)は「担当外」として静かに(＋でなく淡い点)。
-  // 無理に授業を勧めない。タップで追加は可能。基本時間割が無い間は従来どおり＋。
-  const offDuty = s.mode === 'senka' && store.hasBaseTimetable && !entries.length && !noSchool && !hiddenOther
-    && !(store.state.baseTimetables?.[0]?.cells?.[cellKey(dayIdx, period.id)]?.entries || []).some(e => e.subjectKey);
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
-    : (noSchool || hiddenOther) ? '' : offDuty ? `<div class="cell-empty off-duty" title="担当外（基本時間割に無い校時）。タップで授業を追加できます">·</div>` : `<div class="cell-empty">＋</div>`;
+    : (noSchool || hiddenOther) ? '' : `<div class="cell-empty">＋</div>`;
   const onlyActivity = entries.length > 0 && entries.every(isActivity); // 会議・委員会・自習・授業なし等のみ=淡い面で表示
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && (ctx.swapSource.weekStart == null || ctx.swapSource.weekStart === week.start) && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
@@ -5300,30 +5297,14 @@ function wireNav(root, ctx, monday) {
         else dup++;
       }
       store.commit();
-      // 行事↔コマ連動: 終日の行事(時刻なし=運動会・遠足など)がある日に授業があれば、1問でまとめて中止できる(二重作業の解消)
-      const allDayDays = [...new Set(target.filter(ev => !ev.time).map(ev => ev.idx))];
-      const cancelDays = allDayDays.filter(idx => store.settings.periods.some(p =>
-        (week.cells[cellKey(idx, p.id)]?.entries || []).some(e => e.subjectKey && !e.cancelled)));
-      let cancelledCount = 0;
-      if (cancelDays.length) {
-        const names = cancelDays.map(idx => DAY_NAMES[idx] + '曜').join('・');
-        const ok2 = await confirmDialog(`終日の行事がある ${names} の授業を中止にしますか?\n運動会・遠足など。中止すると以降の計画コマが繰り下がります。`, { okLabel: '中止にする' });
-        if (ok2) {
-          const ords = computeOrdinals(store.state, fmtDate(monday));
-          for (const idx of cancelDays) {
-            for (const p of store.settings.periods) {
-              for (const e of (week.cells[cellKey(idx, p.id)]?.entries || [])) {
-                if (e.cancelled || !e.subjectKey) continue;
-                e.cancelledText = resolveEntryText(store.state, e, ords).text;
-                e.cancelled = true; cancelledCount++;
-              }
-            }
-          }
-          store.commit();
-        }
-      }
-      const msg = (dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`) + (cancelledCount ? `／授業${cancelledCount}コマ中止` : '');
-      toast(msg, 'info', 3200, (n || cancelledCount) ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
+      // 終日の行事(運動会・遠足など)で授業が潰れた日は、日付の⋯→「この日を中止」で1タップ繰り下げできる。
+      // 取り込み時に一括中止を問うのはやめた:「終日でも授業はある」行事(読書週間・教育相談旬間など)にも
+      // 誤って中止を勧めてしまうため。判断は教員に委ね、潰れた日だけ静かに案内する。
+      const allDayHit = [...new Set(target.filter(ev => !ev.time).map(ev => ev.idx))].some(idx =>
+        store.settings.periods.some(p => (week.cells[cellKey(idx, p.id)]?.entries || []).some(e => e.subjectKey && !e.cancelled)));
+      const msg = (dup ? `取り込み${n}件・登録済み${dup}件` : `${n}件を取り込みました`)
+        + (allDayHit ? '（終日の行事で潰れた日は、日付の⋯→「この日を中止」で繰り下げできます）' : '');
+      toast(msg, 'info', allDayHit ? 5600 : 3200, n ? { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } } : null);
       ctx.rerender();
     } catch (e) {
       toast('取得失敗: ' + e.message, 'error', 5000);
@@ -6323,7 +6304,7 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       </div>` : '';
     // コマ=授業(教科あり) or 活動(会議・委員会・自習・授業なし等。教科なし)の entry を並べる。会議も「授業」の一種。
     const hasActivity = cellNow.entries.some(e => isActivity(e));
-    const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals)).join('');
+    const body = cellNow.entries.map((e, i) => entryEditorHTML(state, e, i, period, ordinals, cellNow.entries.length)).join('');
     const inner = commonPalette + body
       + (s.mode !== 'fukushiki' && !hasActivity ? `<button class="btn small" data-add-entry>＋ 授業を追加</button>` : '');
     modal.querySelector('.cell-editor-body').innerHTML = inner;
@@ -6563,7 +6544,7 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     </div>
     <div class="cell-editor-body"></div>
     <div class="modal-foot">
-      <button class="btn danger left" data-clear-cell>${icon('trash')}削除</button>
+      <button class="btn danger left" data-clear-cell title="このコマを削除して空きに戻します">${icon('trash')}削除</button>
       <button class="btn ghost" data-revert>取り消す</button>
       <button class="btn primary" data-close>閉じる</button>
     </div>
@@ -6709,7 +6690,7 @@ const OV_PLACEHOLDERS = {
   assessment: '（例）〜を理解している／〜を考えている。（観点は下で選ぶ）',
 };
 
-function entryEditorHTML(state, entry, idx, period, ordinals) {
+function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) {
   const s = state.settings;
   // 活動(会議・委員会・クラブ等。教科なし・時数に数えない)は名前だけのシンプル編集。
   if (isActivity(entry)) {
@@ -6794,7 +6775,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     </div>`;
     // 本時の内容(ねらい・学習活動・評価規準・観点)。計画どおりなら欄に計画文が濃く出て、
     // そのまま直接書き換えられる(開く=編集なので別の「編集」ボタンは置かない)。計画と同じに戻すと記録は消える。
-    const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}${ed.overridden.viewpoint ? '<span class="ov-badge">変更</span>' : ''}</span>${vpSeg}</div>`;
+    const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}</span>${vpSeg}${ed.overridden.viewpoint ? '<span class="ov-badge ov-vp-badge">変更</span>' : ''}</div>`;
     // 「この時間だけ別の単元の本時をやる」ピッカー(自転車操業対応)。計画に単元があるときだけ出す。
     const pinUnits = planForPick?.units || [];
     const lessonMode = entry.offplan ? 'offplan' : entry.pin ? 'pin' : 'plan';
@@ -6906,9 +6887,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         </div>
         ${entry.cancelled ? `<input type="text" class="cancel-reason" name="cancelReason" value="${esc(entry.cancelledReason || '')}" placeholder="中止の理由（学級閉鎖・行事変更など・任意）" aria-label="中止の理由">` : ''}
       </div>
-      ${(s.mode !== 'fukushiki' || !isKnownGrade) ? `<details class="adv"><summary class="fold-label">その他</summary>
-        <button class="btn small danger" data-del-entry style="margin-top:8px;">この授業を削除</button>
-      </details>` : ''}
+      ${entriesCount > 1 ? `<button class="btn small danger block-del" data-del-entry>${s.mode === 'fukushiki' ? 'この学年だけ削除' : 'この学級だけ削除'}</button>` : ''}
     </div>`;
 }
 
