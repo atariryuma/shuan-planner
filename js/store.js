@@ -102,6 +102,7 @@ export function blankWeek(startDateStr) {
     reflection: '',
     managerNote: '',      // 管理職の指導・助言(押印欄と併せて印刷)
     submittedAt: null,    // 提出済みにした日時(null=未提出)。週案は毎週提出が義務の学校が多い
+    cleared: false,       // 明示的にクリアした週=自動補完(基本時間割の流し込み)で戻さない
   };
 }
 

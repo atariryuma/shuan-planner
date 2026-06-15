@@ -2220,6 +2220,7 @@ function blankWeek(startDateStr) {
     reflection: '',
     managerNote: '',      // 管理職の指導・助言(押印欄と併せて印刷)
     submittedAt: null,    // 提出済みにした日時(null=未提出)。週案は毎週提出が義務の学校が多い
+    cleared: false,       // 明示的にクリアした週=自動補完(基本時間割の流し込み)で戻さない
   };
 }
 
@@ -4370,6 +4371,7 @@ function autoMaterializeWeek(weekStart) {
   if (store.state.settings.autoLayout === false) return false;
   const existed = !!store.state.weeks[weekStart];
   const w = store.state.weeks[weekStart];
+  if (w?.cleared) return false; // 明示的にクリアした週は自動補完で戻さない(週クリア・日クリアが効くように)
   // 授業が1つでも入っていれば触らない。予定(会議・自習・授業なし等)だけの週は他の空きを自動で埋める
   // (=「状況によって自動判断」: まっさら/予定だけ→空きを埋める、授業あり→そのまま)。既存の予定は流し込みが避ける。
   if (w && Object.values(w.cells).some(c => c?.entries?.some(e => !isActivity(e)))) return false;
@@ -5182,7 +5184,11 @@ function wireNav(root, ctx, monday) {
     const ok = await confirmDialog('この週の入力をすべて消しますか?', { okLabel: '週クリア', danger: true });
     if (!ok) return;
     store.snapshot('週のクリア');
-    delete store.state.weeks[to];
+    // 週を消すと自動補完で戻ってしまうため、空にして「クリア済み」印を付ける(自動補完が避ける)
+    const w = store.state.weeks[to];
+    w.cells = {}; w.events = ['', '', '', '', '', '']; w.dayNotes = ['', '', '', '', '', '']; w.attendance = ['', '', '', '', '', ''];
+    w.dayPatterns = {}; w.goals = ''; w.reflection = ''; w.managerNote = ''; w.submittedAt = null;
+    w.cleared = true;
     store.commit();
     toast('週をクリアしました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     ctx.rerender();
@@ -5748,6 +5754,7 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
               for (const p of store.settings.periods) {
                 if (w.cells[cellKey(d, p.id)]) { delete w.cells[cellKey(d, p.id)]; n++; }
               }
+              w.cleared = true; // この日を消した=明示クリア。全曜日消しても自動補完で戻さない
             } else if (act === 'copy-prev') {
               for (const p of store.settings.periods) {
                 const src = w.cells[cellKey(d - 1, p.id)];
@@ -6641,7 +6648,7 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       });
       if (!c.entries.length) delete w.cells[key]; // 授業も活動も無ければ空き(コマ削除)
     }
-    if (w && !Object.keys(w.cells).length && !w.goals && !w.reflection
+    if (w && !w.cleared && !w.submittedAt && !Object.keys(w.cells).length && !w.goals && !w.reflection
       && !(w.events || []).some(Boolean)
       && !Object.keys(w.dayPatterns || {}).length
       && !(w.dayNotes || []).some(Boolean)
