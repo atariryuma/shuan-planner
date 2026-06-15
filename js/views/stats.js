@@ -311,12 +311,28 @@ function renderManagement(state, weekStart) {
   const items = [...fc.values()].sort((a, b) =>
     subjIdx(a.subjectKey) - subjIdx(b.subjectKey) || String(a.scope).localeCompare(String(b.scope)));
 
+  // チップは「年度内に終わるか」の一語(遅れ=要対策/先行=余裕/順調/完了)。位置は下のバー・単元リストが示す。
   const chip = (f) => f.status === 'done' ? '<span class="mng-chip done">完了</span>'
-    : f.status === 'behind' ? `<span class="mng-chip behind">${f.behind}時 遅れ</span>`
-      : f.status === 'ahead' ? `<span class="mng-chip ahead">${-f.behind}時 先行</span>`
-        : '<span class="mng-chip ontrack">計画通り</span>';
-  const feas = (f) => f.status === 'done' ? '<span class="mng-feas done">達成</span>'
-    : f.feasible ? '<span class="mng-feas ok">見込◎</span>' : '<span class="mng-feas warn">見込△</span>';
+    : f.status === 'behind' ? '<span class="mng-chip behind">遅れ</span>'
+      : f.status === 'ahead' ? '<span class="mng-chip ahead">先行</span>'
+        : '<span class="mng-chip ontrack">順調</span>';
+  // 数字3つの箱の代わりに「言い切り＋次の一手」を1文で。遅れは具体的な巻き返し方を添える。
+  const verdict = (f) => {
+    if (f.status === 'done') return '';
+    const rate = f.weeklyRate != null ? f.weeklyRate : f.rate;
+    if (f.status === 'behind') {
+      if (f.left <= 0 || f.requiredPace === Infinity) {
+        return `<div class="mng-verdict warn">残りの授業週がありません。<b>${f.shortfall}コマ分</b>を切り上げるか、計画の見直しを。<button class="btn small" data-goweek>週案を開く</button></div>`;
+      }
+      const extra = Math.max(1, Math.ceil(f.requiredPace - rate));
+      return `<div class="mng-verdict warn">このままだと<b>${f.shortfall}コマ不足</b>の見込み。<b>週あと${extra}コマ</b>増やすか、<b>${f.shortfall}コマ分</b>を切り上げると間に合います。<button class="btn small" data-goweek>週案を開く</button></div>`;
+    }
+    if (f.status === 'ahead') {
+      const wk = rate > 0 ? Math.round(f.marginKoma / rate) : 0;
+      return `<div class="mng-verdict ok">余裕あり。約<b>${wk}週分</b>の貯金で、このペースで<b>完了見込み</b>。</div>`;
+    }
+    return `<div class="mng-verdict ok">このペースで年度内に<b>完了見込み</b>（残り${f.remaining}コマ・週${rate}）。</div>`;
+  };
   const unitRow = (u) => {
     const lbl = u.status === 'done' ? (u.cut ? '切上げ' : '済') : u.status === 'current' ? 'いま' : 'これから';
     return `<div class="mng-unit ${u.status}">
@@ -328,36 +344,23 @@ function renderManagement(state, weekStart) {
   };
   const card = (f) => {
     const { subjName, cls } = labelOf(f);
-    const cur = f.units.find(u => u.status === 'current');
-    const overPace = f.weeklyRate != null && f.requiredPace !== Infinity && f.requiredPace > f.weeklyRate;
-    const metrics = f.status === 'done' ? '' : `
-        <div class="mng-metrics">
-          <div class="mng-metric"><span class="mng-mlabel">残りの授業枠</span><span class="mng-mval">${f.capacityLeft}<small>時</small></span><span class="mng-msub">${f.weeklyRate != null ? `週${f.weeklyRate}×残${f.left}週` : `残${f.left}週・今のペース`}</span></div>
-          <div class="mng-metric"><span class="mng-mlabel">完了に必要</span><span class="mng-mval ${overPace ? 'warn' : ''}">${f.requiredPace === Infinity ? '—' : f.requiredPace}<small>時/週</small></span><span class="mng-msub">今 週${f.weeklyRate != null ? f.weeklyRate : f.pace}時</span></div>
-          <div class="mng-metric"><span class="mng-mlabel">年度末見込み</span><span class="mng-mval ${f.feasible ? 'ok' : 'warn'}" style="font-size:13px;">${f.feasible ? '完了見込み' : `${f.shortfall}時 不足`}</span></div>
-        </div>`;
     const nextLine = f.next ? `<div class="mng-next"><span class="muted">次の授業 ▸</span> ${esc(f.next.unitName)}${f.next.unitHours > 1 ? `(${f.next.nth}/${f.next.unitHours})` : ''}${f.next.objective ? ' ' + esc(f.next.objective) : ''}</div>` : '';
-    const tip = f.status === 'behind'
-      ? `<div class="mng-tip">${cur ? `「${esc(cur.name)}」を` : ''}<b>切り上げ</b>て次へ進めるか、空きコマに<b>補充</b>で巻き返せます。<button class="btn small" data-goweek>週案を開く</button></div>`
-      : '';
     return `<details class="mng-card ${f.status}" ${f.status === 'behind' ? 'open' : ''}>
         <summary class="mng-head">
           <span class="mng-title">${esc(subjName)}${cls ? ` <span class="muted">${esc(cls)}</span>` : ''}</span>
           ${chip(f)}
           <span class="mng-bar"><span class="mng-bar-fill ${f.status}" style="width:${Math.min(100, f.pct)}%"></span></span>
           <span class="mng-frac">${f.taught}/${f.planTotal}<small>時</small></span>
-          ${feas(f)}
         </summary>
         <div class="mng-cardbody">
-          ${metrics}${nextLine}
+          ${verdict(f)}${nextLine}
           <div class="mng-units">${f.units.map(unitRow).join('')}</div>
-          ${tip}
         </div>
       </details>`;
   };
   return `
-    <h3 style="margin-top:0;">進度と時数の見通し${infoHTML('大事なのは2つ: ①指導計画が予定どおり進んでいるか(計画通り/遅れ/先行)、②標準時数を年度内に確保できそうか(見込み)。学級・教科ごとに表示します。遅れは週案で切り上げ・補充して巻き返せます。追加入力は不要です')}</h3>
-    <p class="mng-legend hint">バー＝計画の進み／チップ＝<b>進度</b>(計画通り・遅れ・先行)／右の印＝年度内に標準時数が<b>そろう見込み</b>(◎=間に合う／△=不足のおそれ)</p>
+    <h3 style="margin-top:0;">進度と時数の見通し${infoHTML('大事なのは2つ: ①今どこまで進んだか(バー・単元リスト)、②このまま行くと年度内に終わるか(チップ)。「遅れ」は、今のペースだと標準時数までに終わらない見込みのこと。週案で切り上げ・補充して巻き返せます。追加入力は不要です')}</h3>
+    <p class="mng-legend hint"><b>バー・単元リスト</b>＝今どこまで進んだか。<b>チップ</b>＝このまま行くと年度内に終わるか（順調／先行＝余裕／遅れ＝対策を）。下の一文に「あと何をすれば間に合うか」が出ます。</p>
     <div class="mng-list">${items.map(card).join('')}</div>`;
 }
 

@@ -1478,15 +1478,19 @@ export function computeProgressForecast(state, refWeekStart) {
     const pace = elapsed > 0 ? taught / elapsed : 0;
     const requiredPace = left > 0 ? remaining / left : (remaining > 0 ? Infinity : 0);
     const weeklyRate = weeklyRateOf(k);                        // 週あたりコマ数(基本時間割) | null
+    const rate = weeklyRate != null ? weeklyRate : Math.max(0, Math.round(pace)); // 通常の週あたりコマ
     // 完了見込み = 実施済 ＋ 残りの枠(週あたり × 残り授業週の実数)。枠が無ければ平均ペースで外挿。
     const capacityLeft = weeklyRate != null ? weeklyRate * left : Math.round(pace * left);
     const projected = taught + capacityLeft;
     const shortfall = Math.max(0, Math.round(planTotal - projected));
+    const marginKoma = Math.round(projected - planTotal);     // 年度末の余白(正=余る / 負=不足の見込み)
     const feasible = projected >= planTotal || remaining === 0;
+    // 遅れ/先行は「年度内に終わるか」を基準に統一(線形ペースの『遅れなのに見込◎』矛盾を解消)。
+    //   遅れ=このままでは終わらない / 先行=1週分以上の貯金 / 順調=ほぼ予定どおり終わる
     let status;
     if (taught >= planTotal) status = 'done';
-    else if (behind >= 1) status = 'behind';
-    else if (behind <= -1) status = 'ahead';
+    else if (!feasible) status = 'behind';
+    else if (rate > 0 && marginKoma >= rate) status = 'ahead';
     else status = 'ontrack';
 
     let currentIdx = -1;
@@ -1504,10 +1508,10 @@ export function computeProgressForecast(state, refWeekStart) {
       subjectKey: a.subjectKey, scope: a.scope, grade: scopeGrade(settings, a.scope),
       planTotal, taught, remaining, pct: Math.round((taught / planTotal) * 100),
       elapsed, left, expected: Math.round(expected), behind, status,
-      pace: Math.round(pace * 10) / 10,
+      pace: Math.round(pace * 10) / 10, rate,
       requiredPace: requiredPace === Infinity ? Infinity : Math.round(requiredPace * 10) / 10,
       weeklyRate, capacityLeft: Math.round(capacityLeft),
-      projected: Math.round(projected), shortfall, feasible,
+      projected: Math.round(projected), shortfall, marginKoma, feasible,
       next: next && !next.exhausted ? { unitName: next.unitName, nth: next.nth, unitHours: next.unitHours, objective: next.lessonText } : null,
       units,
     });

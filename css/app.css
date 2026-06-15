@@ -1351,6 +1351,12 @@ td.cell:focus-visible, .day-th:focus-visible {
 .mng-msub { display: block; font-size: 10px; color: #94a3b8; margin-top: 1px; }
 .mng-next { font-size: 12px; color: #334155; margin: 6px 0; line-height: 1.5; }
 .mng-next .muted { color: #94a3b8; }
+/* 数字3箱の代わりの「言い切り＋次の一手」1文 */
+.mng-verdict { font-size: 13px; line-height: 1.7; padding: 8px 11px; border-radius: 8px; margin: 2px 0 8px; }
+.mng-verdict.ok { background: #f0fdf4; color: #166534; }
+.mng-verdict.warn { background: #fffbeb; color: #92400e; }
+.mng-verdict b { font-weight: 800; }
+.mng-verdict .btn { margin-left: 6px; vertical-align: baseline; }
 .mng-unit { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; }
 .mng-unit.current { background: #eff6ff; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
 .mng-uname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
