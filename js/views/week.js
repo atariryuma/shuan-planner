@@ -521,9 +521,13 @@ function renderCell(state, week, dayIdx, period, ordinals, ctx, isToday, noSchoo
   // 非授業日の空きコマ: フラットな淡色のみ(理由=祝日名はヘッダーに1度だけ。セルでは繰り返さない)。
   // 「＋」は出さない(授業を入れる場所に見せない)。授業・活動が入っていれば通常表示。
   // フィルタで隠れた他学級のコマがある場合も「＋」は出さない(空きと誤認させない)。
+  // 専科で基本時間割に無い校時(=自分が教えていない時間)は「担当外」として静かに(＋でなく淡い点)。
+  // 無理に授業を勧めない。タップで追加は可能。基本時間割が無い間は従来どおり＋。
+  const offDuty = s.mode === 'senka' && store.hasBaseTimetable && !entries.length && !noSchool && !hiddenOther
+    && !(store.state.baseTimetables?.[0]?.cells?.[cellKey(dayIdx, period.id)]?.entries || []).some(e => e.subjectKey);
   const inner = entries.length
     ? renderEntriesHTML(state, entries, ordinals)
-    : (noSchool || hiddenOther) ? '' : `<div class="cell-empty">＋</div>`;
+    : (noSchool || hiddenOther) ? '' : offDuty ? `<div class="cell-empty off-duty" title="担当外（基本時間割に無い校時）。タップで授業を追加できます">·</div>` : `<div class="cell-empty">＋</div>`;
   const onlyActivity = entries.length > 0 && entries.every(isActivity); // 会議・委員会・自習・授業なし等のみ=淡い面で表示
   const draggable = entries.length > 0 && !ctx.paint.subject;
   const isSwapSrc = ctx.swapSource && (ctx.swapSource.weekStart == null || ctx.swapSource.weekStart === week.start) && ctx.swapSource.day === dayIdx && ctx.swapSource.period === period.id;
@@ -1878,25 +1882,38 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     const key = cellKey(dayIdx, periodId);
     if (!w.cells[key]) w.cells[key] = { entries: [] };
     const cell = w.cells[key];
+    // 既定の源は「その曜日・校時の基本時間割」。本来そこにある教科・学級を入れる(消して再追加でも正しく戻る・
+    // 担任=その校時の教科/専科=正しい学級/複式=両学年の教科。モードに自動で適合)。
+    // 基本時間割に無い校時(専科の担当外など)は、従来の推測(直前に触った学級)へフォールバック。
+    const baseLessons = (store.state.baseTimetables?.[0]?.cells?.[key]?.entries || []).filter(e => e.subjectKey && !isActivity(e));
     if (s.mode === 'fukushiki') {
       for (const g of s.fukushikiGrades) {
-        if (!cell.entries.some(e => e.scope === g)) {
-          const e = newEntry();
-          e.scope = g;
-          cell.entries.push(e);
-        }
+        if (cell.entries.some(e => e.scope === g)) continue;
+        const e = newEntry();
+        e.scope = g;
+        const bl = baseLessons.find(b => b.scope === g);
+        if (bl?.subjectKey) { e.subjectKey = bl.subjectKey; prefilled.add(e.id); }
+        cell.entries.push(e);
       }
       cell.entries.sort((a, b) => (a.scope || 0) - (b.scope || 0));
     } else if (!cell.entries.length) {
-      const e = newEntry();
-      if (s.mode === 'senka') {
-        e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
-        // 担当教科も学級ID(validScope)と同様に実在チェック。削除済みキーを充填すると
-        // そのコマの時数が集計・印刷・CSV・メールから無言で消えるため
-        e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
-        if (e.subjectKey) prefilled.add(e.id);
+      if (baseLessons.length) {
+        for (const bl of baseLessons) {                  // 基本時間割の授業をそのまま既定に(正しい教科・学級)
+          const e = newEntry();
+          e.subjectKey = bl.subjectKey; e.scope = bl.scope ?? null;
+          prefilled.add(e.id);
+          cell.entries.push(e);
+        }
+      } else {
+        const e = newEntry();
+        if (s.mode === 'senka') {                        // 基本に無い校時(担当外)は直前の学級で推測
+          e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
+          // 担当教科も実在チェック(削除済みキーを充填すると時数が無言で集計・印刷から消えるため)
+          e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
+          if (e.subjectKey) prefilled.add(e.id);
+        }
+        cell.entries.push(e);
       }
-      cell.entries.push(e);
     }
     return cell;
   };

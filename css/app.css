@@ -351,6 +351,9 @@ td.cell:hover .cell-clear { display: block; }
 .cell-clear:hover { color: var(--danger); }
 
 .cell-empty { color: #c4ccd8; font-size: 16px; text-align: center; padding-top: 18px; user-select: none; }
+/* 専科の担当外コマ: ＋でなく淡い点で静かに(無理に授業を勧めない)。タップで追加は可能 */
+.cell-empty.off-duty { color: #e5e9ef; font-size: 18px; line-height: 1; }
+td.cell:hover .cell-empty.off-duty { color: #c4ccd8; }
 
 /* 活動(会議・委員会・クラブ等。教科なし・時数に数えない)。授業カードと区別する淡色メモ。 */
 .entry.activity { display: flex; align-items: flex-start; gap: 4px; color: #64748b; font-size: 12px; line-height: 1.35; padding: 2px; background: #f6f8fb; border-radius: 4px; }
