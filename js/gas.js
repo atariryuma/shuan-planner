@@ -110,6 +110,16 @@ export class GasClient {
     return this.call({ action: 'driveBackup', data, keep });
   }
 
+  /** ドライブのバックアップ一覧(新しい順・メタ情報のみ)。復元の選択用。 */
+  listBackups() {
+    return this.call({ action: 'listBackups' });
+  }
+
+  /** 指定IDのバックアップ本体(JSON)を取得。復元に使う。 */
+  fetchBackup(id) {
+    return this.call({ action: 'fetchBackup', id });
+  }
+
   /** 時数レポートをスプレッドシートへ書き出す(reportはbuildHoursReportの戻り値をそのまま渡す) */
   sheetReport(report) {
     return this.call({ action: 'sheetReport', report });

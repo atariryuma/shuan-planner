@@ -605,6 +605,10 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .bk-when { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
 .bk-why { color: var(--muted); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bk-row .btn { margin-left: auto; }
+.bk-list { margin-top: 4px; }
+.bk-group + .bk-group { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line, #edf0f4); }
+.bk-group-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px; color: var(--muted); margin: 2px 0 2px; }
+.bk-group-head .ic { width: 15px; height: 15px; }
 
 /* ---------- stats ---------- */
 table.stats-table { border-collapse: collapse; width: 100%; }
@@ -4112,6 +4116,16 @@ class GasClient {
     const data = JSON.parse(JSON.stringify(state));
     if (data.settings?.gas) data.settings.gas.token = '';
     return this.call({ action: 'driveBackup', data, keep });
+  }
+
+  /** ドライブのバックアップ一覧(新しい順・メタ情報のみ)。復元の選択用。 */
+  listBackups() {
+    return this.call({ action: 'listBackups' });
+  }
+
+  /** 指定IDのバックアップ本体(JSON)を取得。復元に使う。 */
+  fetchBackup(id) {
+    return this.call({ action: 'fetchBackup', id });
   }
 
   /** 時数レポートをスプレッドシートへ書き出す(reportはbuildHoursReportの戻り値をそのまま渡す) */
@@ -9489,10 +9503,20 @@ function renderDataView(root, ctx) {
       </div>
 
       <div class="panel">
-        <h2>${icon('undo')}復元ポイント</h2>
-        <p class="hint">この端末に、最近の状態を自動で数世代だけ控えています。消し間違い・上書き・週クリアなどを後からでも巻き戻せます（ネット不要）。</p>
-        <div id="bk-list" class="bk-list"></div>
-        <div class="data-actions"><button class="btn" id="bk-now">今すぐ控える</button></div>
+        <h2>${icon('undo')}復元（バックアップから戻す）</h2>
+        <p class="hint">消し間違い・上書き・週クリアを、後からでも巻き戻せます。<b>この端末の控え</b>（オフラインでも即）と、<b>Googleドライブの控え</b>（どの端末からでも）の両方から戻せます。</p>
+        <div class="bk-group">
+          <div class="bk-group-head">${icon('archive')}この端末（オフラインでも）</div>
+          <div id="bk-list" class="bk-list"></div>
+          <div class="data-actions"><button class="btn small" id="bk-now">今すぐ控える</button></div>
+        </div>
+        <div class="bk-group">
+          <div class="bk-group-head">${icon('cloud')}Googleドライブ（どの端末からでも）</div>
+          ${ctx.gas.configured ? `
+          <div id="bk-cloud-list" class="bk-list"><p class="hint data-sub">「一覧を取得」で、ドライブの控えを表示します。</p></div>
+          <div class="data-actions"><button class="btn small" id="bk-cloud-load">一覧を取得</button><button class="btn small" id="bk-cloud-now">今ドライブに控える</button></div>`
+          : `<p class="hint data-sub">設定 → Google連携 を行うと、別の端末からも復元できるようになります。</p>`}
+        </div>
       </div>
 
       ${ctx.gas.configured ? `
@@ -9548,11 +9572,21 @@ function renderDataView(root, ctx) {
 
   root.querySelector('#data-export').onclick = () => exportJSON();
 
-  // 復元ポイント: 自動バックアップの一覧と、ワンタップ復元・手動控え
+  // 復元: ①この端末の自動バックアップ ②Googleドライブの控え(どの端末からでも)
   renderBackupList(root, ctx);
   root.querySelector('#bk-now')?.addEventListener('click', () => {
     if (store.makeBackup('手動', { force: true })) { toast('今の状態を控えました', 'info', 2400); renderBackupList(root, ctx); }
     else toast('直前と同じ内容なので控えませんでした', 'info', 2800);
+  });
+  // クラウド: 一覧取得 → 復元 / 今ドライブに控える
+  root.querySelector('#bk-cloud-load')?.addEventListener('click', () => renderCloudBackupList(root, ctx));
+  root.querySelector('#bk-cloud-now')?.addEventListener('click', async () => {
+    try {
+      toast('ドライブに控え中…');
+      await ctx.gas.driveBackup(store.state);
+      toast('ドライブに控えました', 'info', 3000);
+      renderCloudBackupList(root, ctx);
+    } catch (e) { toast('控え失敗: ' + e.message, 'error', 6000); }
   });
 
   // 年度はじめの軽量スタート: 昨年度の年間行事を今年度へ複製(同じ時期・曜日)
@@ -9732,6 +9766,44 @@ function renderBackupList(root, ctx) {
       if (!ok) return;
       if (store.restoreBackup(key)) { toast('復元しました', 'info', 3200); ctx.rerender(); }
       else toast('復元できませんでした', 'error', 4000);
+    };
+  });
+}
+
+// Googleドライブの控え一覧を取得して描画(どの端末からでも復元できる)。
+// バックアップ名 shuan-backup-YYYYMMDD-HHmmss.json から日時を読む。
+async function renderCloudBackupList(root, ctx) {
+  const listEl = root.querySelector('#bk-cloud-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="hint data-sub">取得中…</p>';
+  let res;
+  try { res = await ctx.gas.listBackups(); }
+  catch (e) { listEl.innerHTML = `<p class="hint data-sub">取得できませんでした（${esc(e.message)}）。</p>`; return; }
+  const backups = res.backups || [];
+  if (!backups.length) { listEl.innerHTML = '<p class="hint data-sub">ドライブにまだ控えがありません。「今ドライブに控える」で作れます。</p>'; return; }
+  const fmtName = (name) => {
+    const m = String(name).match(/(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/);
+    return m ? `${Number(m[2])}/${Number(m[3])} ${m[4]}:${m[5]}` : name;
+  };
+  listEl.innerHTML = backups.map(b => `
+    <div class="bk-row">
+      <span class="bk-when">${esc(fmtName(b.name))}</span>
+      <span class="bk-why">${(b.size / 1024).toFixed(0)}KB</span>
+      <button class="btn small" data-bk-cloud-restore="${esc(b.id)}" data-bk-name="${esc(b.name)}">この控えに戻す</button>
+    </div>`).join('');
+  listEl.querySelectorAll('[data-bk-cloud-restore]').forEach(btn => {
+    btn.onclick = async () => {
+      const ok = await confirmDialog(`${fmtName(btn.dataset.bkName)} のドライブ控えに戻しますか?\n今の状態は先に「この端末」へ自動で控えるので、戻し過ぎてもまた戻せます。`, { okLabel: 'この控えに戻す' });
+      if (!ok) return;
+      try {
+        toast('復元中…');
+        const r = await ctx.gas.fetchBackup(btn.dataset.bkCloudRestore);
+        if (!r.data || !r.data.settings || !('weeks' in r.data)) throw new Error('週案データではありません');
+        store.makeBackup('クラウド復元の前', { force: true }); // 戻す前に今の状態を端末内へ退避
+        store.replaceState(r.data);
+        toast('ドライブの控えから復元しました', 'info', 3500);
+        ctx.rerender();
+      } catch (e) { toast('復元失敗: ' + e.message, 'error', 6000); }
     };
   });
 }

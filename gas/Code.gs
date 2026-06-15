@@ -57,6 +57,8 @@ function handle_(e, req) {
     if (action === 'calendars') return calendars_(req);
     if (action === 'pushWeek') return pushWeek_(req);
     if (action === 'driveBackup') return driveBackup_(req);
+    if (action === 'listBackups') return listBackups_(req);
+    if (action === 'fetchBackup') return fetchBackup_(req);
     if (action === 'sheetReport') return sheetReport_(req);
     if (action === 'sheetWeek') return sheetWeek_(req);
     if (action === 'mailWeek') return mailWeek_(req);
@@ -296,6 +298,36 @@ function driveBackup_(req) {
     deleted++;
   }
   return json_({ ok: true, file: name, kept: Math.min(files.length, keep), deleted: deleted, folderUrl: folder.getUrl() });
+}
+
+/** ドライブのバックアップ一覧(新しい順)。本体は返さず、復元の選択用にメタ情報だけ。 */
+function listBackups_(req) {
+  var folder = backupFolder_();
+  var items = [];
+  var iter = folder.getFiles();
+  while (iter.hasNext()) {
+    var f = iter.next();
+    if (!/^shuan-backup-.*\.json$/.test(f.getName())) continue;
+    items.push({ id: f.getId(), name: f.getName(), date: f.getLastUpdated().toISOString(), size: f.getSize() });
+  }
+  items.sort(function (a, b) { return a.date < b.date ? 1 : -1; }); // 新しい順
+  return json_({ ok: true, backups: items.slice(0, 40), folderUrl: folder.getUrl() });
+}
+
+/** 指定IDのバックアップ本体(JSON)を返す。バックアップフォルダ内のものだけ許可する。 */
+function fetchBackup_(req) {
+  if (!req.id) return json_({ ok: false, error: 'idがありません' });
+  var folder = backupFolder_();
+  var file;
+  try { file = DriveApp.getFileById(req.id); } catch (e) { return json_({ ok: false, error: 'バックアップが見つかりません' }); }
+  // 安全のため、バックアップフォルダ配下かつ命名規則に合うものだけ
+  if (!/^shuan-backup-.*\.json$/.test(file.getName())) return json_({ ok: false, error: 'バックアップではありません' });
+  var ok = false, parents = file.getParents();
+  while (parents.hasNext()) { if (parents.next().getId() === folder.getId()) { ok = true; break; } }
+  if (!ok) return json_({ ok: false, error: 'バックアップフォルダ外のファイルです' });
+  var data;
+  try { data = JSON.parse(file.getBlob().getDataAsString()); } catch (e) { return json_({ ok: false, error: '中身を解釈できません' }); }
+  return json_({ ok: true, data: data, name: file.getName() });
 }
 
 function backupFolder_() {
