@@ -245,9 +245,9 @@ store.subscribe(() => {
 // 自動同期ONなら、閉じる直前に未送信の変更をsendBeaconで送る(編集→15秒以内に閉じても
 // クラウドに上がる。fetchはunloadで中断されるためbeaconを使う)。
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { store.persist(); beaconPush(); }
+  if (document.visibilityState === 'hidden') { store.persist(); store.makeBackup('自動'); beaconPush(); }
 });
-window.addEventListener('pagehide', () => { store.persist(); beaconPush(); });
+window.addEventListener('pagehide', () => { store.persist(); store.makeBackup('自動'); beaconPush(); });
 
 // 同じ端末で複数タブを開いているときのタブ間整合(last-write-wins消失防止)。
 // 同一ユーザーの同じデータを揃えるだけなので無音で行う(編集のたび通知が出ると煩い)。
@@ -319,6 +319,10 @@ if (store.recoveredUnsaved) {
   store.persist();
   toast('前回保存できなかった編集を復元しました', 'info', 6000);
 }
+
+// 起動時に今の状態を復元ポイントとして控える(このセッションの変更を丸ごと巻き戻せる安全網)。
+// 壊れて初期化された状態(loadError)は控えない(良い世代を押し出してしまわないように)。
+if (!store.loadError) store.makeBackup('起動');
 
 // 起動時にデータが壊れていた場合: 退避データの保存手段を出してから続行してもらう
 if (store.loadError) {

@@ -25,6 +25,13 @@ export function renderDataView(root, ctx) {
         <p class="hint data-sub">エクスポート=この端末のデータを1つのファイルに保存。インポート=そのファイルで現在のデータを置き換え。</p>
       </div>
 
+      <div class="panel">
+        <h2>${icon('undo')}復元ポイント</h2>
+        <p class="hint">この端末に、最近の状態を自動で数世代だけ控えています。消し間違い・上書き・週クリアなどを後からでも巻き戻せます（ネット不要）。</p>
+        <div id="bk-list" class="bk-list"></div>
+        <div class="data-actions"><button class="btn" id="bk-now">今すぐ控える</button></div>
+      </div>
+
       ${ctx.gas.configured ? `
       <div class="panel">
         <h2>${icon('cloud')}Google</h2>
@@ -77,6 +84,13 @@ export function renderDataView(root, ctx) {
   if (gotoGas) gotoGas.onclick = () => { try { localStorage.setItem('shuan-settings-cat', 'sp-google'); } catch {} document.querySelector('.tab[data-tab="settings"]')?.click(); };
 
   root.querySelector('#data-export').onclick = () => exportJSON();
+
+  // 復元ポイント: 自動バックアップの一覧と、ワンタップ復元・手動控え
+  renderBackupList(root, ctx);
+  root.querySelector('#bk-now')?.addEventListener('click', () => {
+    if (store.makeBackup('手動', { force: true })) { toast('今の状態を控えました', 'info', 2400); renderBackupList(root, ctx); }
+    else toast('直前と同じ内容なので控えませんでした', 'info', 2800);
+  });
 
   // 年度はじめの軽量スタート: 昨年度の年間行事を今年度へ複製(同じ時期・曜日)
   root.querySelector('#data-carry-events')?.addEventListener('click', async () => {
@@ -229,6 +243,34 @@ export function renderDataView(root, ctx) {
       modal.querySelector('[data-act="wipe"]').onclick = wipe;
     });
   };
+}
+
+// 復元ポイント一覧を描画し、各行に「この時点に戻す」を付ける。復元前に今の状態も自動で控える(store側)。
+function renderBackupList(root, ctx) {
+  const listEl = root.querySelector('#bk-list');
+  if (!listEl) return;
+  const list = store.listBackups();
+  if (!list.length) {
+    listEl.innerHTML = '<p class="hint data-sub">まだ控えはありません（編集して少し経つと自動でできます）。</p>';
+    return;
+  }
+  listEl.innerHTML = list.map(b => `
+    <div class="bk-row">
+      <span class="bk-when">${esc(fmtMDHM(b.t))}</span>
+      <span class="bk-why">${esc(b.reason)}</span>
+      <button class="btn small" data-bk-restore="${esc(b.key)}">この時点に戻す</button>
+    </div>`).join('');
+  listEl.querySelectorAll('[data-bk-restore]').forEach(btn => {
+    btn.onclick = async () => {
+      const key = btn.dataset.bkRestore;
+      const meta = store.listBackups().find(x => x.key === key);
+      const label = meta ? `${fmtMDHM(meta.t)}（${meta.reason}）` : 'この復元ポイント';
+      const ok = await confirmDialog(`${label} の状態に戻しますか?\n今の状態も自動で控えるので、戻し過ぎてもまた戻せます。`, { okLabel: 'この時点に戻す' });
+      if (!ok) return;
+      if (store.restoreBackup(key)) { toast('復元しました', 'info', 3200); ctx.rerender(); }
+      else toast('復元できませんでした', 'error', 4000);
+    };
+  });
 }
 
 function exportJSON() {

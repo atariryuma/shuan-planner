@@ -16,6 +16,11 @@ import { holidayName } from './holidays.js';
 const STORAGE_KEY = 'shuan-planner-data';
 export const SCHEMA_VERSION = 2;
 
+// 自動バックアップ(復元ポイント): 端末内に直近の状態を数世代だけ残す安全網。
+const BK_PREFIX = STORAGE_KEY + '-bk-';
+const BK_MAX = 8;                     // 残す世代数(古いものから消す)
+const BK_MIN_INTERVAL_MS = 5 * 60 * 1000; // この間隔より短い連続バックアップは作らない(強制を除く)
+
 // ---------------------------------------------------------------- defaults
 
 export function defaultPeriods(schoolType) {
@@ -627,6 +632,7 @@ class Store {
     if (typeof data !== 'object' || data === null || !data.settings || !('weeks' in data)) {
       throw new Error('週案アプリのデータ形式ではありません');
     }
+    this.makeBackup('取り込みの前', { force: true }); // 取り込みで全置換する前に今の状態を退避
     this.replaceState(data);
   }
 
@@ -660,6 +666,74 @@ class Store {
     this.persist();
     this.notify();
   }
+
+  // -------- 自動バックアップ(復元ポイント)
+  // 端末内に直近の状態を数世代だけ静かに残す安全網。誤削除・誤上書き・週クリア等をいつでも巻き戻せる。
+  // 「元に戻す」(数秒で消えるトースト)を超える保険。GASのドライブ控えとは別の、ネット不要のローカル保険。
+  makeBackup(reason = '自動', { force = false } = {}) {
+    try {
+      const now = Date.now();
+      const list = this.listBackups(); // 新しい順
+      const newest = list[0];
+      // 直近バックアップから一定時間内なら作らない(連続編集でスパムしない)。強制時は無視。
+      if (!force && newest && (now - newest.t) < BK_MIN_INTERVAL_MS) return false;
+      const json = this.exportJSON(); // GASトークンは含めない
+      // 直近と中身が同じなら作らない(無変更の重複世代を防ぐ)
+      if (newest) {
+        try { if (localStorage.getItem(newest.key) === json) return false; } catch {}
+      }
+      const key = `${BK_PREFIX}${now}__${encodeURIComponent(reason)}`;
+      // 容量逼迫時は古い世代を削ってから再試行(保存の本体を壊さない)
+      let saved = false;
+      for (let attempt = 0; attempt < BK_MAX + 2 && !saved; attempt++) {
+        try { localStorage.setItem(key, json); saved = true; }
+        catch (e) {
+          const cur = this.listBackups();
+          if (!cur.length) break; // もう削るものが無い(本体だけで逼迫)→ 諦める
+          try { localStorage.removeItem(cur[cur.length - 1].key); } catch {}
+        }
+      }
+      if (saved) this._pruneBackups();
+      return saved;
+    } catch { return false; }
+  }
+
+  /** 復元ポイント一覧(新しい順)。重い本体は読まず、キーから日時と理由だけ取り出す。 */
+  listBackups() {
+    const out = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(BK_PREFIX)) continue;
+      const rest = k.slice(BK_PREFIX.length);
+      const sep = rest.indexOf('__');
+      const t = Number(sep >= 0 ? rest.slice(0, sep) : rest);
+      if (!t) continue;
+      let reason = '自動';
+      if (sep >= 0) { try { reason = decodeURIComponent(rest.slice(sep + 2)); } catch {} }
+      out.push({ key: k, t, reason });
+    }
+    return out.sort((a, b) => b.t - a.t);
+  }
+
+  _pruneBackups() {
+    const list = this.listBackups(); // 新しい順
+    for (const b of list.slice(BK_MAX)) { try { localStorage.removeItem(b.key); } catch {} }
+  }
+
+  /** 復元ポイントへ戻す。戻す前に現在の状態も自動バックアップ(復元自体の誤操作も巻き戻せる)。 */
+  restoreBackup(key) {
+    let raw;
+    try { raw = localStorage.getItem(key); } catch { return false; }
+    if (!raw) return false;
+    let data;
+    try { data = JSON.parse(raw); } catch { return false; }
+    if (typeof data !== 'object' || data === null || !data.settings || !('weeks' in data)) return false;
+    this.makeBackup('復元の前', { force: true }); // 今の状態を退避してから置き換える
+    this.replaceState(data); // migrate・ローカルGAS維持・保存・通知まで行う
+    return true;
+  }
+
+  deleteBackup(key) { try { localStorage.removeItem(key); return true; } catch { return false; } }
 }
 
 /**

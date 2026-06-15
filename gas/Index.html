@@ -598,6 +598,13 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .data-page .app-id { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; }
 .data-page .app-id b { font-size: var(--t-md); letter-spacing: .02em; }
 .data-page .app-id span { font-size: 12px; color: var(--muted); }
+/* 復元ポイント(自動バックアップ)の一覧 */
+.bk-list { display: flex; flex-direction: column; margin: 10px 0 4px; }
+.bk-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line, #edf0f4); }
+.bk-row:last-child { border-bottom: none; }
+.bk-when { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.bk-why { color: var(--muted); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-row .btn { margin-left: auto; }
 
 /* ---------- stats ---------- */
 table.stats-table { border-collapse: collapse; width: 100%; }
@@ -2135,6 +2142,11 @@ const {holidayName} = __M["holidays.js"];
 const STORAGE_KEY = 'shuan-planner-data';
 const SCHEMA_VERSION = 2;
 
+// 自動バックアップ(復元ポイント): 端末内に直近の状態を数世代だけ残す安全網。
+const BK_PREFIX = STORAGE_KEY + '-bk-';
+const BK_MAX = 8;                     // 残す世代数(古いものから消す)
+const BK_MIN_INTERVAL_MS = 5 * 60 * 1000; // この間隔より短い連続バックアップは作らない(強制を除く)
+
 // ---------------------------------------------------------------- defaults
 
 function defaultPeriods(schoolType) {
@@ -2746,6 +2758,7 @@ class Store {
     if (typeof data !== 'object' || data === null || !data.settings || !('weeks' in data)) {
       throw new Error('週案アプリのデータ形式ではありません');
     }
+    this.makeBackup('取り込みの前', { force: true }); // 取り込みで全置換する前に今の状態を退避
     this.replaceState(data);
   }
 
@@ -2779,6 +2792,74 @@ class Store {
     this.persist();
     this.notify();
   }
+
+  // -------- 自動バックアップ(復元ポイント)
+  // 端末内に直近の状態を数世代だけ静かに残す安全網。誤削除・誤上書き・週クリア等をいつでも巻き戻せる。
+  // 「元に戻す」(数秒で消えるトースト)を超える保険。GASのドライブ控えとは別の、ネット不要のローカル保険。
+  makeBackup(reason = '自動', { force = false } = {}) {
+    try {
+      const now = Date.now();
+      const list = this.listBackups(); // 新しい順
+      const newest = list[0];
+      // 直近バックアップから一定時間内なら作らない(連続編集でスパムしない)。強制時は無視。
+      if (!force && newest && (now - newest.t) < BK_MIN_INTERVAL_MS) return false;
+      const json = this.exportJSON(); // GASトークンは含めない
+      // 直近と中身が同じなら作らない(無変更の重複世代を防ぐ)
+      if (newest) {
+        try { if (localStorage.getItem(newest.key) === json) return false; } catch {}
+      }
+      const key = `${BK_PREFIX}${now}__${encodeURIComponent(reason)}`;
+      // 容量逼迫時は古い世代を削ってから再試行(保存の本体を壊さない)
+      let saved = false;
+      for (let attempt = 0; attempt < BK_MAX + 2 && !saved; attempt++) {
+        try { localStorage.setItem(key, json); saved = true; }
+        catch (e) {
+          const cur = this.listBackups();
+          if (!cur.length) break; // もう削るものが無い(本体だけで逼迫)→ 諦める
+          try { localStorage.removeItem(cur[cur.length - 1].key); } catch {}
+        }
+      }
+      if (saved) this._pruneBackups();
+      return saved;
+    } catch { return false; }
+  }
+
+  /** 復元ポイント一覧(新しい順)。重い本体は読まず、キーから日時と理由だけ取り出す。 */
+  listBackups() {
+    const out = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(BK_PREFIX)) continue;
+      const rest = k.slice(BK_PREFIX.length);
+      const sep = rest.indexOf('__');
+      const t = Number(sep >= 0 ? rest.slice(0, sep) : rest);
+      if (!t) continue;
+      let reason = '自動';
+      if (sep >= 0) { try { reason = decodeURIComponent(rest.slice(sep + 2)); } catch {} }
+      out.push({ key: k, t, reason });
+    }
+    return out.sort((a, b) => b.t - a.t);
+  }
+
+  _pruneBackups() {
+    const list = this.listBackups(); // 新しい順
+    for (const b of list.slice(BK_MAX)) { try { localStorage.removeItem(b.key); } catch {} }
+  }
+
+  /** 復元ポイントへ戻す。戻す前に現在の状態も自動バックアップ(復元自体の誤操作も巻き戻せる)。 */
+  restoreBackup(key) {
+    let raw;
+    try { raw = localStorage.getItem(key); } catch { return false; }
+    if (!raw) return false;
+    let data;
+    try { data = JSON.parse(raw); } catch { return false; }
+    if (typeof data !== 'object' || data === null || !data.settings || !('weeks' in data)) return false;
+    this.makeBackup('復元の前', { force: true }); // 今の状態を退避してから置き換える
+    this.replaceState(data); // migrate・ローカルGAS維持・保存・通知まで行う
+    return true;
+  }
+
+  deleteBackup(key) { try { localStorage.removeItem(key); return true; } catch { return false; } }
 }
 
 /**
@@ -5180,6 +5261,7 @@ function wireNav(root, ctx, monday) {
     if (!store.state.weeks[to]) return;
     const ok = await confirmDialog('この週の入力をすべて消しますか?', { okLabel: '週クリア', danger: true });
     if (!ok) return;
+    store.makeBackup('週クリアの前', { force: true }); // 後で気づいても復元できるよう、消す前に控える
     store.snapshot('週のクリア');
     // 週を消すと自動補完で戻ってしまうため、空にして「クリア済み」印を付ける(自動補完が避ける)
     const w = store.state.weeks[to];
@@ -9405,6 +9487,13 @@ function renderDataView(root, ctx) {
         <p class="hint data-sub">エクスポート=この端末のデータを1つのファイルに保存。インポート=そのファイルで現在のデータを置き換え。</p>
       </div>
 
+      <div class="panel">
+        <h2>${icon('undo')}復元ポイント</h2>
+        <p class="hint">この端末に、最近の状態を自動で数世代だけ控えています。消し間違い・上書き・週クリアなどを後からでも巻き戻せます（ネット不要）。</p>
+        <div id="bk-list" class="bk-list"></div>
+        <div class="data-actions"><button class="btn" id="bk-now">今すぐ控える</button></div>
+      </div>
+
       ${ctx.gas.configured ? `
       <div class="panel">
         <h2>${icon('cloud')}Google</h2>
@@ -9457,6 +9546,13 @@ function renderDataView(root, ctx) {
   if (gotoGas) gotoGas.onclick = () => { try { localStorage.setItem('shuan-settings-cat', 'sp-google'); } catch {} document.querySelector('.tab[data-tab="settings"]')?.click(); };
 
   root.querySelector('#data-export').onclick = () => exportJSON();
+
+  // 復元ポイント: 自動バックアップの一覧と、ワンタップ復元・手動控え
+  renderBackupList(root, ctx);
+  root.querySelector('#bk-now')?.addEventListener('click', () => {
+    if (store.makeBackup('手動', { force: true })) { toast('今の状態を控えました', 'info', 2400); renderBackupList(root, ctx); }
+    else toast('直前と同じ内容なので控えませんでした', 'info', 2800);
+  });
 
   // 年度はじめの軽量スタート: 昨年度の年間行事を今年度へ複製(同じ時期・曜日)
   root.querySelector('#data-carry-events')?.addEventListener('click', async () => {
@@ -9609,6 +9705,34 @@ function renderDataView(root, ctx) {
       modal.querySelector('[data-act="wipe"]').onclick = wipe;
     });
   };
+}
+
+// 復元ポイント一覧を描画し、各行に「この時点に戻す」を付ける。復元前に今の状態も自動で控える(store側)。
+function renderBackupList(root, ctx) {
+  const listEl = root.querySelector('#bk-list');
+  if (!listEl) return;
+  const list = store.listBackups();
+  if (!list.length) {
+    listEl.innerHTML = '<p class="hint data-sub">まだ控えはありません（編集して少し経つと自動でできます）。</p>';
+    return;
+  }
+  listEl.innerHTML = list.map(b => `
+    <div class="bk-row">
+      <span class="bk-when">${esc(fmtMDHM(b.t))}</span>
+      <span class="bk-why">${esc(b.reason)}</span>
+      <button class="btn small" data-bk-restore="${esc(b.key)}">この時点に戻す</button>
+    </div>`).join('');
+  listEl.querySelectorAll('[data-bk-restore]').forEach(btn => {
+    btn.onclick = async () => {
+      const key = btn.dataset.bkRestore;
+      const meta = store.listBackups().find(x => x.key === key);
+      const label = meta ? `${fmtMDHM(meta.t)}（${meta.reason}）` : 'この復元ポイント';
+      const ok = await confirmDialog(`${label} の状態に戻しますか?\n今の状態も自動で控えるので、戻し過ぎてもまた戻せます。`, { okLabel: 'この時点に戻す' });
+      if (!ok) return;
+      if (store.restoreBackup(key)) { toast('復元しました', 'info', 3200); ctx.rerender(); }
+      else toast('復元できませんでした', 'error', 4000);
+    };
+  });
 }
 
 function exportJSON() {
@@ -11553,9 +11677,9 @@ store.subscribe(() => {
 // 自動同期ONなら、閉じる直前に未送信の変更をsendBeaconで送る(編集→15秒以内に閉じても
 // クラウドに上がる。fetchはunloadで中断されるためbeaconを使う)。
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') { store.persist(); beaconPush(); }
+  if (document.visibilityState === 'hidden') { store.persist(); store.makeBackup('自動'); beaconPush(); }
 });
-window.addEventListener('pagehide', () => { store.persist(); beaconPush(); });
+window.addEventListener('pagehide', () => { store.persist(); store.makeBackup('自動'); beaconPush(); });
 
 // 同じ端末で複数タブを開いているときのタブ間整合(last-write-wins消失防止)。
 // 同一ユーザーの同じデータを揃えるだけなので無音で行う(編集のたび通知が出ると煩い)。
@@ -11627,6 +11751,10 @@ if (store.recoveredUnsaved) {
   store.persist();
   toast('前回保存できなかった編集を復元しました', 'info', 6000);
 }
+
+// 起動時に今の状態を復元ポイントとして控える(このセッションの変更を丸ごと巻き戻せる安全網)。
+// 壊れて初期化された状態(loadError)は控えない(良い世代を押し出してしまわないように)。
+if (!store.loadError) store.makeBackup('起動');
 
 // 起動時にデータが壊れていた場合: 退避データの保存手段を出してから続行してもらう
 if (store.loadError) {

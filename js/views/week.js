@@ -825,6 +825,7 @@ function wireNav(root, ctx, monday) {
     if (!store.state.weeks[to]) return;
     const ok = await confirmDialog('この週の入力をすべて消しますか?', { okLabel: '週クリア', danger: true });
     if (!ok) return;
+    store.makeBackup('週クリアの前', { force: true }); // 後で気づいても復元できるよう、消す前に控える
     store.snapshot('週のクリア');
     // 週を消すと自動補完で戻ってしまうため、空にして「クリア済み」印を付ける(自動補完が避ける)
     const w = store.state.weeks[to];

@@ -589,6 +589,13 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .data-page .app-id { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; }
 .data-page .app-id b { font-size: var(--t-md); letter-spacing: .02em; }
 .data-page .app-id span { font-size: 12px; color: var(--muted); }
+/* 復元ポイント(自動バックアップ)の一覧 */
+.bk-list { display: flex; flex-direction: column; margin: 10px 0 4px; }
+.bk-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line, #edf0f4); }
+.bk-row:last-child { border-bottom: none; }
+.bk-when { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+.bk-why { color: var(--muted); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-row .btn { margin-left: auto; }
 
 /* ---------- stats ---------- */
 table.stats-table { border-collapse: collapse; width: 100%; }

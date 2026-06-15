@@ -804,3 +804,36 @@ test('flow-in resets per-week implementation flags (endUnit/fraction) to auto de
   assert.equal(e.endUnit, false);
   assert.equal(e.fraction, 1);
 });
+
+test('自動バックアップ: 作成・一覧・無変更スキップ・復元', () => {
+  store.replaceState(defaultState());
+  for (const b of store.listBackups()) store.deleteBackup(b.key); // 前テストの残りを掃除
+  assert.equal(store.listBackups().length, 0);
+
+  store.state.weeks[WEEK] = { start: WEEK, cells: {}, events: ['', '', '', '', '', ''], dayNotes: ['', '', '', '', '', ''], attendance: ['', '', '', '', '', ''], dayPatterns: {}, goals: '最初の状態' };
+  assert.equal(store.makeBackup('テスト', { force: true }), true, '強制バックアップは作られる');
+  const list = store.listBackups();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].reason, 'テスト', '理由がキーから読める');
+
+  // 中身が同じなら新しい世代を作らない(無変更の重複を防ぐ)
+  assert.equal(store.makeBackup('テスト2', { force: true }), false, '中身が同じなら作らない');
+
+  // 状態を変えてから、最初の復元ポイントへ戻すと goals が戻る
+  store.state.weeks[WEEK].goals = '変更後の状態';
+  assert.equal(store.restoreBackup(list[0].key), true);
+  assert.equal(store.state.weeks[WEEK].goals, '最初の状態', '復元で元の状態へ戻る');
+  // 復元の前に現在の状態も自動退避されている(戻し過ぎてもまた戻せる)
+  assert.ok(store.listBackups().some(b => b.reason === '復元の前'), '復元前の退避がある');
+});
+
+test('自動バックアップ: 上限世代数を超えたら古いものから消える', () => {
+  store.replaceState(defaultState());
+  for (const b of store.listBackups()) store.deleteBackup(b.key);
+  // 中身を毎回変えつつ、キー衝突を避けるため理由も変えて多めに作る
+  for (let i = 0; i < 12; i++) {
+    store.state.weeks[WEEK] = { start: WEEK, cells: {}, events: ['', '', '', '', '', ''], dayNotes: ['', '', '', '', '', ''], attendance: ['', '', '', '', '', ''], dayPatterns: {}, goals: 'g' + i };
+    store.makeBackup('回' + i, { force: true });
+  }
+  assert.ok(store.listBackups().length <= 8, '世代数は上限(8)以内に保たれる');
+});
