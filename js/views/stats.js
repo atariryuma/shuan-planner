@@ -1,6 +1,6 @@
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
+import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
 import { weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
 import { icon } from '../icons.js';
@@ -27,7 +27,7 @@ export function renderStatsView(root, ctx) {
   // 複数学級(専科・複式)では、全学級の時数を1枚で見渡せる横断サマリーを先頭に出す
   const classSummary = scopes.length >= 2 ? renderClassSummary(state, hours, hoursDone, scopes) : '';
   const sections = scopes.map(sc => renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail)).filter(Boolean).join('');
-  const progress = renderProgress(state, weekStart);
+  const management = renderManagement(state, weekStart);
   const viewpoints = renderViewpointSummary(state, scopes, weekStart);
 
   root.innerHTML = `
@@ -48,7 +48,7 @@ export function renderStatsView(root, ctx) {
         <span class="hl-note">バーが標準ラインに届けば達成</span>
       </div>` : ''}
       ${classSummary}
-      ${progress}
+      ${management}
       ${viewpoints}
       ${sections || `<div class="empty-state">
         <div class="empty-ic">${icon('chart')}</div>
@@ -76,6 +76,12 @@ export function renderStatsView(root, ctx) {
       ctx.rerender();
     });
   });
+
+  // 授業マネジメントの「週案を開く」: 遅れを切り上げ/補充で巻き返す動線
+  root.querySelectorAll('[data-goweek]').forEach(b => b.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    document.querySelector('.tab[data-tab="week"]')?.click();
+  }));
 
   root.querySelector('#stats-csv').onclick = () => downloadCSV(state, weekStart);
   root.querySelector('#stats-print').onclick = async () => {
@@ -255,84 +261,72 @@ function renderViewpointSummary(state, scopes, weekStart) {
 // ---------------------------------------------------------------- 進度一覧(専科・複式の核心ビュー)
 
 /**
- * 学級(学年)×教科の進度マトリクス。
- * 「次の授業がどの単元の何時間目か」「前回いつやったか」を一覧する(実験準備・進度ズレ確認用)。
+ * 授業マネジメント: 教科×学級ごとに、計画に対する進み(実施/残り)・計画通り/遅れ/先行・
+ * 年度末の完了見込み・単元ごとの進みをカードで示す。遅れは切り上げ/補充への動線に繋ぐ。
+ * 追加入力なし(computeProgressForecast が既存データから算出)。遅れているカードは既定で開く。
  */
-function renderProgress(state, weekStart) {
+function renderManagement(state, weekStart) {
   const s = state.settings;
-  const prog = progressByScope(state, weekStart);
-  if (!prog.size) return '';
+  const fc = computeProgressForecast(state, weekStart);
+  if (!fc.size) return '';
+  const subjIdx = (key) => { const i = s.subjects.findIndex(x => x.key === key); return i < 0 ? 99 : i; };
+  const labelOf = (f) => {
+    const subj = s.subjects.find(x => x.key === f.subjectKey);
+    const subjName = subj ? (subj.name || subj.short) : f.subjectKey;
+    const cls = s.mode === 'senka' ? (s.senkaClasses.find(c => c.id === f.scope)?.label || '')
+      : s.mode === 'fukushiki' ? `${f.grade}年`
+        : (s.className ? `${f.grade}年${s.className}` : '');
+    return { subjName, cls };
+  };
+  const items = [...fc.values()].sort((a, b) =>
+    subjIdx(a.subjectKey) - subjIdx(b.subjectKey) || String(a.scope).localeCompare(String(b.scope)));
 
-  const scopes = s.mode === 'fukushiki'
-    ? s.fukushikiGrades.map(g => ({ scope: g, label: `${g}年`, grade: g }))
-    : s.mode === 'senka'
-      ? s.senkaClasses.map(c => ({ scope: c.id, label: c.label || '学級未設定', grade: c.grade }))
-      : [{ scope: null, label: `${s.grade}年${s.className || ''}`, grade: s.grade }];
-
-  // 進度データのある教科を収集
-  const subjKeys = new Set();
-  for (const k of prog.keys()) subjKeys.add(k.split('|')[0]);
-
-  const rows = [];
-  for (const sc of scopes) {
-    for (const subjKey of subjKeys) {
-      const p = prog.get(scopeKey(subjKey, sc.scope));
-      if (!p) continue;
-      const subj = s.subjects.find(x => x.key === subjKey);
-      const plan = state.plans.find(pl => pl.subjectKey === subjKey && (pl.grade == null || pl.grade === sc.grade));
-      const next = plan ? lessonFromPlan(plan, p.count) : null;
-      const nextText = next
-        ? (next.exhausted ? '計画終了' : `${next.unitName}${next.unitHours > 1 ? `(${next.nth}/${next.unitHours})` : ''}${next.lessonText ? ' ' + next.lessonText : ''}`)
-        : '—';
-      rows.push(`
-        <tr>
-          <td class="subj">${esc(sc.label)}</td>
-          ${subjKeys.size > 1 ? `<td>${esc(subj?.short || subjKey)}</td>` : ''}
-          <td style="text-align:left;">${esc(nextText)}</td>
-          <td>${p.lastDate ? fmtMD(parseDate(p.lastDate)) : '—'}</td>
-          <td>${p.count}</td>
-        </tr>`);
-    }
-  }
-  if (!rows.length) return '';
-
+  const chip = (f) => f.status === 'done' ? '<span class="mng-chip done">完了</span>'
+    : f.status === 'behind' ? `<span class="mng-chip behind">${f.behind}時 遅れ</span>`
+      : f.status === 'ahead' ? `<span class="mng-chip ahead">${-f.behind}時 先行</span>`
+        : '<span class="mng-chip ontrack">計画通り</span>';
+  const feas = (f) => f.status === 'done' ? '<span class="mng-feas done">達成</span>'
+    : f.feasible ? '<span class="mng-feas ok">見込◎</span>' : '<span class="mng-feas warn">見込△</span>';
+  const unitRow = (u) => {
+    const lbl = u.status === 'done' ? (u.cut ? '切上げ' : '済') : u.status === 'current' ? 'いま' : 'これから';
+    return `<div class="mng-unit ${u.status}">
+        <span class="mng-uname">${esc(u.name)}</span>
+        <span class="mng-ubar"><span class="mng-ubar-fill ${u.status}" style="width:${Math.round(u.done / u.hours * 100)}%"></span></span>
+        <span class="mng-ufrac">${u.done}/${u.hours}</span>
+        <span class="mng-ustat ${u.status}">${lbl}</span>
+      </div>`;
+  };
+  const card = (f) => {
+    const { subjName, cls } = labelOf(f);
+    const cur = f.units.find(u => u.status === 'current');
+    const metrics = f.status === 'done' ? '' : `
+        <div class="mng-metrics">
+          <div class="mng-metric"><span class="mng-mlabel">今のペース</span><span class="mng-mval">${f.pace}<small>時/週</small></span></div>
+          <div class="mng-metric"><span class="mng-mlabel">完了に必要</span><span class="mng-mval ${f.requiredPace > f.pace ? 'warn' : ''}">${f.requiredPace === Infinity ? '—' : f.requiredPace}<small>時/週</small></span></div>
+          <div class="mng-metric"><span class="mng-mlabel">年度末見込み</span><span class="mng-mval ${f.feasible ? 'ok' : 'warn'}" style="font-size:13px;">${f.feasible ? '完了見込み' : `${f.shortfall}時 未消化`}</span></div>
+        </div>`;
+    const nextLine = f.next ? `<div class="mng-next"><span class="muted">次の授業 ▸</span> ${esc(f.next.unitName)}${f.next.unitHours > 1 ? `(${f.next.nth}/${f.next.unitHours})` : ''}${f.next.objective ? ' ' + esc(f.next.objective) : ''}</div>` : '';
+    const tip = f.status === 'behind'
+      ? `<div class="mng-tip">${cur ? `「${esc(cur.name)}」を` : ''}<b>切り上げ</b>て次へ進めるか、空きコマに<b>補充</b>で巻き返せます。<button class="btn small" data-goweek>週案を開く</button></div>`
+      : '';
+    return `<details class="mng-card ${f.status}" ${f.status === 'behind' ? 'open' : ''}>
+        <summary class="mng-head">
+          <span class="mng-title">${esc(subjName)}${cls ? ` <span class="muted">${esc(cls)}</span>` : ''}</span>
+          ${chip(f)}
+          <span class="mng-bar"><span class="mng-bar-fill ${f.status}" style="width:${Math.min(100, f.pct)}%"></span></span>
+          <span class="mng-frac">${f.taught}/${f.planTotal}<small>時</small></span>
+          ${feas(f)}
+        </summary>
+        <div class="mng-cardbody">
+          ${metrics}${nextLine}
+          <div class="mng-units">${f.units.map(unitRow).join('')}</div>
+          ${tip}
+        </div>
+      </details>`;
+  };
   return `
-    <h3 style="margin-top:0;">進度一覧${infoHTML('学級ごとに「次の授業がどの単元の何時間目か」を表示します。行事や閉鎖で進度がずれても自動で追跡されます')}</h3>
-    <table class="stats-table" style="margin-bottom:18px;">
-      <thead><tr>
-        <th style="width:90px;">${store.settings.mode === 'fukushiki' ? '学年' : '学級'}</th>
-        ${subjKeys.size > 1 ? '<th style="width:60px;">教科</th>' : ''}
-        <th>次の授業</th><th style="width:70px;">前回</th><th style="width:70px;">済コマ</th>
-      </tr></thead>
-      <tbody>${rows.join('')}</tbody>
-    </table>`;
-}
-
-/** 進度カウンタ(scopeKey→{count, lastDate})。computeOrdinalsと同じ規則で数える */
-function progressByScope(state, refWeekStart) {
-  const { settings, weeks } = state;
-  const ordinals = computeOrdinals(state, refWeekStart); // 走査規則の正は store 側
-  const out = new Map();
-  for (const wk of Object.keys(weeks).sort()) {
-    const week = weeks[wk];
-    const monday = parseDate(wk);
-    for (let d = 0; d < 7; d++) {
-      for (const p of settings.periods) {
-        const cell = week.cells?.[cellKey(d, p.id)];
-        if (!cell) continue;
-        for (const e of cell.entries) {
-          if (!ordinals.has(e.id)) continue; // 進度を進めたエントリだけ
-          const k = scopeKey(e.subjectKey, e.scope);
-          const cur = out.get(k) || { count: 0, lastDate: null };
-          cur.count = Math.max(cur.count, ordinals.get(e.id) + 1);
-          const dateStr = fmtDate(addDays(monday, d));
-          if (!cur.lastDate || dateStr > cur.lastDate) cur.lastDate = dateStr;
-          out.set(k, cur);
-        }
-      }
-    }
-  }
-  return out;
+    <h3 style="margin-top:0;">授業マネジメント${infoHTML('計画に対する進み(実施/残り)、計画通り/遅れ/先行、年度末に終わるかの見込み、単元ごとの進みを表示します。遅れは週案で切り上げ・補充して巻き返せます。追加入力は不要です')}</h3>
+    <div class="mng-list">${items.map(card).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------- 教科別テーブル

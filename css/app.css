@@ -1276,3 +1276,52 @@ td.cell:focus-visible, .day-th:focus-visible {
   .print-only { display: block; }
   body { background: #fff; }
 }
+
+/* 授業マネジメント(時数集計) — 計画に対する進度・遅れ/先行・完了見込み・単元の進み */
+.mng-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.mng-card { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; overflow: hidden; }
+.mng-card.behind { border-color: #fcd9a8; }
+.mng-head { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 9px 12px; }
+.mng-head::-webkit-details-marker { display: none; }
+.mng-title { font-weight: 700; font-size: 14px; white-space: nowrap; }
+.mng-title .muted { color: #64748b; font-weight: 400; }
+.mng-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.mng-chip.behind { background: #fef3c7; color: #b45309; }
+.mng-chip.ahead { background: #dbeafe; color: #1d4ed8; }
+.mng-chip.ontrack, .mng-chip.done { background: #dcfce7; color: #166534; }
+.mng-bar { flex: 1; min-width: 36px; height: 7px; background: #eef2f6; border-radius: 999px; overflow: hidden; }
+.mng-bar-fill { display: block; height: 100%; background: #94a3b8; }
+.mng-bar-fill.behind { background: #d97706; }
+.mng-bar-fill.ahead { background: #2563eb; }
+.mng-bar-fill.ontrack, .mng-bar-fill.done { background: #16a34a; }
+.mng-frac { font-size: 12px; color: #475569; white-space: nowrap; }
+.mng-frac small, .mng-mval small { font-size: 10px; color: #94a3b8; margin-left: 1px; }
+.mng-feas { font-size: 11px; white-space: nowrap; }
+.mng-feas.ok, .mng-feas.done { color: #16a34a; }
+.mng-feas.warn { color: #dc2626; }
+.mng-cardbody { padding: 2px 12px 12px; border-top: 1px solid #f1f5f9; }
+.mng-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.mng-metric { background: #f8fafc; border-radius: 8px; padding: 7px 9px; }
+.mng-mlabel { display: block; font-size: 11px; color: #64748b; }
+.mng-mval { font-size: 16px; font-weight: 700; }
+.mng-mval.warn { color: #d97706; }
+.mng-mval.ok { color: #16a34a; }
+.mng-next { font-size: 12px; color: #334155; margin: 6px 0; line-height: 1.5; }
+.mng-next .muted { color: #94a3b8; }
+.mng-unit { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; }
+.mng-unit.current { background: #eff6ff; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
+.mng-uname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mng-unit.current .mng-uname { font-weight: 700; }
+.mng-unit.todo .mng-uname { color: #94a3b8; }
+.mng-ubar { width: 58px; height: 6px; background: #eef2f6; border-radius: 999px; overflow: hidden; flex: none; }
+.mng-ubar-fill { display: block; height: 100%; background: #cbd5e1; }
+.mng-ubar-fill.done { background: #16a34a; }
+.mng-ubar-fill.current { background: #2563eb; }
+.mng-ufrac { width: 38px; text-align: right; font-size: 11px; color: #64748b; flex: none; }
+.mng-ustat { width: 52px; text-align: right; font-size: 11px; flex: none; }
+.mng-ustat.done { color: #16a34a; }
+.mng-ustat.current { color: #1d4ed8; }
+.mng-ustat.todo { color: #94a3b8; }
+.mng-tip { margin-top: 10px; font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mng-tip b { color: #b45309; }
+.mng-tip .btn { margin-left: auto; }

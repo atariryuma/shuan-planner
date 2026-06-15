@@ -1282,6 +1282,118 @@ export function computeViewpointTally(state, refWeekStart) {
   return tally;
 }
 
+/**
+ * 授業マネジメント用の進度予測。教科×スコープ(学級/学年)ごとに、年間指導計画に対する
+ * 「実施済/残り」「計画通り/遅れ/先行」「年度末の完了見込み」「単元ごとの進み」を、
+ * 追加入力なしで既存データ(週案・計画・授業週)から算出する。戻り値: Map<scopeKey, Forecast>。
+ *  - 基準: 計画を年度内に均した理想線(バーンダウンの理想線)と実績の差で 遅れ/先行 を出す。
+ *  - 見込み: 今のペース(実施済÷経過授業週)×残り授業週 が計画総時数に届くか。
+ *  長期休業は teachingWeeks* が既に除外するので見込みは過大にならない。
+ */
+export function computeProgressForecast(state, refWeekStart) {
+  const { settings, weeks } = state;
+  const ordinals = computeOrdinals(state, refWeekStart);
+  const todayStr = fmtDate(new Date());
+  const range = refWeekStart ? fiscalRangeOf(refWeekStart) : null;
+  const fy = refWeekStart ? fiscalYearOf(addDays(parseDate(refWeekStart), 3)) : 0;
+  const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`;
+  const scanFrom = range ? fmtDate(addDays(parseDate(range.from), -7)) : '';
+  const planFor = (subjectKey, scope) => {
+    const grade = scopeGrade(settings, scope);
+    return state.plans.find(p => p.subjectKey === subjectKey && (p.grade == null || p.grade === grade)) || null;
+  };
+
+  // 1パス: スコープごとに 実施済(今日以前) を単元別に集計し、次の授業ordinal(今日より後の最小)を拾う
+  const acc = new Map();
+  const ensure = (subjectKey, scope) => {
+    const k = scopeKey(subjectKey, scope);
+    let a = acc.get(k);
+    if (!a) { a = { subjectKey, scope, doneByUnit: new Map(), doneTotal: 0, cut: new Set(), nextOrd: null }; acc.set(k, a); }
+    return a;
+  };
+  for (const wk of Object.keys(weeks).sort()) {
+    if (range && (wk < scanFrom || wk > range.to)) continue;
+    const week = weeks[wk];
+    const monday = parseDate(wk);
+    for (let d = 0; d < 7; d++) {
+      const dateStr = fmtDate(addDays(monday, d));
+      if (range && (dateStr < fyStart || dateStr > fyEnd)) continue;
+      for (const p of settings.periods) {
+        if (!effectivePeriod(settings, week, d, p)) continue;
+        const cell = week.cells[cellKey(d, p.id)];
+        if (!cell) continue;
+        for (const e of cell.entries) {
+          if (!e.subjectKey || e.cancelled || e.pin || e.offplan) continue;
+          const advances = e.advance == null ? p.type !== 'module' : !!e.advance;
+          if (!advances) continue;
+          const o = ordinals.get(e.id);
+          if (o == null || !planFor(e.subjectKey, e.scope)) continue;
+          const a = ensure(e.subjectKey, e.scope);
+          if (dateStr <= todayStr) {
+            a.doneTotal++;
+            const info = lessonFromPlan(planFor(e.subjectKey, e.scope), o);
+            if (info && info.unit) {
+              a.doneByUnit.set(info.unit.id, (a.doneByUnit.get(info.unit.id) || 0) + 1);
+              if (e.endUnit) a.cut.add(info.unit.id); // 切り上げた単元は「済」扱い
+            }
+          } else if (a.nextOrd == null || o < a.nextOrd) {
+            a.nextOrd = o; // 次に教えるコマ
+          }
+        }
+      }
+    }
+  }
+
+  const elapsed = teachingWeeksElapsed(settings, refWeekStart);
+  const left = teachingWeeksLeft(settings, refWeekStart);
+  const total = elapsed + left;
+  const out = new Map();
+  for (const [k, a] of acc) {
+    const plan = planFor(a.subjectKey, a.scope);
+    if (!plan || !plan.units?.length) continue;
+    const unitHours = plan.units.map(u => Math.max(1, Math.round(u.hours || u.lessons?.length || 1)));
+    const planTotal = unitHours.reduce((s, h) => s + h, 0);
+    if (!planTotal) continue;
+    const taught = a.doneTotal;
+    const remaining = Math.max(0, planTotal - taught);
+    const expected = total > 0 ? planTotal * elapsed / total : 0;
+    const behind = Math.round(expected - taught);              // + 遅れ / - 先行
+    const pace = elapsed > 0 ? taught / elapsed : 0;
+    const requiredPace = left > 0 ? remaining / left : (remaining > 0 ? Infinity : 0);
+    const projected = taught + pace * left;
+    const shortfall = Math.max(0, Math.round(planTotal - projected));
+    const feasible = projected >= planTotal - 0.5 || remaining === 0;
+    let status;
+    if (taught >= planTotal) status = 'done';
+    else if (behind >= 1) status = 'behind';
+    else if (behind <= -1) status = 'ahead';
+    else status = 'ontrack';
+
+    let currentIdx = -1;
+    const units = plan.units.map((u, i) => {
+      const hours = unitHours[i];
+      const done = Math.min(hours, a.doneByUnit.get(u.id) || 0);
+      const full = a.cut.has(u.id) || done >= hours;
+      if (!full && currentIdx === -1) currentIdx = i;
+      return { id: u.id, name: u.name || `単元${i + 1}`, hours, done, cut: a.cut.has(u.id), _full: full };
+    });
+    units.forEach((u, i) => { u.status = u._full ? 'done' : (i === currentIdx ? 'current' : 'todo'); delete u._full; });
+    const next = a.nextOrd != null ? lessonFromPlan(plan, a.nextOrd) : null;
+
+    out.set(k, {
+      subjectKey: a.subjectKey, scope: a.scope, grade: scopeGrade(settings, a.scope),
+      planTotal, taught, remaining, pct: Math.round((taught / planTotal) * 100),
+      elapsed, left, expected: Math.round(expected), behind, status,
+      pace: Math.round(pace * 10) / 10,
+      requiredPace: requiredPace === Infinity ? Infinity : Math.round(requiredPace * 10) / 10,
+      projected: Math.round(projected), shortfall, feasible,
+      next: next && !next.exhausted ? { unitName: next.unitName, nth: next.nth, unitHours: next.unitHours, objective: next.lessonText } : null,
+      units,
+    });
+  }
+  return out;
+}
+
 /** scope(専科=classId / 複式=学年番号)から学年を解決 */
 export function scopeGrade(settings, scope) {
   if (settings.mode === 'fukushiki') return typeof scope === 'number' ? scope : settings.fukushikiGrades[0];
