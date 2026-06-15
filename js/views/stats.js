@@ -92,6 +92,15 @@ export function renderStatsView(root, ctx) {
     document.querySelector('.tab[data-tab="week"]')?.click();
   }));
 
+  // 単元を「他担当(分担)」に切り替える: 自分は教えないが学級は消化している単元を見込みから外す
+  root.querySelectorAll('.mng-ushare').forEach(b => b.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    const { subj, scope, unit } = b.dataset;
+    const now = store.toggleSharedUnit(subj, scope === '' ? null : scope, unit);
+    toast(now ? 'この単元を「他担当」にしました' : '自分の担当に戻しました');
+    ctx.rerender();
+  }));
+
   root.querySelector('#stats-csv').onclick = () => downloadCSV(state, weekStart);
   root.querySelector('#stats-print').onclick = async () => {
     const { buildStatsPrintDOM, printState } = await import('../print.js');
@@ -330,13 +339,23 @@ function renderManagement(state, weekStart) {
     }
     return `<div class="mng-verdict ok">このペースで年度内に<b>完了見込み</b>（残り${f.remaining}コマ・週${rate}）。</div>`;
   };
-  const unitRow = (u) => {
+  const unitRow = (u, f) => {
+    // 他担当(分担)＝この単元は別の先生が受け持つ。自分の見込みから外し、淡く表示。タップで自分に戻す。
+    const share = `<button class="mng-ushare${u.status === 'shared' ? ' on' : ''}" data-subj="${esc(f.subjectKey)}" data-scope="${esc(f.scope ?? '')}" data-unit="${esc(u.id)}" title="${u.status === 'shared' ? '自分の担当に戻す' : '他の先生と分担（自分の見込みから外す）'}" aria-pressed="${u.status === 'shared'}">${icon('person')}</button>`;
+    if (u.status === 'shared') {
+      return `<div class="mng-unit shared">
+        <span class="mng-uname">${esc(u.name)}</span>
+        <span class="mng-ushared">他担当</span>
+        ${share}
+      </div>`;
+    }
     const lbl = u.status === 'done' ? (u.cut ? '切上げ' : '済') : u.status === 'current' ? 'いま' : 'これから';
     return `<div class="mng-unit ${u.status}">
         <span class="mng-uname">${esc(u.name)}</span>
         <span class="mng-ubar"><span class="mng-ubar-fill ${u.status}" style="width:${Math.round(u.done / u.hours * 100)}%"></span></span>
         <span class="mng-ufrac">${u.done}/${u.hours}</span>
         <span class="mng-ustat ${u.status}">${lbl}</span>
+        ${share}
       </div>`;
   };
   const card = (f) => {
@@ -351,7 +370,7 @@ function renderManagement(state, weekStart) {
         </summary>
         <div class="mng-cardbody">
           ${verdict(f)}${nextLine}
-          <div class="mng-units">${f.units.map(unitRow).join('')}</div>
+          <div class="mng-units">${f.units.map(u => unitRow(u, f)).join('')}</div>
         </div>
       </details>`;
   };

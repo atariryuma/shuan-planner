@@ -84,6 +84,9 @@ export function defaultSettings(schoolType = 'elementary') {
     printFontSize: 'normal',  // small | normal | large
     printPresetVersion: 2,    // v2=A4縦を標準とする週案様式
     weekStartNote: '',
+    // 他の先生と分担している単元(他担当)。{ [scopeKey(subjectKey,scope)]: [unitId, ...] }
+    // 他担当の単元は「自分の担当」から外す: 進度の見込み計算から除外し、流し込み(本時の割当)でも飛ばす。
+    sharedUnits: {},
     gas: {
       url: '', token: '', auto: false, lastSync: null,
       calendarIds: [],      // 行事取り込み元のカレンダーID(空=メインカレンダー)
@@ -564,6 +567,20 @@ class Store {
     else { s.classDays.push(dateStr); s.offDays = s.offDays.filter(d => d !== dateStr); } // 排他
     this.commit();
     return i < 0; // true=振替授業日にした
+  }
+
+  /** ある教科・学級の単元を「他担当(他の先生と分担)」にする/解除する。進度の見込みと流し込みから外れる。 */
+  toggleSharedUnit(subjectKey, scope, unitId) {
+    const s = this.settings;
+    if (!s.sharedUnits || typeof s.sharedUnits !== 'object') s.sharedUnits = {};
+    const k = scopeKey(subjectKey, scope);
+    const list = Array.isArray(s.sharedUnits[k]) ? s.sharedUnits[k] : [];
+    const i = list.indexOf(unitId);
+    let now;
+    if (i >= 0) { list.splice(i, 1); now = false; } else { list.push(unitId); now = true; }
+    if (list.length) s.sharedUnits[k] = list; else delete s.sharedUnits[k];
+    this.commit();
+    return now; // true=他担当にした
   }
 
   // -------- plans
@@ -1068,6 +1085,7 @@ function migrate(data) {
     w.managerNote = String(w.managerNote ?? '');
   }
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
+  if (!data.settings.sharedUnits || typeof data.settings.sharedUnits !== 'object') data.settings.sharedUnits = {};
   if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
   if (!Array.isArray(data.settings.offDays)) data.settings.offDays = [];
   if (!Array.isArray(data.settings.classDays)) data.settings.classDays = [];
@@ -1133,6 +1151,12 @@ export function scopeKey(subjectKey, scope) {
   return `${subjectKey}|${scope ?? ''}`;
 }
 
+/** その教科・学級で「他担当(分担)」にした単元idの集合。無ければ空集合。 */
+export function sharedUnitSet(settings, subjectKey, scope) {
+  const list = settings?.sharedUnits?.[scopeKey(subjectKey, scope)];
+  return new Set(Array.isArray(list) ? list : []);
+}
+
 /**
  * 対象週が属する年度の [開始週, 翌年度開始週) の範囲を返す。
  * 年度判定は週の木曜日(3月末始まりの週を旧年度に含めないため)。
@@ -1181,7 +1205,21 @@ export function computeOrdinals(state, refWeekStart) {
           const advances = e.advance === null || e.advance === undefined ? !isModule : !!e.advance;
           if (!advances) continue;
           const k = scopeKey(e.subjectKey, e.scope);
-          const n = counters.get(k) || 0;
+          let n = counters.get(k) || 0;
+          // 他担当(分担)の単元の位置は飛ばし、自分の本時だけに割り当てる(分担している学級の流し込みが正しくなる)。
+          const shared = settings.sharedUnits?.[k];
+          if (shared && shared.length) {
+            const sharedSet = new Set(shared);
+            const grade = scopeGrade(settings, e.scope);
+            const plan = state.plans.find(pl => pl.subjectKey === e.subjectKey && (pl.grade == null || pl.grade === grade));
+            if (plan) {
+              let guard = 0;
+              while (guard++ < 1000) {
+                const info = lessonFromPlan(plan, n);
+                if (info && !info.exhausted && info.unit && sharedSet.has(info.unit.id)) n++; else break;
+              }
+            }
+          }
           ordinals.set(e.id, n);
           let next = n + 1;
           // 「この時間で単元を終える」: 現在の単元の残りコマ分だけカウンタを飛ばし、次のコマから次の単元へ
@@ -1468,8 +1506,10 @@ export function computeProgressForecast(state, refWeekStart) {
   for (const [k, a] of acc) {
     const plan = planFor(a.subjectKey, a.scope);
     if (!plan || !plan.units?.length) continue;
+    const shared = sharedUnitSet(settings, a.subjectKey, a.scope); // 他担当(分担)の単元 = 自分の担当から外す
     const unitHours = plan.units.map(u => Math.max(1, Math.round(u.hours || u.lessons?.length || 1)));
-    const planTotal = unitHours.reduce((s, h) => s + h, 0);
+    // 自分の担当ぶんだけ計画総数に数える(他担当の単元は計画から除外=見込みが自分の分になる)
+    const planTotal = plan.units.reduce((s, u, i) => shared.has(u.id) ? s : s + unitHours[i], 0);
     if (!planTotal) continue;
     const taught = a.doneTotal;
     const remaining = Math.max(0, planTotal - taught);
@@ -1496,12 +1536,13 @@ export function computeProgressForecast(state, refWeekStart) {
     let currentIdx = -1;
     const units = plan.units.map((u, i) => {
       const hours = unitHours[i];
+      if (shared.has(u.id)) return { id: u.id, name: u.name || `単元${i + 1}`, hours, done: 0, cut: false, shared: true, _full: false };
       const done = Math.min(hours, a.doneByUnit.get(u.id) || 0);
       const full = a.cut.has(u.id) || done >= hours;
       if (!full && currentIdx === -1) currentIdx = i;
-      return { id: u.id, name: u.name || `単元${i + 1}`, hours, done, cut: a.cut.has(u.id), _full: full };
+      return { id: u.id, name: u.name || `単元${i + 1}`, hours, done, cut: a.cut.has(u.id), shared: false, _full: full };
     });
-    units.forEach((u, i) => { u.status = u._full ? 'done' : (i === currentIdx ? 'current' : 'todo'); delete u._full; });
+    units.forEach((u, i) => { u.status = u.shared ? 'shared' : (u._full ? 'done' : (i === currentIdx ? 'current' : 'todo')); delete u._full; });
     const next = a.nextOrd != null ? lessonFromPlan(plan, a.nextOrd) : null;
 
     out.set(k, {

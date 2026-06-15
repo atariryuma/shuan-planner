@@ -599,6 +599,47 @@ test('授業マネジメント: 実施済/残り/単元の進み/状態を計画
   assert.equal(f.projected, f.taught + f.capacityLeft);
 });
 
+test('他担当(分担): 共有単元を見込みから外し、自分の本時は共有単元を飛ばして割り当てる', () => {
+  const state = defaultState();
+  state.settings.grade = 5;
+  state.plans = [{ id:'pl', subjectKey:'rika', grade:5, startOffset:0, units:[
+    { id:'u1', name:'単元A', hours:2, lessons:[] },
+    { id:'u2', name:'単元B(同僚)', hours:2, lessons:[] },
+    { id:'u3', name:'単元C', hours:2, lessons:[] },
+  ] }];
+  // 単元Bは他担当(分担): 自分は教えない
+  state.settings.sharedUnits = { [scopeKey('rika', '')]: ['u2'] };
+  const W = '2020-06-01'; // 過去年度=全コマ実施済で決定論的に検証
+  state.weeks = { [W]: { start:W, cells: {
+    [cellKey(0,'p1')]: { entries:[{ id:'e1', subjectKey:'rika', scope:'', auto:true }] },
+    [cellKey(0,'p2')]: { entries:[{ id:'e2', subjectKey:'rika', scope:'', auto:true }] },
+    [cellKey(1,'p1')]: { entries:[{ id:'e3', subjectKey:'rika', scope:'', auto:true }] },
+  }, events:[], dayNotes:[], attendance:[], dayPatterns:{}, goals:'', reflection:'' } };
+  store.state = state;
+
+  // computeOrdinals: 共有単元(u2=位置2,3)を飛ばし、3コマ目は単元C(位置4)に割り当てる
+  const ord = computeOrdinals(store.state, W);
+  assert.equal(ord.get('e1'), 0); // 単元A 1コマ目
+  assert.equal(ord.get('e2'), 1); // 単元A 2コマ目
+  assert.equal(ord.get('e3'), 4); // 単元B(2,3)を飛ばして単元C 1コマ目
+
+  const f = computeProgressForecast(store.state, W).get(scopeKey('rika', ''));
+  assert.ok(f, '理科のforecastがある');
+  assert.equal(f.planTotal, 4);                 // u1(2)+u3(2)。共有のu2(2)は計画から除外
+  assert.equal(f.taught, 3);                     // 自分の3コマ
+  assert.equal(f.units[0].status, 'done');       // 単元A 2/2
+  assert.equal(f.units[1].status, 'shared');     // 単元B = 他担当
+  assert.equal(f.units[1].done, 0);
+  assert.equal(f.units[2].status, 'current');    // 単元C 1/2 = いま
+  assert.equal(f.units[2].done, 1);
+
+  // store.toggleSharedUnit のラウンドトリップ
+  assert.equal(store.toggleSharedUnit('rika', '', 'u2'), false); // 外す
+  assert.equal(store.state.settings.sharedUnits[scopeKey('rika','')], undefined); // 空なら削除
+  assert.equal(store.toggleSharedUnit('rika', '', 'u2'), true);  // 戻す
+  assert.deepEqual(store.state.settings.sharedUnits[scopeKey('rika','')], ['u2']);
+});
+
 test('授業なし(予定として): 時数に数えず、基本時間割の流し込みで入れ直されない', () => {
   const state = defaultState();
   state.baseTimetables = [{ id:'b', name:'基本', dayPatterns:{}, savedAt:1, cells: {

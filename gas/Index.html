@@ -1402,6 +1402,16 @@ td.cell:focus-visible, .day-th:focus-visible {
 .mng-ustat.done { color: #16a34a; }
 .mng-ustat.current { color: #1d4ed8; }
 .mng-ustat.todo { color: #94a3b8; }
+/* 他担当(分担): 自分は教えない単元。淡く沈め、ラベルは右寄せ */
+.mng-unit.shared .mng-uname { color: #94a3b8; text-decoration: line-through; text-decoration-color: #cbd5e1; }
+.mng-ushared { flex: 1; text-align: right; font-size: 11px; color: #94a3b8; }
+/* 分担トグル(人型): 既定は薄いゴースト、他担当のときだけ色付き */
+.mng-ushare { flex: none; width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; color: #cbd5e1; border-radius: 7px; cursor: pointer; opacity: .55; transition: opacity .12s, color .12s, background .12s; }
+.mng-ushare:hover { opacity: 1; color: #64748b; background: #f1f5f9; }
+.mng-ushare .ic { width: 16px; height: 16px; }
+.mng-ushare.on { color: #7c3aed; opacity: 1; }
+.mng-ushare.on:hover { background: #f3e8ff; color: #6d28d9; }
 .mng-tip { margin-top: 10px; font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mng-tip b { color: #b45309; }
 .mng-tip .btn { margin-left: auto; }
@@ -2247,6 +2257,9 @@ function defaultSettings(schoolType = 'elementary') {
     printFontSize: 'normal',  // small | normal | large
     printPresetVersion: 2,    // v2=A4縦を標準とする週案様式
     weekStartNote: '',
+    // 他の先生と分担している単元(他担当)。{ [scopeKey(subjectKey,scope)]: [unitId, ...] }
+    // 他担当の単元は「自分の担当」から外す: 進度の見込み計算から除外し、流し込み(本時の割当)でも飛ばす。
+    sharedUnits: {},
     gas: {
       url: '', token: '', auto: false, lastSync: null,
       calendarIds: [],      // 行事取り込み元のカレンダーID(空=メインカレンダー)
@@ -2727,6 +2740,20 @@ class Store {
     else { s.classDays.push(dateStr); s.offDays = s.offDays.filter(d => d !== dateStr); } // 排他
     this.commit();
     return i < 0; // true=振替授業日にした
+  }
+
+  /** ある教科・学級の単元を「他担当(他の先生と分担)」にする/解除する。進度の見込みと流し込みから外れる。 */
+  toggleSharedUnit(subjectKey, scope, unitId) {
+    const s = this.settings;
+    if (!s.sharedUnits || typeof s.sharedUnits !== 'object') s.sharedUnits = {};
+    const k = scopeKey(subjectKey, scope);
+    const list = Array.isArray(s.sharedUnits[k]) ? s.sharedUnits[k] : [];
+    const i = list.indexOf(unitId);
+    let now;
+    if (i >= 0) { list.splice(i, 1); now = false; } else { list.push(unitId); now = true; }
+    if (list.length) s.sharedUnits[k] = list; else delete s.sharedUnits[k];
+    this.commit();
+    return now; // true=他担当にした
   }
 
   // -------- plans
@@ -3231,6 +3258,7 @@ function migrate(data) {
     w.managerNote = String(w.managerNote ?? '');
   }
   if (!Array.isArray(data.settings.periodPatterns)) data.settings.periodPatterns = [];
+  if (!data.settings.sharedUnits || typeof data.settings.sharedUnits !== 'object') data.settings.sharedUnits = {};
   if (!Array.isArray(data.settings.breaks)) data.settings.breaks = [];
   if (!Array.isArray(data.settings.offDays)) data.settings.offDays = [];
   if (!Array.isArray(data.settings.classDays)) data.settings.classDays = [];
@@ -3296,6 +3324,12 @@ function scopeKey(subjectKey, scope) {
   return `${subjectKey}|${scope ?? ''}`;
 }
 
+/** その教科・学級で「他担当(分担)」にした単元idの集合。無ければ空集合。 */
+function sharedUnitSet(settings, subjectKey, scope) {
+  const list = settings?.sharedUnits?.[scopeKey(subjectKey, scope)];
+  return new Set(Array.isArray(list) ? list : []);
+}
+
 /**
  * 対象週が属する年度の [開始週, 翌年度開始週) の範囲を返す。
  * 年度判定は週の木曜日(3月末始まりの週を旧年度に含めないため)。
@@ -3344,7 +3378,21 @@ function computeOrdinals(state, refWeekStart) {
           const advances = e.advance === null || e.advance === undefined ? !isModule : !!e.advance;
           if (!advances) continue;
           const k = scopeKey(e.subjectKey, e.scope);
-          const n = counters.get(k) || 0;
+          let n = counters.get(k) || 0;
+          // 他担当(分担)の単元の位置は飛ばし、自分の本時だけに割り当てる(分担している学級の流し込みが正しくなる)。
+          const shared = settings.sharedUnits?.[k];
+          if (shared && shared.length) {
+            const sharedSet = new Set(shared);
+            const grade = scopeGrade(settings, e.scope);
+            const plan = state.plans.find(pl => pl.subjectKey === e.subjectKey && (pl.grade == null || pl.grade === grade));
+            if (plan) {
+              let guard = 0;
+              while (guard++ < 1000) {
+                const info = lessonFromPlan(plan, n);
+                if (info && !info.exhausted && info.unit && sharedSet.has(info.unit.id)) n++; else break;
+              }
+            }
+          }
           ordinals.set(e.id, n);
           let next = n + 1;
           // 「この時間で単元を終える」: 現在の単元の残りコマ分だけカウンタを飛ばし、次のコマから次の単元へ
@@ -3631,8 +3679,10 @@ function computeProgressForecast(state, refWeekStart) {
   for (const [k, a] of acc) {
     const plan = planFor(a.subjectKey, a.scope);
     if (!plan || !plan.units?.length) continue;
+    const shared = sharedUnitSet(settings, a.subjectKey, a.scope); // 他担当(分担)の単元 = 自分の担当から外す
     const unitHours = plan.units.map(u => Math.max(1, Math.round(u.hours || u.lessons?.length || 1)));
-    const planTotal = unitHours.reduce((s, h) => s + h, 0);
+    // 自分の担当ぶんだけ計画総数に数える(他担当の単元は計画から除外=見込みが自分の分になる)
+    const planTotal = plan.units.reduce((s, u, i) => shared.has(u.id) ? s : s + unitHours[i], 0);
     if (!planTotal) continue;
     const taught = a.doneTotal;
     const remaining = Math.max(0, planTotal - taught);
@@ -3659,12 +3709,13 @@ function computeProgressForecast(state, refWeekStart) {
     let currentIdx = -1;
     const units = plan.units.map((u, i) => {
       const hours = unitHours[i];
+      if (shared.has(u.id)) return { id: u.id, name: u.name || `単元${i + 1}`, hours, done: 0, cut: false, shared: true, _full: false };
       const done = Math.min(hours, a.doneByUnit.get(u.id) || 0);
       const full = a.cut.has(u.id) || done >= hours;
       if (!full && currentIdx === -1) currentIdx = i;
-      return { id: u.id, name: u.name || `単元${i + 1}`, hours, done, cut: a.cut.has(u.id), _full: full };
+      return { id: u.id, name: u.name || `単元${i + 1}`, hours, done, cut: a.cut.has(u.id), shared: false, _full: full };
     });
-    units.forEach((u, i) => { u.status = u._full ? 'done' : (i === currentIdx ? 'current' : 'todo'); delete u._full; });
+    units.forEach((u, i) => { u.status = u.shared ? 'shared' : (u._full ? 'done' : (i === currentIdx ? 'current' : 'todo')); delete u._full; });
     const next = a.nextOrd != null ? lessonFromPlan(plan, a.nextOrd) : null;
 
     out.set(k, {
@@ -4040,7 +4091,7 @@ function standardTotalHoursFor(settings, grade) {
 const store = new Store();
 
 
-return { SCHEMA_VERSION, defaultPeriods, defaultSubjects, defaultSettings, blankWeek, defaultState, cellKey, effectivePeriod, newEntry, normalizeOverride, mergeLessonOverride, normalizeLesson, VIEWPOINTS, isEntryEdited, cellHasUserEdits, cellHasLock, isActivity, cellHasActivity, conformEntryToPlan, entryMatchesScope, cellIsClaimed, scopeKey, computeOrdinals, lessonFromPlan, lessonFromPin, resolveEntryText, resolveEntryPlanDetails, computeViewpointTally, computeProgressForecast, computeAttendance, scopeGrade, doneRefWeek, computeHours, teachingWeeksLeft, teachingWeeksElapsed, breakNameOf, isNoSchoolDay, weekDayOffsets, noSchoolReason, computeMonthlyHours, termRanges, fmtHours, standardHoursFor, standardTotalHoursFor, store, parseDate };
+return { SCHEMA_VERSION, defaultPeriods, defaultSubjects, defaultSettings, blankWeek, defaultState, cellKey, effectivePeriod, newEntry, normalizeOverride, mergeLessonOverride, normalizeLesson, VIEWPOINTS, isEntryEdited, cellHasUserEdits, cellHasLock, isActivity, cellHasActivity, conformEntryToPlan, entryMatchesScope, cellIsClaimed, scopeKey, sharedUnitSet, computeOrdinals, lessonFromPlan, lessonFromPin, resolveEntryText, resolveEntryPlanDetails, computeViewpointTally, computeProgressForecast, computeAttendance, scopeGrade, doneRefWeek, computeHours, teachingWeeksLeft, teachingWeeksElapsed, breakNameOf, isNoSchoolDay, weekDayOffsets, noSchoolReason, computeMonthlyHours, termRanges, fmtHours, standardHoursFor, standardTotalHoursFor, store, parseDate };
 })();
 __M["gas.js"] = (function(){
 /**
@@ -7992,6 +8043,15 @@ function renderStatsView(root, ctx) {
     document.querySelector('.tab[data-tab="week"]')?.click();
   }));
 
+  // 単元を「他担当(分担)」に切り替える: 自分は教えないが学級は消化している単元を見込みから外す
+  root.querySelectorAll('.mng-ushare').forEach(b => b.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    const { subj, scope, unit } = b.dataset;
+    const now = store.toggleSharedUnit(subj, scope === '' ? null : scope, unit);
+    toast(now ? 'この単元を「他担当」にしました' : '自分の担当に戻しました');
+    ctx.rerender();
+  }));
+
   root.querySelector('#stats-csv').onclick = () => downloadCSV(state, weekStart);
   root.querySelector('#stats-print').onclick = async () => {
     const { buildStatsPrintDOM, printState } = await Promise.resolve(__M["print.js"]);
@@ -8230,13 +8290,23 @@ function renderManagement(state, weekStart) {
     }
     return `<div class="mng-verdict ok">このペースで年度内に<b>完了見込み</b>（残り${f.remaining}コマ・週${rate}）。</div>`;
   };
-  const unitRow = (u) => {
+  const unitRow = (u, f) => {
+    // 他担当(分担)＝この単元は別の先生が受け持つ。自分の見込みから外し、淡く表示。タップで自分に戻す。
+    const share = `<button class="mng-ushare${u.status === 'shared' ? ' on' : ''}" data-subj="${esc(f.subjectKey)}" data-scope="${esc(f.scope ?? '')}" data-unit="${esc(u.id)}" title="${u.status === 'shared' ? '自分の担当に戻す' : '他の先生と分担（自分の見込みから外す）'}" aria-pressed="${u.status === 'shared'}">${icon('person')}</button>`;
+    if (u.status === 'shared') {
+      return `<div class="mng-unit shared">
+        <span class="mng-uname">${esc(u.name)}</span>
+        <span class="mng-ushared">他担当</span>
+        ${share}
+      </div>`;
+    }
     const lbl = u.status === 'done' ? (u.cut ? '切上げ' : '済') : u.status === 'current' ? 'いま' : 'これから';
     return `<div class="mng-unit ${u.status}">
         <span class="mng-uname">${esc(u.name)}</span>
         <span class="mng-ubar"><span class="mng-ubar-fill ${u.status}" style="width:${Math.round(u.done / u.hours * 100)}%"></span></span>
         <span class="mng-ufrac">${u.done}/${u.hours}</span>
         <span class="mng-ustat ${u.status}">${lbl}</span>
+        ${share}
       </div>`;
   };
   const card = (f) => {
@@ -8251,7 +8321,7 @@ function renderManagement(state, weekStart) {
         </summary>
         <div class="mng-cardbody">
           ${verdict(f)}${nextLine}
-          <div class="mng-units">${f.units.map(unitRow).join('')}</div>
+          <div class="mng-units">${f.units.map(u => unitRow(u, f)).join('')}</div>
         </div>
       </details>`;
   };
