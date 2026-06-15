@@ -2058,6 +2058,17 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
   const render = (modal) => {
     const state = store.state;
     const cellNow = store.getCell(weekStart, dayIdx, periodId) || { entries: [] };
+    // フッターを状態で出し分け: 空きコマの選択中(picking)は「削除・取り消す」の対象がまだ無いので
+    // 編集用フッターを混ぜず「やめる」1つに絞る(選ぶ＝即この画面を抜けるので確定ボタンも不要)。
+    const foot = modal.querySelector('.modal-foot');
+    if (foot) {
+      const isPick = picking && !cellNow.entries.length;
+      foot.classList.toggle('is-picking', isPick);
+      const fhide = (sel) => { const el = foot.querySelector(sel); if (el) el.style.display = isPick ? 'none' : ''; };
+      fhide('[data-clear-cell]'); fhide('[data-revert]');
+      const cb = foot.querySelector('[data-close]');
+      if (cb) { cb.textContent = isPick ? 'やめる' : '閉じる'; cb.classList.toggle('primary', !isPick); cb.classList.toggle('ghost', isPick); }
+    }
     // 空きコマの選択画面: ここで教科(担任・複式)/学級(専科)を直接選ばせる。基本時間割の候補を●印で示す。
     if (picking && !cellNow.entries.length) {
       const bl = (store.state.baseTimetables?.[0]?.cells?.[editKey]?.entries || []).filter(e => e.subjectKey && !isActivity(e));
