@@ -531,6 +531,8 @@ function wireSettings(root, ctx) {
       tr.querySelector('[name="label"]').addEventListener('change', (ev) => { s.senkaClasses[i].label = ev.target.value; store.commit(); });
       tr.querySelector('[name="grade"]').addEventListener('change', (ev) => { s.senkaClasses[i].grade = Number(ev.target.value); store.commit(); });
       tr.querySelector('[data-crm]').onclick = async () => {
+        // 専科は最低1学級必要(全削除でscope=nullの授業が量産されるのを防ぐ)
+        if (s.senkaClasses.length <= 1) { toast('専科は学級が最低1つ必要です（担当形態を変える場合は上のモードから）', 'info', 3500); return; }
         // 入力済みコマ数を数えて正確に伝える(週＋基本時間割の両方)
         const id = s.senkaClasses[i].id;
         let count = 0;
@@ -542,15 +544,15 @@ function wireSettings(root, ctx) {
         }
         const ok = await confirmDialog(
           `学級「${s.senkaClasses[i].label || '(無名)'}」を削除しますか?` +
-          (count ? `\nこの学級の入力済み ${count}コマ は集計・表示されなくなります(データは残ります)` : ''),
+          (count ? `\nこの学級の入力済み ${count}コマ は残りの先頭学級へ付け替えます` : ''),
           { okLabel: '削除', danger: true });
         if (!ok) return;
         store.snapshot('学級の削除');
         s.senkaClasses.splice(i, 1);
-        // 基本時間割に残った死んだ学級IDを先頭学級へ付け替える(流し込みで集計から消えるのを防ぐ)
+        // 死んだ学級IDを先頭学級へ付け替える(週・基本時間割の両方。集計から無言で消えるのを防ぐ)
         const fallback = s.senkaClasses[0]?.id ?? null;
-        for (const b of (store.state.baseTimetables || [])) {
-          for (const cell of Object.values(b.cells || {})) {
+        for (const w of cellSources) {
+          for (const cell of Object.values(w.cells || {})) {
             for (const e of cell.entries || []) { if (e.scope === id) e.scope = fallback; }
           }
         }

@@ -37,6 +37,11 @@ export function renderOnboarding(root, ctx) {
         </div>
       </div>
 
+      <div class="ob-q" id="ob-subject-row" style="display:none;">
+        <div class="ob-label">担当教科</div>
+        <select id="ob-subject" aria-label="担当教科"></select>
+      </div>
+
       <button class="btn primary ob-start" id="ob-start">はじめる</button>
       <button class="btn ghost ob-skip" id="ob-skip">あとで</button>
     </div>
@@ -55,13 +60,21 @@ export function renderOnboarding(root, ctx) {
       };
     });
   };
+  // 担当教科(専科)の候補。学校種で変わるので学校選択時に更新する
+  const fillSubjects = () => {
+    root.querySelector('#ob-subject').innerHTML = defaultSubjects(state.schoolType)
+      .map(x => `<option value="${esc(x.key)}">${esc(x.name || x.short || x.key)}</option>`).join('');
+  };
+  fillSubjects();
   wireSeg('ob-school', v => {
     state.schoolType = v;
     const max = v === 'junior' ? 3 : 6;
     const sel = root.querySelector('#ob-grade');
     sel.innerHTML = Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${i + 1}年</option>`).join('');
+    fillSubjects();
   });
-  wireSeg('ob-mode', v => { state.mode = v; });
+  // 専科のときだけ担当教科を選ばせる(未設定だと毎コマ手入力＋計画取込が別教科に化けるため)
+  wireSeg('ob-mode', v => { state.mode = v; root.querySelector('#ob-subject-row').style.display = v === 'senka' ? '' : 'none'; });
 
   const finish = (apply) => {
     if (apply) {
@@ -72,8 +85,9 @@ export function renderOnboarding(root, ctx) {
       s.grade = Number(root.querySelector('#ob-grade').value) || 1;
       s.className = root.querySelector('#ob-class').value.trim();
       s.mode = state.mode;
-      if (state.mode === 'senka' && !s.senkaClasses.length) {
-        s.senkaClasses = [{ id: uid(), label: '', grade: s.grade }];
+      if (state.mode === 'senka') {
+        s.senkaSubject = root.querySelector('#ob-subject').value || s.subjects[0]?.key || ''; // 担当教科を確定(空だと自動反映が死ぬ)
+        if (!s.senkaClasses.length) s.senkaClasses = [{ id: uid(), label: '', grade: s.grade }];
       }
       if (state.mode === 'fukushiki') {
         // 選んだ学年を下学年として複式の2学年を決める(既定の[5,6]のままだと

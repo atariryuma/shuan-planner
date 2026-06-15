@@ -1,6 +1,6 @@
 /** 週案編集ビュー(グリッド・セル編集・連続入力・前週コピー・行事・反省) */
 
-import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS, scopeGrade, isActivity, cellHasUserEdits, cellHasLock, cellHasActivity } from '../store.js';
+import { store, newEntry, cellKey, effectivePeriod, computeOrdinals, resolveEntryText, resolveEntryPlanDetails, computeHours, fmtHours, breakNameOf, noSchoolReason, weekDayOffsets, termRanges, VIEWPOINTS, scopeGrade, isActivity, cellHasUserEdits, cellHasLock, cellHasActivity, entryMatchesScope } from '../store.js';
 import { fmtDate, parseDate, addDays, fmtMD, mondayOf, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc, uid } from '../utils.js';
 import { holidayName } from '../holidays.js';
 import { openModal, toast, confirmDialog, selectHTML, openResultLink, infoHTML, associateLabels } from '../ui.js';
@@ -473,7 +473,10 @@ function renderDayPanelHTML(state, week, monday, days, dayViewIdx, todayIdx, ord
 
   return `
     <div class="day-switch" role="tablist">${chips.join('')}</div>
-    <h2 class="day-title">${fmtMD(date)}（${DAY_NAMES[dayViewIdx]}）${isToday ? '<span class="day-today-badge">今日</span>' : ''}</h2>
+    <div class="day-title-row">
+      <h2 class="day-title">${fmtMD(date)}（${DAY_NAMES[dayViewIdx]}）${isToday ? '<span class="day-today-badge">今日</span>' : ''}</h2>
+      <button class="btn small ghost" data-day-ops="${dayViewIdx}" aria-label="この日の操作">⋯ この日の操作</button>
+    </div>
     ${banner}
     ${ev ? `<div class="day-event"><span class="de-label">行事</span>${esc(ev)}</div>` : ''}
     ${listHTML}
@@ -676,7 +679,7 @@ function wireNav(root, ctx, monday) {
         if (!w) continue;
         for (const cell of Object.values(w.cells || {})) {
           if (cellHasLock(cell) || cellHasActivity(cell)) kept++;
-          else if (cellHasUserEdits(cell) && cell.entries.some(e => e.subjectKey && hasPlan(e) && store.entryMatchesScope(store.state, e, scope))) edits++;
+          else if (cellHasUserEdits(cell) && cell.entries.some(e => e.subjectKey && hasPlan(e) && entryMatchesScope(store.state, e, scope))) edits++;
         }
       }
       return { edits, kept };
@@ -702,7 +705,8 @@ function wireNav(root, ctx, monday) {
       ${targetButtonsHTML(t)}
       <div class="modal-foot"><button class="btn" data-cancel>キャンセル</button></div>
     `, (modal, close) => {
-      const go = (toDate) => { const scope = parseScope(modal.querySelector('#gen-scope')?.value || ''); close(); pickBaseAndRun(toDate, (d, baseId) => run(d, baseId, scope)); };
+      // 「計画に合わせて更新」は年間指導計画ベース=基本時間割に依存しないので、時間割選択は挟まない
+      const go = (toDate) => { const scope = parseScope(modal.querySelector('#gen-scope')?.value || ''); close(); run(toDate, null, scope); };
       modal.querySelector('[data-cancel]').onclick = close;
       modal.querySelectorAll('[data-to]').forEach(b => b.onclick = () => go(b.dataset.to));
       modal.querySelector('[data-to-input]').onclick = () => {
@@ -1193,9 +1197,11 @@ function paintCell(weekStart, dayIdx, periodId, ctx) {
     : (entries.length === 1 && clean(entries[0])
       && (s.mode !== 'senka' || entries[0].scope === (paint.scope ?? entries[0].scope)));
   if (toggleHit) {
+    store.snapshot('まとめて配置の消去');
     delete w.cells[key];
     store.commit();
     ctx.rerender();
+    toast('配置を消しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
     return true;
   }
   // 既に何か入っているセルは通常の編集を開く(誤破壊防止)
@@ -1231,9 +1237,8 @@ function wireOnboardCard(root, ctx, monday) {
 }
 
 function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
-  root.querySelectorAll('.day-th').forEach(th => {
-    const open = () => {
-      const d = Number(th.dataset.day);
+  // 日単位の一括操作。週グリッドの曜日見出し と 日ビューの「この日の操作」ボタンの両方から開く。
+  const open = (d) => {
       const date = addDays(monday, d);
       const dateStr = fmtDate(date);
       const label = `${fmtMD(date)}(${DAY_NAMES[d]})`;
@@ -1308,6 +1313,8 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
               for (const p of store.settings.periods) {
                 const src = w.cells[cellKey(d - 1, p.id)];
                 if (!src) continue;
+                const dst = w.cells[cellKey(d, p.id)];
+                if (cellHasLock(dst) || cellHasActivity(dst) || cellHasUserEdits(dst)) continue; // ロック・予定・手編集は守る
                 w.cells[cellKey(d, p.id)] = {
                   entries: src.entries.map(e => ({ ...e, id: uid(), text: '', auto: true, note: '', cancelled: false, cancelledText: '', locked: false })),
                 };
@@ -1322,27 +1329,32 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
                 n++;
               }
             } else if (act === 'restore-base') {
-              n = store.restoreDayFromBase(weekStart, d); // 空きコマだけ基本時間割から復元
+              n = store.restoreDayFromBase(weekStart, d, null, false); // 空きコマだけ復元(commitは下で1回)
             }
+            // 復元で0コマなら commit せず終了(無駄な保存・無意味な「元に戻す」を出さない)
+            if (act === 'restore-base' && n === 0) { close(); toast('入れ直せる空きコマがありませんでした', 'info', 3000); return; }
             store.commit();
             close();
-            const doneMsg = act === 'restore-base'
-              ? (n ? `${label}: ${n}コマを基本時間割から入れました` : '入れ直せる空きコマがありませんでした')
-              : `${label}: ${n}コマを処理しました`;
-            toast(doneMsg, 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+            toast(act === 'restore-base' ? `${label}: ${n}コマを基本時間割から入れました` : `${label}: ${n}コマを処理しました`,
+              'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
             ctx.rerender();
           };
         });
       });
-    };
-    th.addEventListener('click', open);
+  };
+  root.querySelectorAll('.day-th').forEach(th => {
+    const d = Number(th.dataset.day);
+    th.addEventListener('click', () => open(d));
     // キーボード操作(Enter/Space)でも一括操作メニューを開けるように
     th.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter' && ev.key !== ' ') return;
       ev.preventDefault();
-      open();
+      open(d);
     });
   });
+  // 日ビュー(スマホ既定)の「この日の操作」ボタン → 同じ一括操作メニュー
+  const dayOpsBtn = root.querySelector('[data-day-ops]');
+  if (dayOpsBtn) dayOpsBtn.addEventListener('click', () => open(Number(dayOpsBtn.dataset.dayOps)));
 }
 
 // ---------------------------------------------------------------- セルの右クリック・クイック操作
@@ -1476,17 +1488,20 @@ function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
   if (!Array.isArray(ctx.cellClipboard) || !ctx.cellClipboard.length) return;
   const s = store.settings;
   const w = store.getWeek(weekStart, true);
-  store.snapshot('コマの貼り付け');
   const key = cellKey(dayIdx, periodId);
+  const isMulti = s.mode === 'senka' || s.mode === 'fukushiki';
+  // ロック=「更新で守る」約束に従い、貼り付けでも守る(担任=コマ全体／専科・複式=学級単位は下でスキップ)
+  if (!isMulti && cellHasLock(w.cells[key])) { toast('ロック中のコマには貼り付けできません（先にロック解除を）', 'info', 3000); return; }
+  store.snapshot('コマの貼り付け');
   const fresh = ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '', locked: false }));
   // 専科・複式は学級/学年(scope)でコマを区別する。貼り付けはセル全体を上書きせず、
   // 同じscopeのコマだけ置き換えて他学級のコマは残す(専科で「貼り付けたら別クラスが消えた」事故を防ぐ)。
-  if (s.mode === 'senka' || s.mode === 'fukushiki') {
+  if (isMulti) {
     const cell = w.cells[key] || (w.cells[key] = { entries: [] });
     if (!Array.isArray(cell.entries)) cell.entries = [];
     for (const e of fresh) {
       const i = cell.entries.findIndex(x => (x.scope ?? null) === (e.scope ?? null));
-      if (i >= 0) cell.entries[i] = e; else cell.entries.push(e);
+      if (i >= 0) { if (cell.entries[i].locked) continue; cell.entries[i] = e; } else cell.entries.push(e); // ロック中の学級は据え置き
     }
   } else {
     w.cells[key] = { entries: fresh };
@@ -2069,9 +2084,14 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
       store.commit(); render(modal); ctx.rerender();
       toast('本時の中身を空にしました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); render(modal); ctx.rerender(); } });
     };
-    modal.querySelector('[data-oc-make-activity]').onclick = () => {
+    modal.querySelector('[data-oc-make-activity]').onclick = async () => {
       closeOcMenu();
+      // 専科で1コマに複数学級があると活動化で2件目以降が畳まれる→明示確認＋スナップショットで安全に
+      const folded = (store.getCell(weekStart, dayIdx, periodId)?.entries?.length || 0) - 1;
+      if (folded >= 1 && !await confirmDialog(`他の学級（${folded}件）の授業も消えます。予定・活動にしますか?`, { okLabel: '予定・活動にする', danger: true })) return;
+      store.snapshot('予定・活動にする');
       makeActivity(); store.commit(); render(modal); ctx.rerender();
+      if (folded >= 1) toast('他の学級のコマを畳んで予定にしました', 'info', 2800, { label: '元に戻す', onClick: () => { store.undo(); render(modal); ctx.rerender(); } });
     };
     modal.querySelector('[data-oc-make-lesson]').onclick = () => {
       closeOcMenu();

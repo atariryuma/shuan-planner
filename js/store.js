@@ -463,7 +463,7 @@ class Store {
   }
 
   /** その日の空きコマを基本時間割から一括復元(非授業日は除外)。戻り値=復元したコマ数。 */
-  restoreDayFromBase(weekStart, dayIdx, id = null) {
+  restoreDayFromBase(weekStart, dayIdx, id = null, commit = true) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     if (!base) return 0;
     const dateStr = fmtDate(addDays(parseDate(weekStart), dayIdx));
@@ -471,7 +471,7 @@ class Store {
     const w = this.getWeek(weekStart, true);
     let n = 0;
     for (const p of this.settings.periods) n += this._placeBaseCell(w, base, dayIdx, p.id);
-    if (n) this.commit();
+    if (n && commit) this.commit();
     return n;
   }
 
@@ -727,18 +727,20 @@ export function cellHasActivity(cell) {
   return !!cell && Array.isArray(cell.entries) && cell.entries.some(isActivity);
 }
 
-/** 授業entryを「計画どおり」に戻す(本時の上書き・クリア・中止・計画外・差し込み・単元切上げ・分数時数・時数外を消してauto化)。
- * 教科・学級は残す。計画の無い教科(手入力で記録するコマ)は戻す先が無いので触らない。戻したら true。 */
+/** 授業entryの「本時」を計画どおりに戻す(上書き・手入力・別の本時(pin)・計画外・単元切上げ・進度上書きを消してauto化)。
+ * 中止・分数時数・時数外は「実施・時数の事実記録」で本時の内容ではないので保持する。
+ * 教科・学級は残す。計画の無い教科(手入力で記録するコマ)は戻す先が無いので触らない。実際に変わったら true。 */
 export function conformEntryToPlan(state, entry) {
   if (!entry || !entry.subjectKey) return false;       // 空き・活動は対象外
   const grade = scopeGrade(state.settings, entry.scope);
   const hasPlan = state.plans.some(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === grade));
   if (!hasPlan) return false;                            // 計画なし=手入力で記録 → 残す
+  // 既に計画どおり(本時に手を入れていない)なら何も変えない=「計画に戻した件数」を水増ししない
+  const changed = !!normalizeOverride(entry.override) || (entry.auto === false && !!(entry.text && entry.text.trim()))
+    || entry.offplan || !!entry.pin || entry.endUnit || (entry.advance != null);
   entry.override = null; entry.text = ''; entry.auto = true;
-  entry.cancelled = false; entry.cancelledText = '';
-  entry.offplan = false; entry.pin = null; entry.endUnit = false;
-  entry.advance = null; entry.fraction = 1; entry.noCount = false;
-  return true;
+  entry.offplan = false; entry.pin = null; entry.endUnit = false; entry.advance = null;
+  return changed;
 }
 
 /** entryが絞り込み条件 scope({subjectKey?, scopeId?(学級ID), grade?(学年)}) に合致するか。「計画に合わせて更新」の対象判定。 */
