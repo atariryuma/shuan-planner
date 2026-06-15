@@ -1759,6 +1759,36 @@ function wireCells(root, weekStart, ctx) {
       }
       if (dy !== 0) ev.preventDefault(); // 上下端: スクロール抑止のみ(週送りは左右だけ)
     });
+    // コピー/カット/貼り付け(Ctrl/⌘ + C/X/V): フォーカス中のコマを対象に。右クリックメニューと同じ仕組み(ctx.cellClipboard)。
+    td.addEventListener('keydown', (ev) => {
+      if (ev.target !== td) return;
+      if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey) return;
+      const k = ev.key.toLowerCase();
+      if (k !== 'c' && k !== 'x' && k !== 'v') return;
+      const day = Number(td.dataset.day), period = td.dataset.period;
+      const cell = store.getCell(weekStart, day, period);
+      const hasEntries = !!cell?.entries?.length;
+      const refocus = () => requestAnimationFrame(() => document.querySelector(`td.cell[data-day="${day}"][data-period="${CSS.escape(period)}"]`)?.focus());
+      if (k === 'c') {
+        if (!hasEntries) return;
+        ev.preventDefault();
+        ctx.cellClipboard = cell.entries.map(e => ({ ...e }));
+        toast('コマをコピーしました', 'info', 1600);
+      } else if (k === 'x') {
+        if (!hasEntries) return;
+        ev.preventDefault();
+        ctx.cellClipboard = cell.entries.map(e => ({ ...e }));
+        const w = store.getWeek(weekStart, true);
+        store.snapshot('コマを切り取り');
+        delete w.cells[cellKey(day, period)];
+        store.commit(); ctx.rerender(); refocus();
+        toast('切り取りました（別のコマに貼り付けできます）', 'info', 2200, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+      } else if (k === 'v') {
+        if (!Array.isArray(ctx.cellClipboard) || !ctx.cellClipboard.length) return;
+        ev.preventDefault();
+        pasteCellQuick(weekStart, day, period, ctx); refocus();
+      }
+    });
     // PC: 右クリックでクイック操作メニュー(主クリックの「編集を開く」はそのまま)
     td.addEventListener('contextmenu', (ev) => {
       if (td.classList.contains('off')) return; // 日課で無効な校時には出さない
@@ -1858,9 +1888,10 @@ function swapCells(fromWeekStart, from, toWeekStart, to) {
 
 // ---------------------------------------------------------------- セル編集モーダル
 
-// 予定・活動(会議・委員会・クラブ・自習・授業なしなど)でよく使うもの。ワンタップで入れられる(自由入力も可)。
-// 「授業なし」「自習」も予定の一種として扱う(時数に数えず、基本時間割の自動展開でも入れ直されない)。
-const MEMO_PRESETS = ['会議', '委員会', 'クラブ', '面談', '出張', '研修', '自習', '授業なし'];
+// 予定・活動(会議・委員会・クラブ・自習など)でよく使うもの。ワンタップで入れられる(自由入力も可)。
+// 「授業なし」は廃止: 空けたい校時は「削除(空きに戻す)」で十分(自動展開は空の週だけが対象なので、
+// 一度埋まった週で1コマ消しても入れ直されない)。予定=会議等の実体があるものだけに絞る。
+const MEMO_PRESETS = ['会議', '委員会', 'クラブ', '面談', '出張', '研修', '自習'];
 
 export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
   const s = store.settings;
