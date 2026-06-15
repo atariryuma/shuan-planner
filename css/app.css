@@ -1314,7 +1314,12 @@ td.cell:focus-visible, .day-th:focus-visible {
   body { background: #fff; }
 }
 
-/* 授業マネジメント(時数集計) — 計画に対する進度・遅れ/先行・完了見込み・単元の進み */
+/* 進度と時数の見通し(時数集計) — 計画に対する進度・遅れ/先行・完了見込み・単元の進み */
+.mng-legend { margin: 0 0 12px; font-size: 12px; line-height: 1.6; }
+/* 番号だらけの表は「報告用」として畳む(普段は上の見通しで足りる) */
+.stats-numbers { margin: 6px 0 16px; }
+.stats-numbers > summary.fold-label { padding: 8px 0; }
+.stats-numbers-body { margin-top: 10px; }
 .mng-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
 .mng-card { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; overflow: hidden; }
 .mng-card.behind { border-color: #fcd9a8; }

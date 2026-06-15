@@ -1175,7 +1175,7 @@ export function computeOrdinals(state, refWeekStart) {
         const cell = week.cells[cellKey(d, p.id)];
         if (!cell) continue;
         for (const e of cell.entries) {
-          if (!e.subjectKey || e.cancelled) continue;
+          if (!e.subjectKey || e.cancelled || e.noCount) continue; // 中止・時数外は進度を進めない(指導計画は時数で測るため)
           if (e.pin || e.offplan) continue; // 別単元(差し込み)・計画外は自動カウンタを動かさない=他コマの順番は不変
           const isModule = p.type === 'module';
           const advances = e.advance === null || e.advance === undefined ? !isModule : !!e.advance;
@@ -1427,7 +1427,7 @@ export function computeProgressForecast(state, refWeekStart) {
         const cell = week.cells[cellKey(d, p.id)];
         if (!cell) continue;
         for (const e of cell.entries) {
-          if (!e.subjectKey || e.cancelled || e.pin || e.offplan) continue;
+          if (!e.subjectKey || e.cancelled || e.noCount || e.pin || e.offplan) continue; // 時数外も進度に数えない(時数と一致)
           const advances = e.advance == null ? p.type !== 'module' : !!e.advance;
           if (!advances) continue;
           const o = ordinals.get(e.id);

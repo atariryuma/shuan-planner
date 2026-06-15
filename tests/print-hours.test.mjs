@@ -837,3 +837,17 @@ test('自動バックアップ: 上限世代数を超えたら古いものから
   }
   assert.ok(store.listBackups().length <= 8, '世代数は上限(8)以内に保たれる');
 });
+
+test('時数外(noCount)は進度(ordinal)を進めない＝時数と一致', () => {
+  const state = defaultState();
+  state.settings.grade = 5;
+  addEntry(state, 0, 'p1', 'science', null);                  // 通常 → ordinal 0
+  addEntry(state, 1, 'p1', 'science', null, { noCount: true });// 時数外 → ordinal無し
+  addEntry(state, 2, 'p1', 'science', null);                  // 通常 → ordinal 1(時数外を飛ばす)
+  store.state = state;
+  const ord = computeOrdinals(state, WEEK);
+  const cell = (d) => state.weeks[WEEK].cells[cellKey(d, 'p1')].entries[0];
+  assert.equal(ord.get(cell(0).id), 0);
+  assert.equal(ord.get(cell(1).id), undefined, '時数外はordinalを持たない(進度を進めない)');
+  assert.equal(ord.get(cell(2).id), 1, '時数外を飛ばして次の通常が1');
+});

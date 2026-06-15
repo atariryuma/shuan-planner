@@ -31,6 +31,27 @@ export function renderStatsView(root, ctx) {
   const viewpoints = renderViewpointSummary(state, scopes, weekStart);
   const attendance = renderAttendance(state, weekStart);
 
+  // 番号だらけの表は「教育委員会への報告用」として畳む(普段は上の見通しでパッと分かる)。
+  const legend = sections ? `<div class="hours-legend" aria-hidden="true">
+        <span><i class="hl-done"></i>実施</span>
+        <span><i class="hl-plan"></i>予定</span>
+        <span><i class="hl-std"></i>標準</span>
+        <span class="hl-note">バーが標準ラインに届けば達成</span>
+      </div>` : '';
+  const tables = `${classSummary}${sections}`;
+  const emptyState = `<div class="empty-state">
+        <div class="empty-ic">${icon('chart')}</div>
+        <p class="empty-title">まだ集計するコマがありません</p>
+        <p class="empty-sub">週案タブでコマを入れると、ここに進度と標準時数の見通しが表示されます。</p>
+      </div>`;
+  // 見通し(management)があれば、表はその下に「詳しい数値」として畳む。無ければ表を主役に出す。
+  const numbersBlock = (classSummary || sections)
+    ? (management
+        ? `<details class="stats-numbers"><summary class="fold-label">詳しい数値（月別・標準時数・教育委員会への報告用）</summary>
+            <div class="stats-numbers-body">${legend}${tables}</div></details>`
+        : `${legend}${tables}`)
+    : (management ? '' : emptyState);
+
   root.innerHTML = `
     <div class="panel">
       <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
@@ -42,21 +63,10 @@ export function renderStatsView(root, ctx) {
         <button class="btn small" id="stats-csv">CSV保存</button>
         <button class="btn small" id="stats-print">印刷</button>
       </div>
-      ${sections ? `<div class="hours-legend" aria-hidden="true">
-        <span><i class="hl-done"></i>実施</span>
-        <span><i class="hl-plan"></i>予定</span>
-        <span><i class="hl-std"></i>標準</span>
-        <span class="hl-note">バーが標準ラインに届けば達成</span>
-      </div>` : ''}
-      ${classSummary}
       ${management}
+      ${numbersBlock}
       ${viewpoints}
       ${attendance}
-      ${sections || `<div class="empty-state">
-        <div class="empty-ic">${icon('chart')}</div>
-        <p class="empty-title">まだ集計するコマがありません</p>
-        <p class="empty-sub">週案タブでコマを入れると、ここに実施時数と標準時数への進捗が表示されます。</p>
-      </div>`}
     </div>
   `;
 
@@ -346,7 +356,8 @@ function renderManagement(state, weekStart) {
       </details>`;
   };
   return `
-    <h3 style="margin-top:0;">授業マネジメント${infoHTML('計画に対する進み(実施/残り)、計画通り/遅れ/先行、年度末に終わるかの見込み、単元ごとの進みを表示します。遅れは週案で切り上げ・補充して巻き返せます。追加入力は不要です')}</h3>
+    <h3 style="margin-top:0;">進度と時数の見通し${infoHTML('大事なのは2つ: ①指導計画が予定どおり進んでいるか(計画通り/遅れ/先行)、②標準時数を年度内に確保できそうか(見込み)。学級・教科ごとに表示します。遅れは週案で切り上げ・補充して巻き返せます。追加入力は不要です')}</h3>
+    <p class="mng-legend hint">バー＝計画の進み／チップ＝<b>進度</b>(計画通り・遅れ・先行)／右の印＝年度内に標準時数が<b>そろう見込み</b>(◎=間に合う／△=不足のおそれ)</p>
     <div class="mng-list">${items.map(card).join('')}</div>`;
 }
 
