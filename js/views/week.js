@@ -188,8 +188,9 @@ export function renderWeekView(root, ctx) {
     <div class="onboard-card" id="onboard-card">
       <button class="oc-close" id="oc-close" aria-label="閉じる">×</button>
       <div class="oc-step ${step1done ? 'done' : ''}"><span class="oc-num">${step1done ? '✓' : '1'}</span>コマをクリックして教科を選ぶ</div>
-      <div class="oc-step"><span class="oc-num">2</span>1週間できたら <button class="btn small" id="oc-base">基本時間割に登録</button></div>
-      <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-print">印刷</button> して提出</div>
+      <div class="oc-step"><span class="oc-num">2</span>1週間できたら <button class="btn small" id="oc-base">基本時間割に登録</button>（次の週から自動で並びます）</div>
+      <div class="oc-step"><span class="oc-num">3</span><button class="btn small" id="oc-plans">年間計画</button> を入れると本時（ねらい等）が自動表示</div>
+      <div class="oc-step"><span class="oc-num">4</span><button class="btn small" id="oc-print">印刷</button> して提出</div>
     </div>` : '';
 
   // 週案の「活用ループ」: 先週のめあて・反省を今週の冒頭に出し、提出物で終わらせない。
@@ -362,6 +363,9 @@ function renderEntriesHTML(state, entries, ordinals) {
     const pinned = e.pin ? `<span class="e-flag" style="color:#7c3aed;" title="この時間にやる本時を選んで指定(進度は進めない・同じ本時の再実施も可)">本時指定</span>` : '';
     const offplan = e.offplan ? `<span class="e-flag" style="color:#0369a1;" title="計画外(復習・テスト・予備など。進度は進みません)">計画外</span>` : '';
     const lockFlag = e.locked ? `<span class="e-flag e-lock" title="ロック中: 計画に合わせて更新しても守られます">${icon('lock')}</span>` : '';
+    // この学年の年間計画が無い授業コマ(本時が空のまま)に気づけるよう控えめに示す
+    const noPlan = e.subjectKey && !details && !e.cancelled && !e.pin && !e.offplan
+      ? `<span class="e-flag warn" title="この学年の年間指導計画が未登録です。本時を手入力するか、年間計画で取り込んでください">計画なし</span>` : '';
     // 単元の進度を●●○のドット(または長単元はミニバー)で一目に
     const progress = !e.cancelled ? unitProgressHTML(details?.nth, details?.unitHours) : '';
     return `
@@ -369,7 +373,7 @@ function renderEntriesHTML(state, entries, ordinals) {
         <div class="e-head">
           ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
-          ${guide}${frac}${unsetClass}${changed}${pinned}${offplan}${lockFlag}
+          ${guide}${frac}${unsetClass}${changed}${pinned}${offplan}${lockFlag}${noPlan}
           ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           ${!e.cancelled && e.endUnit ? `<span class="e-flag" style="color:#15803d;" title="この時間で単元を終え、次のコマから次の単元へ">単元終</span>` : ''}
           ${progress}
@@ -1230,6 +1234,7 @@ function wireOnboardCard(root, ctx, monday) {
     card.remove();
   };
   root.querySelector('#oc-base').onclick = () => saveWeekAsBase(fmtDate(monday), ctx);
+  root.querySelector('#oc-plans')?.addEventListener('click', () => document.querySelector('.tab[data-tab="plans"]')?.click());
   root.querySelector('#oc-print').onclick = async () => {
     const { printWeek } = await import('../print.js');
     printWeek(fmtDate(monday));
@@ -1372,9 +1377,9 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
 
   const lessonEntries = entries.filter(e => e.subjectKey && !isActivity(e));
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
-  // 空きコマ: 基本時間割にそのスロットがあれば「基本時間割から入れる（教科 学級）」(削除の逆=復元)
-  if (!hasEntries && store.hasBaseTimetable) {
-    const blabel = store.baseCellLabel(dayIdx, periodId);
+  // 基本時間割から復元(削除の逆): 空きはまるごと、設定済みは不足学級だけ。追加対象があるときだけ出す。
+  if (store.hasBaseTimetable && !onlyActivity) {
+    const blabel = store.baseRestoreLabel(weekStart, dayIdx, periodId);
     if (blabel) acts.push({ ic: 'calendar', label: `基本時間割から入れる（${blabel}）`, run: () => restoreCellFromBaseQuick(weekStart, dayIdx, periodId, ctx) });
   }
   if (hasEntries) acts.push({ ic: 'clipboard', label: 'コピー', run: () => { ctx.cellClipboard = entries.map(e => ({ ...e })); toast('コマをコピーしました', 'info', 1800); } });
@@ -2314,7 +2319,8 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         ${lessonMode === 'pin' ? pinSelects : ''}
       </div>` : '';
     // 単元途中で切り上げる(計画どおりモードかつ単元途中のときだけ、単元見出しの近くに出す)
-    const endUnitInline = (lessonMode === 'plan' && details && details.unitHours > 1 && details.nth < details.unitHours)
+    // モジュール校時は既定で進度を進めないため単元切上げが効かない→チェックを出さない(無言で無視されるのを防ぐ)
+    const endUnitInline = (lessonMode === 'plan' && details && details.unitHours > 1 && details.nth < details.unitHours && period.type !== 'module')
       ? `<label class="eu-inline"><input type="checkbox" name="endUnit" ${entry.endUnit ? 'checked' : ''}>この時間で単元を切り上げる（残り${details.unitHours - details.nth}コマを飛ばす）</label>` : '';
     const modeHeader = lessonMode === 'offplan'
       ? `<div class="ov-head"><span class="ov-kicker">計画外</span><span class="ov-sub">復習・テスト・予備など（進度は進みません）</span></div>`

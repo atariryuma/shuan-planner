@@ -105,8 +105,10 @@ function renderPlanList(root, ctx) {
     el.querySelector('[data-edit]').onclick = () => { editState = { planId: plan.id, unitIdx: 0 }; ctx.rerender(); };
     el.querySelector('[data-del]').onclick = async () => {
       const subjName = store.settings.subjects.find(x => x.key === plan.subjectKey)?.name || plan.subjectKey;
+      const affected = store.countPlanCells(plan.subjectKey, plan.grade ?? null);
       const ok = await confirmDialog(
-        `${subjName}${plan.grade ? `(${plan.grade}年)` : ''} の計画(${plan.units.length}単元)を削除しますか?\n週案の自動反映が消えます。`,
+        `${subjName}${plan.grade ? `(${plan.grade}年)` : ''} の計画(${plan.units.length}単元)を削除しますか?` +
+        (affected ? `\n週案の ${affected}コマ の本時表示が空になります（進度も出なくなります）。元に戻すで復旧できます。` : ''),
         { okLabel: '削除', danger: true });
       if (!ok) return;
       store.snapshot('計画の削除');
@@ -163,7 +165,7 @@ function renderPlanEditor(root, ctx) {
         <summary class="fold-label">計画の基本情報(教科・学年・教科書・既習)</summary>
         <div class="plan-form-grid" style="margin-top:10px;">
           <div class="field"><label>教科</label>${selectHTML('subjectKey', s.subjects.map(x => ({ value: x.key, label: x.name })), plan.subjectKey)}</div>
-          <div class="field"><label>学年</label>${selectHTML('grade', gradeOpts, plan.grade ?? '')}</div>
+          <div class="field"><label>学年</label>${selectHTML('grade', gradeOpts, plan.grade ?? '', { allowEmpty: '全学年共通' })}</div>
           <div class="field"><label>教科書・出典(任意)</label><input type="text" name="textbook" value="${esc(plan.textbook || '')}" placeholder="例: 大日本図書"></div>
           <div class="field"><label>既習コマ数${infoHTML('年度途中から使い始める場合、すでに授業済みのコマ数。進度の数え始めがその分ずれます')}</label>
             <input type="number" name="startOffset" value="${esc(plan.startOffset || 0)}" min="0"></div>
@@ -281,6 +283,7 @@ function wirePlanEditor(root, ctx, plan) {
       if (!ok) return;
       store.snapshot('単元の削除');
       plan.units.splice(i, 1);
+      store.pruneDanglingPins(); // この単元を「本時を選ぶ(pin)」で差していたコマを自然進度へ戻す
       if (editState.unitIdx >= plan.units.length) editState.unitIdx = plan.units.length - 1;
       save();
       toast('単元を削除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); reRender(); } });
@@ -407,6 +410,12 @@ function openImportDialog(ctx) {
 
 /** 列の対応づけ(マッピング)を確認・修正して取り込む。教科書会社ごとの列構成差に対応 */
 function openMappingDialog(ctx, rows, det) {
+  const s = store.settings;
+  // 取込先の教科・学年(専科の複数学年・複式・担任の複数教科で「どこに入れるか」を選ばせる。学年厳格一致のため必須)
+  const subjOpts = s.subjects.map(x => `<option value="${esc(x.key)}" ${x.key === ((s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : s.subjects[0]?.key) ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  const grades = s.mode === 'senka' ? [...new Set((s.senkaClasses || []).map(c => c.grade).filter(Boolean))].sort((a, b) => a - b)
+    : s.mode === 'fukushiki' ? [...(s.fukushikiGrades || [])] : [s.grade];
+  const gradeOpts = `<option value="">全学年共通</option>` + grades.map(g => `<option value="${g}" ${g === defaultGrade(s) ? 'selected' : ''}>${g}年</option>`).join('');
   const fields = [
     { key: 'unit', label: '単元名', required: true },
     { key: 'hours', label: '時数', hint: '空の場合は1行=1時間として数えます' },
@@ -429,6 +438,8 @@ function openMappingDialog(ctx, rows, det) {
     <h2>列の対応を確認</h2>
     <p class="hint">貼り付けた表の各列を、アプリの項目に対応づけます(自動で推定済み。違っていれば直してください)。</p>
     <div class="map-grid">
+      <div class="field"><label>取込先の教科</label><select id="imp-subj">${subjOpts}</select></div>
+      <div class="field"><label>取込先の学年${infoHTML('この計画を使う学年。専科で5年・6年を持つなら学年ごとに取り込みます。「全学年共通」はどの学年のコマにも反映します')}</label><select id="imp-grade">${gradeOpts}</select></div>
       ${fields.map(f => `
         <div class="field"><label>${f.label}${f.required ? ' <span style="color:var(--danger)">*</span>' : ''}${f.hint ? infoHTML(f.hint) : ''}</label>
           <select data-map="${f.key}">${colOptions(det.cols[f.key])}</select></div>`).join('')}
@@ -464,17 +475,18 @@ function openMappingDialog(ctx, rows, det) {
     modal.querySelector('[data-import]').onclick = () => {
       const units = preview();
       if (!units) return;
-      close();
-      const s = store.settings;
+      const gv = modal.querySelector('#imp-grade').value;
       const plan = {
         id: uid(),
-        subjectKey: (s.mode === 'senka' && s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || ''),
-        grade: defaultGrade(s), textbook: '', startOffset: 0,
+        subjectKey: modal.querySelector('#imp-subj').value || (s.subjects[0]?.key || ''),
+        grade: gv ? Number(gv) : null, textbook: '', startOffset: 0, // 空=全学年共通(null)
         units: units.map(normUnit),
       };
+      close();
       store.addPlan(plan);
       editState = { planId: plan.id, unitIdx: 0 };
-      toast(`${units.length}単元を取り込みました`);
+      const gl = plan.grade ? `${plan.grade}年の` : '';
+      toast(`${gl}${units.length}単元を取り込みました`);
       ctx.rerender();
     };
   });

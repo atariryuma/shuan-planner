@@ -124,8 +124,12 @@ export function needsOnboarding() {
  */
 export function maybeYearRollover(ctx, oldFY, newFY) {
   const flagKey = `shuan-rollover-${newFY}`;
-  if (localStorage.getItem(flagKey)) return;
   const s = store.settings;
+  // 実施印は端末ローカル(flagKey)＋同期データ(settings.rolloverDoneFY)の両方を見る。
+  // 端末Aで繰上げ済みなら、同期で受け取った端末Bでウィザードが再提示されないようにする。
+  if (localStorage.getItem(flagKey) || s.rolloverDoneFY === newFY) return;
+  // 繰上げ完了を記録(localStorage＋同期。settingsを変えるとsettingsUpdatedAtが進み他端末へ伝播)
+  const markDone = () => { try { localStorage.setItem(flagKey, '1'); } catch {} s.rolloverDoneFY = newFY; store.commit(); };
   const gradeMax = s.schoolType === 'junior' ? 3 : 6;
   const gradeOptions = (selected) =>
     Array.from({ length: gradeMax }, (_, i) => `<option value="${i + 1}" ${i + 1 === selected ? 'selected' : ''}>${i + 1}年</option>`).join('');
@@ -181,13 +185,13 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
   `, (modal, close) => {
     modal.querySelector('[data-skip]').onclick = () => {
       handled = true;
-      localStorage.setItem(flagKey, '1');
+      markDone();
       close();
     };
     const senkaSet = modal.querySelector('#ro-senka-set');
     if (senkaSet) senkaSet.onclick = () => {
       handled = true;
-      localStorage.setItem(flagKey, '1');
+      markDone();
       close();
       document.querySelector('.tab[data-tab="settings"]')?.click();
     };
@@ -213,15 +217,14 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
         const bump = (d) => d && /^\d{4}-/.test(d) ? `${Number(d.slice(0, 4)) + 1}${d.slice(4)}` : d;
         for (const b of s.breaks || []) { b.from = bump(b.from); b.to = bump(b.to); }
       }
-      localStorage.setItem(flagKey, '1');
-      store.commit();
+      markDone();
       close();
       toast(`${newFY}年度の設定にしました`);
       ctx.rerender();
     };
   }, () => {
     // Esc・背景クリック・他処理によるクローズでも案内を残す(永久に消えないように)
-    localStorage.setItem(flagKey, '1');
+    markDone();
     if (!handled) {
       toast('あとで変更できます', 'info', 5000,
         { label: '設定を開く', onClick: () => document.querySelector('.tab[data-tab="settings"]')?.click() });

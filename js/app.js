@@ -314,6 +314,11 @@ function downloadStateJSON() {
 document.addEventListener('shuan-save-error', () => {
   toast('保存できません', 'error', 8000, { label: '書き出し', onClick: downloadStateJSON });
 });
+// 前回の保存失敗で退避していた未保存分を復元したとき、念のため知らせて再保存を試みる
+if (store.recoveredUnsaved) {
+  store.persist();
+  toast('前回保存できなかった編集を復元しました', 'info', 6000);
+}
 
 // 起動時にデータが壊れていた場合: 退避データの保存手段を出してから続行してもらう
 if (store.loadError) {
@@ -382,6 +387,16 @@ let autoPushTimer = null;
 let autoPushing = false;
 let syncing = false;            // pull適用中のnotifyでautoPushを予約しない
 let lastSyncedUpdatedAt = null; // 直近にサーバーと一致した時点のupdatedAt(冗長push防止)
+let syncConflict = false;       // 未解決のconflict(別端末に新データ)。解決まで自動pushを止め、常時可視化する
+
+// conflictを常時可視化(6秒で消えるトーストでなく、解決するまで出し続ける)。同期が無言で止まるのを防ぐ。
+function notifyConflict() {
+  if (syncConflict) return;     // 多重表示・15秒ごとの再送ループを止める
+  syncConflict = true;
+  toast('他の端末に新しいデータがあります。同期を止めています。「データ」画面で取り込めます（こちらの未送信の編集は保持されます）。',
+    'error', 600000, { label: 'データを開く', onClick: gotoDataTab });
+}
+function clearConflict() { syncConflict = false; }
 
 async function autoPull() {
   const g = store.settings.gas;
@@ -393,7 +408,7 @@ async function autoPull() {
     if (!res.exists || (res.updatedAt || 0) <= baseAt) return;
     // pull中にユーザーが編集を始めていたら適用しない(入力消失・サイレント上書き防止)
     if ((store.state.updatedAt || 0) !== baseAt) {
-      toast('他の端末に新しいデータがあります', 'error', 6000, { label: 'データを開く', onClick: gotoDataTab });
+      notifyConflict();
       return;
     }
     syncing = true;
@@ -404,6 +419,7 @@ async function autoPull() {
       store.settings.fiscalYear = nowFY; // サーバー側が旧年度表示でもローカルで補正
       store.settings.gas.lastSync = Date.now();
       lastSyncedUpdatedAt = res.updatedAt;
+      clearConflict();
       store.persist();
       rerender();
       toast('他の端末の変更を取得しました');
@@ -430,7 +446,10 @@ function beaconPush() {
     const data = JSON.parse(JSON.stringify(store.state));
     if (data.settings?.gas) data.settings.gas.token = ''; // トークンは保存データに含めない
     const body = JSON.stringify({ token, action: 'push', key: 'default', data, updatedAt: store.state.updatedAt });
-    navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=utf-8' }));
+    // sendBeaconは容量超過(~64KB)等で false を返す。失敗時は lastSyncedUpdatedAt を進めず、
+    // 次回起動・オンライン復帰時の autoPush で確実に再送されるようにする(離脱時の取りこぼし防止)。
+    const ok = navigator.sendBeacon(url, new Blob([body], { type: 'text/plain;charset=utf-8' }));
+    if (!ok) lastSyncedUpdatedAt = null;
   } catch { /* 離脱時のベストエフォート。失敗は無視 */ }
 }
 
@@ -443,17 +462,19 @@ async function autoPush() {
     autoPushTimer = setTimeout(autoPush, 15000);
     return;
   }
+  if (syncConflict) return; // 未解決のconflict中は再送しない(同じconflictの繰り返しを止める)
   // 直近の同期以降に変更がなければ送らない(pull直後・手動送信直後の冗長push防止)
   if (lastSyncedUpdatedAt !== null && (store.state.updatedAt || 0) <= lastSyncedUpdatedAt) return;
   autoPushing = true;
   try {
     const res = await ctx.gas.push(store.state);
     if (res.conflict) {
-      toast('他の端末に新しいデータがあります', 'error', 6000, { label: 'データを開く', onClick: gotoDataTab });
+      notifyConflict();
     } else {
       if (res.updatedAt) store.state.updatedAt = res.updatedAt;
       store.settings.gas.lastSync = Date.now();
       lastSyncedUpdatedAt = res.updatedAt || store.state.updatedAt;
+      clearConflict();
       store.persist();
     }
   } catch (e) {
@@ -470,8 +491,11 @@ store.subscribe(() => {
   autoPushTimer = setTimeout(autoPush, 15000); // 編集が落ち着いてから送信
 });
 window.addEventListener('online', () => {
-  if (store.settings.gas.auto && ctx.gas.configured) autoPush();
+  clearConflict(); // 再接続時はconflict解決を試みる(まず最新を取り込み、その後送信)
+  if (store.settings.gas.auto && ctx.gas.configured) { autoPull().then(autoPush); }
 });
+// データ画面で手動push/pullしてconflictを解決したら、自動同期を再開する
+document.addEventListener('shuan-synced', () => { clearConflict(); lastSyncedUpdatedAt = store.state.updatedAt || 0; });
 
 // 学期末の週に一度だけ「学期分まとめて印刷」を知らせる(提出時期の機能発見を助ける)
 function maybeTermPrintHint() {

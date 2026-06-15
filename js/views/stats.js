@@ -138,39 +138,38 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
     if (subj.parent && keys.has(subj.parent)) (childrenOf[subj.parent] = childrenOf[subj.parent] || []).push(subj.key);
   }
 
-  let sumDone = 0, sumTotal = 0, sumStd = 0;
+  let sumDone = 0, sumYear = 0, sumStd = 0;
   const rows = [];
   for (const sc of scopes) {
     const scopeVal = sc.scope === '' ? null : sc.scope;
-    let done = 0, total = 0, std = 0;
+    let done = 0, yearTotal = 0, std = 0;       // 予定計=年間の入力済み(実施済≦予定計を保証・過去週でも矛盾しない)
     for (const subj of s.subjects) {
       if (subj.parent && keys.has(subj.parent)) continue;
       let t = 0, d = 0;
       for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
         const v = hours.get(scopeKey(k, scopeVal));
-        if (v) t += v.total;
+        if (v) t += (v.yearTotal || 0);
         d += hoursDone.get(scopeKey(k, scopeVal))?.done || 0;
       }
       if (t > 0 || d > 0) {
-        total += t; done += d;
+        yearTotal += t; done += d;
         const sd = standardHoursFor(s, subj.key, sc.grade);
         if (sd != null) std += sd;
       }
     }
-    if (total === 0 && done === 0) continue; // 未入力の学級は出さない
-    sumDone += done; sumTotal += total; sumStd += std;
-    const pct = std ? Math.min(100, Math.round((done / std) * 100)) : 0;
-    const remain = std ? std - total : null;
+    if (yearTotal === 0 && done === 0) continue; // 未入力の学級は出さない
+    sumDone += done; sumYear += yearTotal; sumStd += std;
+    const remain = std ? std - yearTotal : null;
     const totalStd = standardTotalHoursFor(s, sc.grade); // 施行規則 別表の年間総授業時数(法定の総枠)
     rows.push(`
       <tr>
         <td class="subj">${esc(sc.label || '—')}</td>
         <td>${fmtHours(done)}</td>
-        <td>${fmtHours(total)}</td>
+        <td>${fmtHours(yearTotal)}</td>
         <td>${std || '—'}</td>
         <td>${totalStd || '—'}</td>
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
-        <td style="text-align:left;">${hoursBar(done, total, std)}</td>
+        <td style="text-align:left;">${hoursBar(done, yearTotal, std)}</td>
       </tr>`);
   }
   if (rows.length < 2) return ''; // 1学級分しか無ければ通常テーブルで十分
@@ -192,8 +191,8 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
         <tbody>
           ${rows.join('')}
           <tr style="background:#f8fafc;">
-            <td class="subj">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumTotal)}</td>
-            <td>${sumStd || '—'}</td><td></td><td>${sumStd ? fmtHours(sumStd - sumTotal) : '—'}</td><td></td>
+            <td class="subj">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumYear)}</td>
+            <td>${sumStd || '—'}</td><td></td><td>${sumStd ? fmtHours(sumStd - sumYear) : '—'}</td><td></td>
           </tr>
         </tbody>
       </table>
@@ -341,7 +340,7 @@ function progressByScope(state, refWeekStart) {
 function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStart, detail) {
   const s = state.settings;
   const scopeVal = sc.scope === '' ? null : sc.scope;
-  const get = (subjKey) => hours.get(scopeKey(subjKey, scopeVal)) || { week: 0, total: 0 };
+  const get = (subjKey) => hours.get(scopeKey(subjKey, scopeVal)) || { week: 0, total: 0, yearTotal: 0 };
   const getDone = (subjKey) => hoursDone.get(scopeKey(subjKey, scopeVal))?.done || 0;
 
   const keys = new Set(s.subjects.map(x => x.key));
@@ -359,50 +358,51 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
   for (const subj of s.subjects) {
     if (subj.parent && keys.has(subj.parent)) continue;
     const own = get(subj.key);
-    let week = own.week, total = own.total;
+    let week = own.week, total = own.total, yearTotal = own.yearTotal || 0;
     const mergedFrom = [];
     for (const ck of childrenOf[subj.key] || []) {
       const c = get(ck);
-      if (c.total > 0 || c.week > 0) mergedFrom.push(s.subjects.find(x => x.key === ck)?.name || ck);
-      week += c.week; total += c.total;
+      if ((c.yearTotal || 0) > 0 || c.week > 0) mergedFrom.push(s.subjects.find(x => x.key === ck)?.name || ck);
+      week += c.week; total += c.total; yearTotal += c.yearTotal || 0;
     }
     let done = getDone(subj.key);
     for (const ck of childrenOf[subj.key] || []) done += getDone(ck);
     const std = standardHoursFor(s, subj.key, sc.grade);
-    if (total === 0 && week === 0 && done === 0 && std == null) continue;
+    if (yearTotal === 0 && week === 0 && done === 0 && std == null) continue;
     any = true;
-    const remain = std != null ? std - total : null;
+    // 残り・必要ペース・進捗率・見込みは「年間の着地」指標なので、表示週までの累計(total)でなく年間入力済み(yearTotal)を母数にする
+    const remain = std != null ? std - yearTotal : null;
     const pace = remain != null && remain > 0 && weeksLeft > 0 ? remain / weeksLeft : null;
     // 分母は経過「授業」週数(暦週数で割ると夏休み以降の着地を恒常的に過小評価する)
-    const projected = total > 0 ? (total / weeksElapsed) * (s.hoursBase || 35) : null;
-    const pct = std ? Math.min(100, Math.round((total / std) * 100)) : 0;
-    const over = std != null && total > std;
+    const projected = yearTotal > 0 ? (yearTotal / weeksElapsed) * (s.hoursBase || 35) : null;
+    const pct = std ? Math.min(100, Math.round((yearTotal / std) * 100)) : 0;
+    const over = std != null && yearTotal > std;
     const row = `
       <tr class="${over ? 'over' : ''}">
         <td class="subj"><span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>
           ${esc(subj.name)}${mergedFrom.length ? `<span class="hint">(+${mergedFrom.map(esc).join('・')})</span>` : ''}</td>
         <td>${fmtHours(week)}</td>
         <td>${fmtHours(done)}</td>
-        ${detail ? `<td><b>${fmtHours(total)}</b></td>` : ''}
+        ${detail ? `<td><b>${fmtHours(yearTotal)}</b></td>` : ''}
         <td><input data-std="${esc(subj.key)}@${sc.grade}" value="${std ?? ''}" placeholder="—"
               aria-label="${esc(subj.name)}の標準時数"
               style="width:56px; border:none; background:transparent; text-align:right; font-family:inherit;"></td>
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
         ${detail ? `<td>${pace != null ? fmtHours(pace) + ' /週' : '—'}</td>
         <td>${projected != null ? Math.round(projected) : '—'}</td>` : ''}
-        <td style="text-align:left;">${hoursBar(done, total, std)}</td>
+        <td style="text-align:left;">${hoursBar(done, yearTotal, std)}</td>
       </tr>`;
     // 専科・複式では「時数0で標準だけある行」を畳む(自分の教科1行を探させない)
-    if (s.mode !== 'homeroom' && total === 0 && week === 0 && done === 0) zeroRows.push(row);
+    if (s.mode !== 'homeroom' && yearTotal === 0 && week === 0 && done === 0) zeroRows.push(row);
     else activeRows.push(row);
   }
   if (!any) return '';
   if (!activeRows.length && s.mode !== 'homeroom') return ''; // この学級は未入力
 
-  let sumWeek = 0, sumTotal = 0, sumDone = 0;
+  let sumWeek = 0, sumYear = 0, sumDone = 0;
   for (const subj of s.subjects) {
     const v = get(subj.key);
-    sumWeek += v.week; sumTotal += v.total; sumDone += getDone(subj.key);
+    sumWeek += v.week; sumYear += (v.yearTotal || 0); sumDone += getDone(subj.key);
   }
 
   // 月別・学期別テーブル
@@ -468,7 +468,7 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
         ${activeRows.join('')}
         <tr style="background:#f8fafc;">
           <td class="subj">合計</td><td>${fmtHours(sumWeek)}</td><td>${fmtHours(sumDone)}</td>
-          ${detail ? `<td><b>${fmtHours(sumTotal)}</b></td><td colspan="5"></td>` : '<td colspan="3"></td>'}
+          ${detail ? `<td><b>${fmtHours(sumYear)}</b></td><td colspan="5"></td>` : '<td colspan="3"></td>'}
         </tr>
       </tbody>
     </table>

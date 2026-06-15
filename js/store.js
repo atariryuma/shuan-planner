@@ -166,6 +166,15 @@ class Store {
   load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
+      // 前回の保存失敗で sessionStorage に退避した未保存分が、localStorageより新しければ復元する
+      try {
+        const unsaved = sessionStorage.getItem(STORAGE_KEY + '-unsaved');
+        if (unsaved) {
+          const u = JSON.parse(unsaved);
+          const cur = raw ? JSON.parse(raw) : null;
+          if (!cur || (u.updatedAt || 0) >= (cur.updatedAt || 0)) { this.recoveredUnsaved = true; return migrate(u); }
+        }
+      } catch {}
       if (!raw) return defaultState();
       const data = JSON.parse(raw);
       return migrate(data);
@@ -205,8 +214,12 @@ class Store {
   persist() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      try { sessionStorage.removeItem(STORAGE_KEY + '-unsaved'); } catch {} // 保存成功したら退避は不要
     } catch (e) {
       console.error('保存に失敗しました', e);
+      // localStorageが書けない(容量逼迫・ITP等)とき、未保存分を sessionStorage へ自動退避する
+      // (同タブ存続中は別クォータで残りやすい。次回起動時に app.js が検知して復元を提案)。
+      try { sessionStorage.setItem(STORAGE_KEY + '-unsaved', JSON.stringify(this.state)); } catch {}
       // UI層(app.js)がアクション付きトーストで案内する(ネイティブalertは使わない)
       document.dispatchEvent(new CustomEvent('shuan-save-error'));
     }
@@ -442,17 +455,48 @@ class Store {
     return cell.entries.map(label).filter(Boolean).join('・') || null;
   }
 
-  /** 基本時間割からそのスロットを週へ置く(空きのみ=非破壊)。置いたら1。内部用(commitしない)。 */
+  /** 基本時間割からそのスロットを週へ復元する(非破壊)。空きはまるごと、設定済みは「不足している学級(scope)」だけ追加。
+   * 予定(会議等)の入ったコマには授業を入れない。戻り値=実際に追加した授業数。内部用(commitしない)。 */
   _placeBaseCell(w, base, dayIdx, periodId) {
     const key = cellKey(dayIdx, periodId);
     const baseCell = base?.cells?.[key];
     if (!baseCell || !baseCell.entries?.length) return 0;
-    if (cellIsClaimed(w.cells[key])) return 0;            // 既に授業・予定があれば触らない(非破壊)
-    w.cells[key] = cloneCells({ [key]: baseCell }, false)[key];
-    return 1;
+    const wcell = w.cells[key];
+    if (cellHasActivity(wcell)) return 0;                  // 予定コマには授業を入れない
+    const cloned = cloneCells({ [key]: baseCell }, false)[key];
+    if (!wcell || !wcell.entries?.length) {                // 空き → まるごと復元
+      w.cells[key] = cloned;
+      return cloned.entries.length;
+    }
+    let added = 0;                                         // 設定済み → 不足している学級(scope)の授業だけ追加(既存は非破壊)
+    for (const be of cloned.entries) {
+      if (isActivity(be)) continue;
+      if (!wcell.entries.some(e => (e.scope ?? null) === (be.scope ?? null))) { wcell.entries.push(be); added++; }
+    }
+    return added;
   }
 
-  /** 基本時間割からこのコマ(空きのみ)を復元する。復元したら true。 */
+  /** 復元すると追加される授業の見出し(「理科 5年1組」等)。何も追加されないなら null。右クリック導線の出し分け用。 */
+  baseRestoreLabel(weekStart, dayIdx, periodId, id = null) {
+    const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
+    const baseCell = base?.cells?.[cellKey(dayIdx, periodId)];
+    if (!baseCell || !baseCell.entries?.length) return null;
+    const wcell = this.state.weeks[weekStart]?.cells?.[cellKey(dayIdx, periodId)];
+    if (cellHasActivity(wcell)) return null;
+    const s = this.settings;
+    const label = (e) => {
+      const subj = s.subjects.find(x => x.key === e.subjectKey);
+      const subjName = subj ? (subj.short || subj.name) : (e.subjectKey || '');
+      const scope = s.mode === 'senka' ? (s.senkaClasses.find(c => c.id === e.scope)?.label || '')
+        : (s.mode === 'fukushiki' && e.scope != null ? `${e.scope}年` : '');
+      return [subjName, scope].filter(Boolean).join(' ');
+    };
+    const missing = baseCell.entries.filter(be => !isActivity(be)
+      && !(wcell?.entries || []).some(e => (e.scope ?? null) === (be.scope ?? null)));
+    return missing.length ? missing.map(label).filter(Boolean).join('・') || null : null;
+  }
+
+  /** 基本時間割からこのコマを復元する(空き=まるごと/設定済み=不足学級のみ)。復元したら true。 */
   restoreCellFromBase(weekStart, dayIdx, periodId, id = null) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     if (!base) return false;
@@ -514,7 +558,37 @@ class Store {
 
   removePlan(id) {
     this.state.plans = this.state.plans.filter(p => p.id !== id);
+    this.pruneDanglingPins(); // 参照先を失った「本時を選ぶ(pin)」を外し、自然進度の表示に戻す
     this.commit();
+  }
+
+  /** 年間計画の単元・計画削除で参照先を失った pin(本時を選ぶ)を全週から外す。戻り値=外した数。 */
+  pruneDanglingPins() {
+    let n = 0;
+    for (const w of Object.values(this.state.weeks || {})) {
+      for (const cell of Object.values(w.cells || {})) {
+        for (const e of cell.entries || []) {
+          if (!e.pin) continue;
+          const grade = scopeGrade(this.settings, e.scope);
+          const plan = this.state.plans.find(p => p.subjectKey === e.subjectKey && (p.grade == null || p.grade === grade));
+          if (!plan?.units?.some(u => String(u.id) === String(e.pin.unitId))) { e.pin = null; n++; }
+        }
+      }
+    }
+    return n;
+  }
+
+  /** 指定教科・学年の計画が反映される「設定済み授業コマ」数(計画削除の影響告知用)。 */
+  countPlanCells(subjectKey, grade) {
+    let n = 0;
+    for (const w of Object.values(this.state.weeks || {})) {
+      for (const cell of Object.values(w.cells || {})) {
+        for (const e of cell.entries || []) {
+          if (e.subjectKey === subjectKey && (grade == null || scopeGrade(this.settings, e.scope) === grade)) n++;
+        }
+      }
+    }
+    return n;
   }
 
   /** リスナー通知のみ(updatedAtを進めない) */
@@ -988,14 +1062,20 @@ function fiscalRangeOf(weekStart) {
 export function computeOrdinals(state, refWeekStart) {
   const { settings, weeks } = state;
   const range = refWeekStart ? fiscalRangeOf(refWeekStart) : null;
+  // 母集合を時数集計(computeHours)と厳密に一致: 境界週まで走査し、所属年度は実日付で判定する(振替授業日の年度跨ぎ対策)
+  const fy = refWeekStart ? fiscalYearOf(addDays(parseDate(refWeekStart), 3)) : 0;
+  const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`;
+  const scanFrom = range ? fmtDate(addDays(parseDate(range.from), -7)) : '';
   const counters = new Map();
   const ordinals = new Map();
 
   const weekKeys = Object.keys(weeks).sort();
   for (const wk of weekKeys) {
-    if (range && (wk < range.from || wk >= range.to)) continue;
+    if (range && (wk < scanFrom || wk > range.to)) continue;
     const week = weeks[wk];
+    const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {
+      if (range) { const ds = fmtDate(addDays(monday, d)); if (ds < fyStart || ds > fyEnd) continue; }
       for (const p of settings.periods) {
         if (!effectivePeriod(settings, week, d, p)) continue; // その日は無効な校時
         const cell = week.cells[cellKey(d, p.id)];
@@ -1179,14 +1259,20 @@ export function computeViewpointTally(state, refWeekStart) {
   const range = refWeekStart ? fiscalRangeOf(refWeekStart) : null;
   const ordinals = computeOrdinals(state, refWeekStart);
   const todayStr = fmtDate(new Date());
+  // 母集合を時数集計・進度と一致(境界週・実日付判定)
+  const fy = refWeekStart ? fiscalYearOf(addDays(parseDate(refWeekStart), 3)) : 0;
+  const fyStart = `${fy}-04-01`, fyEnd = `${fy + 1}-03-31`;
+  const scanFrom = range ? fmtDate(addDays(parseDate(range.from), -7)) : '';
   const tally = new Map();
   const weekKeys = Object.keys(weeks).sort();
   for (const wk of weekKeys) {
-    if (range && (wk < range.from || wk >= range.to)) continue;
+    if (range && (wk < scanFrom || wk > range.to)) continue;
     const week = weeks[wk];
     const monday = parseDate(wk);
     for (let d = 0; d < 7; d++) {
-      if (fmtDate(addDays(monday, d)) > todayStr) continue;  // 今日より後の未実施コマは数えない(時数集計と整合)
+      const ds = fmtDate(addDays(monday, d));
+      if (ds > todayStr) continue;             // 今日より後の未実施コマは数えない
+      if (range && (ds < fyStart || ds > fyEnd)) continue; // 年度外の日(境界週の前後年度)は数えない
       for (const p of settings.periods) {
         if (!effectivePeriod(settings, week, d, p)) continue;
         const cell = week.cells[cellKey(d, p.id)];
@@ -1260,7 +1346,7 @@ export function computeHours(state, currentWeekStart) {
   const weekKeys = Object.keys(weeks).sort();
   for (const wk of weekKeys) {
     if (wk < scanFrom) continue; // 前年度以前は集計しない
-    if (wk > scanTo) break;
+    if (wk > range.to) break;    // 年度末まで走査(yearTotal=年間の入力済み総数を出すため)
     const isCurrent = wk === currentWeekStart;
     const week = weeks[wk];
     const monday = parseDate(wk);
@@ -1275,9 +1361,10 @@ export function computeHours(state, currentWeekStart) {
         for (const e of cell.entries) {
           if (!e.subjectKey || e.noCount || e.cancelled) continue;
           const k = scopeKey(e.subjectKey, e.scope);
-          const cur = acc.get(k) || { week: 0, total: 0, done: 0 };
+          const cur = acc.get(k) || { week: 0, total: 0, done: 0, yearTotal: 0 };
           const c = (eff.coefficient ?? 1) * (e.fraction ?? 1);
-          cur.total += c;
+          cur.yearTotal += c;                  // 年間の入力済み総数(残り・進捗率の母数)
+          if (wk <= scanTo) cur.total += c;     // 予定計=表示週までの累計(週ナビで累計が増える表示用)
           if (dateStr <= todayStr) cur.done += c; // 実施済み = 今日以前の日付のコマ(予定/実施の分離)
           if (isCurrent) cur.week += c;
           acc.set(k, cur);

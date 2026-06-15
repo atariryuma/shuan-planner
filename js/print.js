@@ -748,28 +748,28 @@ export function buildStatsPrintDOM(weekStart) {
   // 学級横断サマリー(複数学級のときだけ。提出時に全学級の進捗を1枚で確認できる)
   let summaryTable = '';
   if (scopes.length >= 2) {
-    let sumDone = 0, sumTotal = 0, sumStd = 0;
+    let sumDone = 0, sumYear = 0, sumStd = 0;
     const srows = [];
     for (const sc of scopes) {
-      let done = 0, total = 0, std = 0;
+      let done = 0, yearTotal = 0, std = 0; // 予定計=年間の入力済み(実施済≦予定計を保証)
       for (const subj of s.subjects) {
         if (subj.parent && keys.has(subj.parent)) continue;
         let t = 0, d = 0;
         for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
           const v = hours.get(scopeKey(k, sc.scope));
-          if (v) t += v.total;
+          if (v) t += (v.yearTotal || 0);
           d += hoursDone.get(scopeKey(k, sc.scope))?.done || 0;
         }
         if (t > 0 || d > 0) {
-          total += t; done += d;
+          yearTotal += t; done += d;
           const sd = standardHoursFor(s, subj.key, sc.grade);
           if (sd != null) std += sd;
         }
       }
-      if (total === 0 && done === 0) continue;
-      sumDone += done; sumTotal += total; sumStd += std;
+      if (yearTotal === 0 && done === 0) continue;
+      sumDone += done; sumYear += yearTotal; sumStd += std;
       srows.push(`<tr><td style="text-align:left; font-weight:600;">${esc(sc.label || '—')}</td>
-        <td>${fmtHours(done)}</td><td>${fmtHours(total)}</td><td>${std || ''}</td><td>${std ? fmtHours(std - total) : ''}</td></tr>`);
+        <td>${fmtHours(done)}</td><td>${fmtHours(yearTotal)}</td><td>${std || ''}</td><td>${std ? fmtHours(std - yearTotal) : ''}</td></tr>`);
     }
     if (srows.length >= 2) {
       const lbl = s.mode === 'fukushiki' ? '学年' : '学級';
@@ -798,7 +798,7 @@ export function buildStatsPrintDOM(weekStart) {
       let tt = 0, dd = 0;
       for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
         const v = hours.get(scopeKey(k, sc.scope));
-        if (v) tt += v.total;
+        if (v) tt += (v.yearTotal || 0); // 計画=年間の入力済み(月別セルの合計と一致・実施≦計画)
         dd += hoursDone.get(scopeKey(k, sc.scope))?.done || 0;
       }
       if (!tt && !dd) continue;

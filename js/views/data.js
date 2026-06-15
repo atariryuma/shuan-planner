@@ -118,6 +118,7 @@ export function renderDataView(root, ctx) {
       store.settings.gas.lastSync = Date.now();
       store.persist();
       store.notify();
+      document.dispatchEvent(new CustomEvent('shuan-synced')); // 自動同期側の未解決conflictを解除
       toast('Googleへ保存しました');
       ctx.rerender();
       // 任意: ドライブへの自動バックアップ(失敗しても同期自体は成功扱い)
@@ -177,6 +178,7 @@ export function renderDataView(root, ctx) {
       if (res.updatedAt) store.state.updatedAt = res.updatedAt;
       store.settings.gas.lastSync = Date.now();
       store.persist();
+      document.dispatchEvent(new CustomEvent('shuan-synced')); // 自動同期側の未解決conflictを解除
       toast('Googleから取得しました', 'info', 3000, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
       ctx.rerender();
     } catch (e) {
