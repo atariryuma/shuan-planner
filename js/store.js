@@ -101,6 +101,7 @@ export function blankWeek(startDateStr) {
     goals: '',
     reflection: '',
     managerNote: '',      // 管理職の指導・助言(押印欄と併せて印刷)
+    submittedAt: null,    // 提出済みにした日時(null=未提出)。週案は毎週提出が義務の学校が多い
   };
 }
 

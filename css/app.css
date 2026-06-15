@@ -377,6 +377,13 @@ td.cell.activity-cell .entry.activity { background: transparent; padding: 3px 4p
 .cancel-reason { width: 100%; margin-top: 8px; }
 .entry-editor .adv { margin-top: 10px; }
 
+/* 週の提出トラッキング: 今週以前で授業があるのに未提出なら控えめに促す */
+.submit-chip { font-size: 11px; padding: 3px 11px; border-radius: 999px; border: 1px solid; cursor: pointer; white-space: nowrap; line-height: 1.5; }
+.submit-chip.due { background: #fffbeb; border-color: #fcd34d; color: #b45309; }
+.submit-chip.due:hover { background: #fef3c7; }
+.submit-chip.done { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+.submit-chip.done:hover { background: #dcfce7; }
+
 /* コマ編集: 活動(会議・委員会等)の名前プリセット／計画なしコマの単元・時数入力 */
 .memo-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .memo-preset { padding: 4px 11px; font-size: 12.5px; }

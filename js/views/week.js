@@ -48,6 +48,17 @@ export function renderWeekView(root, ctx) {
     ? localStorage.getItem('shuan-class-filter') : '';
   ctx.classFilter = classFilter; // renderCell が読む(グリッドの絞り込み)
 
+  // 提出トラッキング: 週案は毎週提出が義務の学校が多い。今週以前で授業があるのに未提出なら注意を促す。
+  const wkObj = store.state.weeks[weekStart];
+  const hasLessons = !!wkObj && Object.values(wkObj.cells).some(c => c.entries?.some(e => e.subjectKey));
+  const submittedAt = wkObj?.submittedAt;
+  const submitDue = hasLessons && weekStart <= fmtDate(mondayOf(new Date())); // 今週以前で授業あり
+  const submitChip = submittedAt
+    ? `<button class="submit-chip done" id="wk-submit" title="提出済み（クリックで取り消し）">✓ 提出済 ${fmtMD(new Date(submittedAt))}</button>`
+    : submitDue
+      ? `<button class="submit-chip due" id="wk-submit" title="この週の週案を提出済みにする">未提出</button>`
+      : '';
+
   const dayHeads = [];
   const noSchoolDays = {}; // 各曜日(d)の非授業情報 {reason,type} | null。day番号キー(土日=5,6も入るため位置配列にしない)
   let breakDays = 0;
@@ -257,6 +268,7 @@ export function renderWeekView(root, ctx) {
       <span class="week-title">${fmtMD(monday)} 〜 ${fmtMD(addDays(monday, days[days.length - 1]))}
         <span class="week-no">第${weekNo}週</span>
       </span>
+      ${submitChip}
       <input type="date" id="wk-date" value="${weekStart}" aria-label="表示する週の日付">
       <span class="spacer"></span>
       <div class="wn-actions">
@@ -567,6 +579,14 @@ function wireNav(root, ctx, monday) {
   root.querySelector('#wk-prev').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, -7)));
   root.querySelector('#wk-next').onclick = () => ctx.setWeekStart(fmtDate(addDays(monday, 7)));
   root.querySelector('#wk-today').onclick = () => ctx.setWeekStart(null);
+  // 提出トラッキング: この週の週案を提出済み/未提出に切り替える(印刷=提出が多いので印刷後にも押せる位置)
+  root.querySelector('#wk-submit')?.addEventListener('click', () => {
+    const w = store.getWeek(fmtDate(monday), true);
+    const on = !w.submittedAt;
+    w.submittedAt = on ? Date.now() : null;
+    store.commit(); ctx.rerender();
+    toast(on ? '提出済みにしました' : '提出を取り消しました', 'info', 2200);
+  });
   const dateInput = root.querySelector('#wk-date');
   dateInput.onchange = (ev) => {
     if (ev.target.value) ctx.setWeekStart(ev.target.value);
@@ -1266,7 +1286,8 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
       openModal(`
         <h2>${esc(label)} の一括操作</h2>
         <div class="day-ops">
-          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>中止にする（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。中止したコマの分、以降の授業が自動で後ろにずれます</small></span></button>
+          <button class="btn day-op" data-act="cancel-all"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>この日を中止（以降を繰り下げ）</b><small>行事などでこの日が潰れたとき。計画どおりのコマは自動で後ろにずれます（手入力・別の本時にしたコマはそのまま）</small></span></button>
+          <button class="btn day-op" data-act="cancel-from"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>○校時以降を中止…</b><small>午後だけ・特定の校時から潰れたとき。選んだ校時から後ろを中止し繰り下げます</small></span></button>
           ${d > 0 ? `<button class="btn day-op" data-act="copy-prev"><span class="op-ic">${icon('clipboard')}</span><span class="op-tx"><b>前日をコピー</b><small>前日の時間割をこの日に複製します</small></span></button>` : ''}
           ${store.hasBaseTimetable ? `<button class="btn day-op" data-act="restore-base"><span class="op-ic">${icon('calendar')}</span><span class="op-tx"><b>基本時間割から復元</b><small>この日の空きコマに、基本時間割の授業を入れ直します（入力済みは触りません）</small></span></button>` : ''}
           <button class="btn day-op" data-act="${dayLocked ? 'unlock-day' : 'lock-day'}"><span class="op-ic">${icon('lock')}</span><span class="op-tx"><b>${dayLocked ? 'この日のロックを解除' : 'この日をロック'}</b><small>「計画に合わせて更新」しても、この日のコマは上書きされず守られます</small></span></button>
@@ -1291,6 +1312,39 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
               close();
               toast(nowClass ? '授業日にしました' : '授業日を解除しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.toggleClassDay(dateStr); ctx.rerender(); } });
               ctx.rerender();
+              return;
+            }
+            if (act === 'cancel-from') {
+              // どの校時から中止するかを選ぶ(午後だけ潰れた等)。選んだ校時から後ろを中止し、以降の計画コマが繰り下がる
+              const ws = store.getWeek(weekStart, true);
+              const valid = store.settings.periods.filter(p => effectivePeriod(store.settings, ws, d, p) && p.type !== 'module');
+              modal.querySelector('h2').textContent = `${label}：どの校時から中止しますか?`;
+              modal.querySelector('.day-ops').innerHTML = valid.length
+                ? valid.map(p => `<button class="btn day-op" data-from="${esc(p.id)}"><span class="op-ic">${icon('ban')}</span><span class="op-tx"><b>${esc(p.label)}校時 以降を中止</b></span></button>`).join('')
+                : '<p class="hint">中止できる校時がありません</p>';
+              modal.querySelectorAll('[data-from]').forEach(fb => {
+                fb.onclick = () => {
+                  const fromIdx = store.settings.periods.findIndex(p => p.id === fb.dataset.from);
+                  const state = store.state;
+                  const ordinals = computeOrdinals(state, weekStart);
+                  store.snapshot(`${label}の途中中止`);
+                  let n = 0;
+                  for (let pi = fromIdx; pi < store.settings.periods.length; pi++) {
+                    const cell = ws.cells[cellKey(d, store.settings.periods[pi].id)];
+                    if (!cell) continue;
+                    let hit = false;
+                    for (const e of cell.entries) {
+                      if (e.cancelled || !e.subjectKey) continue;
+                      e.cancelledText = resolveEntryText(state, e, ordinals).text;
+                      e.cancelled = true; hit = true;
+                    }
+                    if (hit) n++;
+                  }
+                  store.commit(); close();
+                  toast(`${label}: ${n}コマを中止しました（以降を繰り下げ）`, 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+                  ctx.rerender();
+                };
+              });
               return;
             }
             const w = store.getWeek(weekStart, true);
