@@ -55,9 +55,9 @@ export function renderWeekView(root, ctx) {
   const submittedAt = wkObj?.submittedAt;
   const submitDue = hasLessons && weekStart <= fmtDate(mondayOf(new Date())); // 今週以前で授業あり
   const submitChip = submittedAt
-    ? `<button class="submit-chip done" id="wk-submit" title="提出済み（クリックで取り消し）">✓ 提出済 ${fmtMD(new Date(submittedAt))}</button>`
+    ? `<button class="submit-chip done" id="wk-submit" title="週案を提出したかの目印です（時数・印刷は変わりません）。クリックで「未提出」に戻す">✓ 提出済 ${fmtMD(new Date(submittedAt))}</button>`
     : submitDue
-      ? `<button class="submit-chip due" id="wk-submit" title="この週の週案を提出済みにする">未提出</button>`
+      ? `<button class="submit-chip due" id="wk-submit" title="週案を提出したかの目印です（時数・印刷は変わりません）。まだの週は赤く出ます。クリックで「提出済み」に">未提出</button>`
       : '';
 
   const dayHeads = [];
