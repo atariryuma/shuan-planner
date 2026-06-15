@@ -1211,6 +1211,7 @@ function paintCell(weekStart, dayIdx, periodId, ctx) {
   // 既に何か入っているセルは通常の編集を開く(誤破壊防止)
   if (entries.length) return false;
 
+  store.snapshot('まとめて配置'); // 配置にも復元点を残す(Ctrl+Z/⌘Zで戻せるように。配置前は戻せなかった)
   if (s.mode === 'fukushiki') {
     // 複式: 両学年に同じ教科を配置
     w.cells[key] = { entries: s.fukushikiGrades.map(g => Object.assign(newEntry(), { subjectKey: paint.subject, scope: g })) };

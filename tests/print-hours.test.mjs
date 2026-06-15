@@ -592,6 +592,21 @@ test('授業マネジメント: 実施済/残り/単元の進み/状態を計画
   assert.ok(!Number.isNaN(f.pace));
 });
 
+test('前週コピー: ロック済みコマは上書きせず守る', () => {
+  const state = defaultState();
+  const A = '2020-05-04', B = '2020-05-11';
+  const mkWeek = (start, cells) => ({ start, cells, events:[], dayNotes:[], attendance:[], dayPatterns:{}, goals:'', reflection:'' });
+  state.weeks = {
+    [A]: mkWeek(A, { [cellKey(0,'p1')]: { entries:[{ id:'src', subjectKey:'kokugo', scope:'', auto:true }] } }),
+    [B]: mkWeek(B, { [cellKey(0,'p1')]: { entries:[{ id:'lk', subjectKey:'sansu', scope:'', auto:true, locked:true }] } }),
+  };
+  store.state = state;
+  store.copyWeek(A, B);
+  const cell = store.state.weeks[B].cells[cellKey(0,'p1')];
+  assert.equal(cell.entries[0].id, 'lk');       // ロック済みが残る(srcのkokugoで上書きされない)
+  assert.equal(cell.entries[0].locked, true);
+});
+
 test('基本時間割から復元: 空きコマは穴埋めし、既に入っているコマには重ねない', () => {
   const state = defaultState();
   state.settings.mode = 'senka';

@@ -2369,10 +2369,13 @@ class Store {
     const src = this.state.weeks[fromStart];
     if (!src) return { ok: false, preserved: 0 };
     const dst = this.state.weeks[toStart] || blankWeek(toStart);
-    // 手を入れたコマ(●変更・全文手入力・備考・中止)は上書きせず残す
+    // 🔒ロック・予定(会議等)は常に守る。手を入れたコマ(●変更・全文手入力・備考・中止)は
+    // preserveEdits のとき守る(他の一括操作=applyBaseTimetableと同じ保護基準に揃える)
     const kept = {};
-    if (preserveEdits && dst.cells) {
-      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
+    if (dst.cells) {
+      for (const [k, cell] of Object.entries(dst.cells)) {
+        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+      }
     }
     dst.cells = cloneCells(src.cells, keepText);
     let preserved = 0;
@@ -5457,6 +5460,7 @@ function paintCell(weekStart, dayIdx, periodId, ctx) {
   // 既に何か入っているセルは通常の編集を開く(誤破壊防止)
   if (entries.length) return false;
 
+  store.snapshot('まとめて配置'); // 配置にも復元点を残す(Ctrl+Z/⌘Zで戻せるように。配置前は戻せなかった)
   if (s.mode === 'fukushiki') {
     // 複式: 両学年に同じ教科を配置
     w.cells[key] = { entries: s.fukushikiGrades.map(g => Object.assign(newEntry(), { subjectKey: paint.subject, scope: g })) };
@@ -10447,7 +10451,7 @@ function buildStatsPrintDOM(weekStart) {
         <table class="ps-table">
           <thead><tr><th style="width:24mm;">${lbl}</th><th>実施済</th><th>予定計</th><th>標準</th><th>残り</th></tr></thead>
           <tbody>${srows.join('')}
-            <tr><td style="text-align:left; font-weight:700;">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumTotal)}</td><td>${sumStd || ''}</td><td>${sumStd ? fmtHours(sumStd - sumTotal) : ''}</td></tr>
+            <tr><td style="text-align:left; font-weight:700;">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumYear)}</td><td>${sumStd || ''}</td><td>${sumStd ? fmtHours(sumStd - sumYear) : ''}</td></tr>
           </tbody>
         </table>`;
     }

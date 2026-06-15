@@ -277,10 +277,13 @@ class Store {
     const src = this.state.weeks[fromStart];
     if (!src) return { ok: false, preserved: 0 };
     const dst = this.state.weeks[toStart] || blankWeek(toStart);
-    // 手を入れたコマ(●変更・全文手入力・備考・中止)は上書きせず残す
+    // 🔒ロック・予定(会議等)は常に守る。手を入れたコマ(●変更・全文手入力・備考・中止)は
+    // preserveEdits のとき守る(他の一括操作=applyBaseTimetableと同じ保護基準に揃える)
     const kept = {};
-    if (preserveEdits && dst.cells) {
-      for (const [k, cell] of Object.entries(dst.cells)) if (cellHasUserEdits(cell)) kept[k] = cell;
+    if (dst.cells) {
+      for (const [k, cell] of Object.entries(dst.cells)) {
+        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+      }
     }
     dst.cells = cloneCells(src.cells, keepText);
     let preserved = 0;

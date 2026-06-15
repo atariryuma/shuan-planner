@@ -778,7 +778,7 @@ export function buildStatsPrintDOM(weekStart) {
         <table class="ps-table">
           <thead><tr><th style="width:24mm;">${lbl}</th><th>実施済</th><th>予定計</th><th>標準</th><th>残り</th></tr></thead>
           <tbody>${srows.join('')}
-            <tr><td style="text-align:left; font-weight:700;">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumTotal)}</td><td>${sumStd || ''}</td><td>${sumStd ? fmtHours(sumStd - sumTotal) : ''}</td></tr>
+            <tr><td style="text-align:left; font-weight:700;">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumYear)}</td><td>${sumStd || ''}</td><td>${sumStd ? fmtHours(sumStd - sumYear) : ''}</td></tr>
           </tbody>
         </table>`;
     }
