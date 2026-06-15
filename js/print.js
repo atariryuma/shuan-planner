@@ -7,7 +7,7 @@
  *  - 列幅は colgroup で mm 指定(table-layout: fixed と組で、画面と印刷のズレをなくす)
  */
 
-import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, isActivity, isNoClass } from './store.js';
+import { store, cellKey, effectivePeriod, computeOrdinals, resolveEntryPlanDetails, computeHours, computeMonthlyHours, doneRefWeek, fmtHours, scopeKey, standardHoursFor, weekDayOffsets, noSchoolReason, termRanges, isActivity } from './store.js';
 import { parseDate, addDays, fmtMD, fmtDate, fmtYear, fmtFiscalYear, weekNumberInFiscalYear, fiscalYearOf, fiscalYearFirstMonday, DAY_NAMES, esc } from './utils.js';
 import { holidayName } from './holidays.js';
 import { openModal, toast, infoHTML } from './ui.js';
@@ -342,7 +342,7 @@ function renderPrintCell(state, week, dayIdx, period, ordinals) {
   const s = state.settings;
   if (!effectivePeriod(s, week, dayIdx, period)) return `<td class="pcell pcell-off"></td>`;
   const cell = week.cells?.[cellKey(dayIdx, period.id)];
-  let entries = (cell?.entries || []).filter(e => !isNoClass(e)); // 授業なしは提出帳票では空欄
+  let entries = cell?.entries || [];
   const cf = printClassFilter(s);
   if (cf) entries = entries.filter(e => (e.scope ?? '') === cf); // 学級別印刷: 対象学級のコマだけ
   if (!entries.length) return `<td class="pcell"></td>`;

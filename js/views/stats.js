@@ -299,11 +299,12 @@ function renderManagement(state, weekStart) {
   const card = (f) => {
     const { subjName, cls } = labelOf(f);
     const cur = f.units.find(u => u.status === 'current');
+    const overPace = f.weeklyRate != null && f.requiredPace !== Infinity && f.requiredPace > f.weeklyRate;
     const metrics = f.status === 'done' ? '' : `
         <div class="mng-metrics">
-          <div class="mng-metric"><span class="mng-mlabel">今のペース</span><span class="mng-mval">${f.pace}<small>時/週</small></span></div>
-          <div class="mng-metric"><span class="mng-mlabel">完了に必要</span><span class="mng-mval ${f.requiredPace > f.pace ? 'warn' : ''}">${f.requiredPace === Infinity ? '—' : f.requiredPace}<small>時/週</small></span></div>
-          <div class="mng-metric"><span class="mng-mlabel">年度末見込み</span><span class="mng-mval ${f.feasible ? 'ok' : 'warn'}" style="font-size:13px;">${f.feasible ? '完了見込み' : `${f.shortfall}時 未消化`}</span></div>
+          <div class="mng-metric"><span class="mng-mlabel">残りの授業枠</span><span class="mng-mval">${f.capacityLeft}<small>時</small></span><span class="mng-msub">${f.weeklyRate != null ? `週${f.weeklyRate}×残${f.left}週` : `残${f.left}週・今のペース`}</span></div>
+          <div class="mng-metric"><span class="mng-mlabel">完了に必要</span><span class="mng-mval ${overPace ? 'warn' : ''}">${f.requiredPace === Infinity ? '—' : f.requiredPace}<small>時/週</small></span><span class="mng-msub">今 週${f.weeklyRate != null ? f.weeklyRate : f.pace}時</span></div>
+          <div class="mng-metric"><span class="mng-mlabel">年度末見込み</span><span class="mng-mval ${f.feasible ? 'ok' : 'warn'}" style="font-size:13px;">${f.feasible ? '完了見込み' : `${f.shortfall}時 不足`}</span></div>
         </div>`;
     const nextLine = f.next ? `<div class="mng-next"><span class="muted">次の授業 ▸</span> ${esc(f.next.unitName)}${f.next.unitHours > 1 ? `(${f.next.nth}/${f.next.unitHours})` : ''}${f.next.objective ? ' ' + esc(f.next.objective) : ''}</div>` : '';
     const tip = f.status === 'behind'

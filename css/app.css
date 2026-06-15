@@ -362,14 +362,6 @@ td.cell.activity-cell, td.cell.activity-cell.today-col { background: #f1f4f8; }
 td.cell.activity-cell:hover, td.cell.activity-cell.today-col:hover { background: #e8ecf2; }
 td.cell.activity-cell .entry.activity { background: transparent; padding: 3px 4px; }
 
-/* 授業なし(意図的に空けたコマ): ごく淡く、静かに。空きの「＋」とも会議の面とも区別する */
-td.cell.no-class-cell, td.cell.no-class-cell.today-col { background: repeating-linear-gradient(135deg, #fafbfc, #fafbfc 6px, #f3f5f8 6px, #f3f5f8 12px); }
-td.cell.no-class-cell:hover { background: #eef1f5; }
-.cell-noclass { color: #9aa3ad; font-size: 12px; text-align: center; padding: 14px 2px; letter-spacing: 0.06em; user-select: none; }
-.noclass-panel { text-align: center; padding: 20px 12px 8px; }
-.noclass-title { font-weight: 700; font-size: 15px; color: #475569; margin: 0 0 8px; }
-.noclass-sub { font-size: 12px; color: #94a3b8; line-height: 1.7; margin: 0; }
-
 /* コマ編集: 活動(会議・委員会等)の名前プリセット／計画なしコマの単元・時数入力 */
 .memo-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .memo-preset { padding: 4px 11px; font-size: 12.5px; }
@@ -1314,6 +1306,7 @@ td.cell:focus-visible, .day-th:focus-visible {
 .mng-mval { font-size: 16px; font-weight: 700; }
 .mng-mval.warn { color: #d97706; }
 .mng-mval.ok { color: #16a34a; }
+.mng-msub { display: block; font-size: 10px; color: #94a3b8; margin-top: 1px; }
 .mng-next { font-size: 12px; color: #334155; margin: 6px 0; line-height: 1.5; }
 .mng-next .muted { color: #94a3b8; }
 .mng-unit { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; }

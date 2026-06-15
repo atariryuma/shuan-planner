@@ -282,7 +282,7 @@ class Store {
     const kept = {};
     if (dst.cells) {
       for (const [k, cell] of Object.entries(dst.cells)) {
-        if (cellHasLock(cell) || cellHasActivity(cell) || cellIsNoClass(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
       }
     }
     dst.cells = cloneCells(src.cells, keepText);
@@ -353,8 +353,8 @@ class Store {
     const kept = {};
     if (!fillEmptyOnly) {
       for (const [k, cell] of Object.entries(w.cells)) {
-        // ロック・活動(会議等)・授業なしは常に保護。手編集は preserveEdits のときだけ保護。
-        if (cellHasLock(cell) || cellHasActivity(cell) || cellIsNoClass(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+        // ロック・活動(会議等の予定)は常に保護。手編集は preserveEdits のときだけ保護。
+        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
       }
     }
     if (!fillEmptyOnly) {
@@ -789,19 +789,9 @@ export function isActivity(entry) {
   return !!entry && !entry.subjectKey && entry.noCount === true;
 }
 
-/** セル内に活動(会議・委員会等)があるか。基本時間割に無い週限定の予定を「計画に合わせて更新」で常に守る判定。 */
+/** セル内に活動(会議・委員会・自習・授業なし等)があるか。基本時間割に無い週限定の予定を「計画に合わせて更新」で常に守る判定。 */
 export function cellHasActivity(cell) {
   return !!cell && Array.isArray(cell.entries) && cell.entries.some(isActivity);
-}
-
-/** 「授業なし」マーカー: 意図的に授業を入れないコマ(自習・専科に出している・カット等)。
- * 教科なし・時数に数えない・進度も進めない。活動(会議)とは別物で、基本時間割の自動展開・復元が入れ直さない。 */
-export function isNoClass(entry) {
-  return !!entry && !entry.subjectKey && entry.noClass === true;
-}
-/** そのコマが「授業なし」か(マーカーだけが入っている) */
-export function cellIsNoClass(cell) {
-  return !!cell && Array.isArray(cell.entries) && cell.entries.length > 0 && cell.entries.every(isNoClass);
 }
 
 /** 授業entryの「本時」を計画どおりに戻す(上書き・手入力・別の本時(pin)・計画外・単元切上げ・進度上書きを消してauto化)。
@@ -1360,6 +1350,19 @@ export function computeProgressForecast(state, refWeekStart) {
   const elapsed = teachingWeeksElapsed(settings, refWeekStart);
   const left = teachingWeeksLeft(settings, refWeekStart);
   const total = elapsed + left;
+  // 残りの「枠」を実カウントするため、基本時間割の週あたりコマ数を出す(モジュール=進度に数えないので除外)。
+  // これと「残り授業週数(休業除外済み)」を掛けると、平均ペースの外挿より実態に近い完了見込みになる。
+  const base = state.baseTimetables?.[0];
+  const weeklyRateOf = (k) => {
+    if (!base?.cells) return null;                              // 基本時間割なし→平均ペースで概算
+    let n = 0;
+    for (const [key, cell] of Object.entries(base.cells)) {
+      const pid = key.replace(/^d\d+p/, '');
+      if (settings.periods.find(p => p.id === pid)?.type === 'module') continue;
+      for (const e of (cell.entries || [])) if (!e.noCount && scopeKey(e.subjectKey, e.scope) === k) n++;
+    }
+    return n;
+  };
   const out = new Map();
   for (const [k, a] of acc) {
     const plan = planFor(a.subjectKey, a.scope);
@@ -1373,9 +1376,12 @@ export function computeProgressForecast(state, refWeekStart) {
     const behind = Math.round(expected - taught);              // + 遅れ / - 先行
     const pace = elapsed > 0 ? taught / elapsed : 0;
     const requiredPace = left > 0 ? remaining / left : (remaining > 0 ? Infinity : 0);
-    const projected = taught + pace * left;
+    const weeklyRate = weeklyRateOf(k);                        // 週あたりコマ数(基本時間割) | null
+    // 完了見込み = 実施済 ＋ 残りの枠(週あたり × 残り授業週の実数)。枠が無ければ平均ペースで外挿。
+    const capacityLeft = weeklyRate != null ? weeklyRate * left : Math.round(pace * left);
+    const projected = taught + capacityLeft;
     const shortfall = Math.max(0, Math.round(planTotal - projected));
-    const feasible = projected >= planTotal - 0.5 || remaining === 0;
+    const feasible = projected >= planTotal || remaining === 0;
     let status;
     if (taught >= planTotal) status = 'done';
     else if (behind >= 1) status = 'behind';
@@ -1399,6 +1405,7 @@ export function computeProgressForecast(state, refWeekStart) {
       elapsed, left, expected: Math.round(expected), behind, status,
       pace: Math.round(pace * 10) / 10,
       requiredPace: requiredPace === Infinity ? Infinity : Math.round(requiredPace * 10) / 10,
+      weeklyRate, capacityLeft: Math.round(capacityLeft),
       projected: Math.round(projected), shortfall, feasible,
       next: next && !next.exhausted ? { unitName: next.unitName, nth: next.nth, unitHours: next.unitHours, objective: next.lessonText } : null,
       units,
