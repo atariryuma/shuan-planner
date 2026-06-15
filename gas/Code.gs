@@ -20,7 +20,16 @@
 var CHUNK = 45000;
 
 function doGet(e) {
-  return handle_(e, (e.parameter || {}));
+  var p = (e && e.parameter) || {};
+  // action付きのGETは従来通りAPIとして扱う(後方互換)。
+  // それ以外(ブラウザでの素のアクセス)はアプリ本体(Index.html)を配信する。
+  // ＝この1つのデプロイで「アプリの配信」と「同期API」を兼ねる。
+  // ※同期クライアント(gas.js)はすべてPOST(doPost)なので、ページ配信と衝突しない。
+  if (p.action) return handle_(e, p);
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('ルーズリーフ')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 function doPost(e) {
