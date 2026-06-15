@@ -1736,12 +1736,28 @@ function wireCells(root, weekStart, ctx) {
       }
       openCellEditor(weekStart, day, period, ctx);
     });
-    // キーボード操作(Enter/Space)でもコマ編集を開けるように(WCAG 2.1.1)
+    // キーボード操作: Enter/Space で編集を開く(WCAG 2.1.1)。矢印キーでグリッド内のセルを移動する。
+    // 左右端まで来たら preventDefault せずグローバルの週送り(←/→)へ委ねる=端から隣の週へ自然につながる。
+    // 上下端はスクロール抑止のみ。これで「セルにフォーカス→矢印で隣のコマ」が素直に効く(週が飛ばない)。
+    const ARROW_DIRS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     td.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'Enter' && ev.key !== ' ') return;
-      if (ev.target !== td) return; // セル内のボタン(×)のキー操作はそのまま
-      ev.preventDefault();
-      td.click();
+      if (ev.target !== td) return; // セル内のボタン(×等)のキー操作はそのまま
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); td.click(); return; }
+      const d = ARROW_DIRS[ev.key];
+      if (!d || ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+      const table = td.closest('table');
+      const periods = store.settings.periods.map(p => String(p.id));
+      let day = Number(td.dataset.day);
+      let pi = periods.indexOf(String(td.dataset.period));
+      const [dx, dy] = d;
+      // 最大ステップで次のフォーカス可能セルを探す(日課で無効な校時=offは飛ばす)
+      for (let step = 0; step < periods.length + 7; step++) {
+        day += dx; pi += dy;
+        if (pi < 0 || pi >= periods.length || day < 0 || day > 6) break;
+        const cand = table && table.querySelector(`td.cell[tabindex="0"][data-day="${day}"][data-period="${CSS.escape(periods[pi])}"]`);
+        if (cand) { ev.preventDefault(); ev.stopPropagation(); cand.focus(); return; }
+      }
+      if (dy !== 0) ev.preventDefault(); // 上下端: スクロール抑止のみ(週送りは左右だけ)
     });
     // PC: 右クリックでクイック操作メニュー(主クリックの「編集を開く」はそのまま)
     td.addEventListener('contextmenu', (ev) => {
@@ -1892,11 +1908,11 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         }
       } else {
         const e = newEntry();
-        if (s.mode === 'senka') {                        // 基本に無い校時(担当外)は直前の学級で推測
+        if (s.mode === 'senka') {
+          // 基本時間割に無い校時(朝の時間・担当外など)は教科を決め打ちしない。
+          // 学級だけ直前の値を仮置きし、教科・学級パレットを開いた状態で「ちゃんと選べる」ようにする
+          // (ここで理科を充填すると毎回「変更」を開く手間になり、朝学習など別教科のとき不便)。
           e.scope = validScope(s, ctx.lastScope) ?? s.senkaClasses[0]?.id ?? null;
-          // 担当教科も実在チェック(削除済みキーを充填すると時数が無言で集計・印刷から消えるため)
-          e.subjectKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : '';
-          if (e.subjectKey) prefilled.add(e.id);
         }
         cell.entries.push(e);
       }
