@@ -1449,6 +1449,18 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   // どれかがあり、かつ戻れる計画がある授業コマのときだけ(planlessな手書きはクリアと役割が被るので出さない)。
   const hasPlanFor = (e) => state.plans.some(p => p.subjectKey === e.subjectKey && (p.grade == null || p.grade === scopeGrade(s, e.scope)));
   const canResetToPlan = lessonEntries.some(e => (e.override || e.pin || e.offplan || e.endUnit) && hasPlanFor(e));
+  // 「ここで単元を切り上げる」: 計画どおりモードの単元途中(モジュール以外)の1コマだけ。残りコマ数を添える(自転車操業のズレ調整)。
+  const period = s.periods.find(p => p.id === periodId);
+  let endUnitRemain = 0;
+  if (lessonEntries.length === 1) {
+    const e0 = lessonEntries[0];
+    if (!e0.offplan && !e0.pin && !e0.endUnit && period && period.type !== 'module') {
+      const { details } = resolveEntryPlanDetails(state, e0, computeOrdinals(state, weekStart));
+      if (details && details.unitHours > 1 && details.nth < details.unitHours) endUnitRemain = details.unitHours - details.nth;
+    }
+  }
+  // 時数外トグルの現在状態(全コマが時数外なら「時数に含める」を出す)
+  const allNoCount = lessonEntries.length > 0 && lessonEntries.every(e => e.noCount);
 
   const acts = [{ ic: 'pencil', label: '編集', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx) }];
   // 空きコマ: 会議・委員会などの予定をその場でドロップ(担任/専科のみ。エディタが開いて名前を入れられる)。
@@ -1463,10 +1475,14 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
   if (hasEntries) acts.push({ ic: 'refresh', label: '移動', run: () => { ctx.swapSource = { weekStart, day: dayIdx, period: periodId }; ctx.rerender(); } });
   // 授業コマ(1コマ): この時間にやる本時を選ぶ(別の単元の本時・同じ本時の再実施。進度は進めない)
   if (lessonEntries.length === 1) acts.push({ ic: 'book', label: '本時を選ぶ…', run: () => openPinPicker(weekStart, dayIdx, periodId, ctx) });
+  // 単元途中で予定より早く終わったとき、ここで単元を締めて残りを飛ばす(1タップ)
+  if (endUnitRemain > 0) acts.push({ ic: 'flag', label: `ここで単元を切り上げる（残り${endUnitRemain}コマ）`, run: () => endUnitHereQuick(weekStart, dayIdx, periodId, ctx) });
   // 手直し/別本時/計画外/切り上げを一括で計画どおりへ(ズレ調整の核。1タップで戻せる)
   if (canResetToPlan) acts.push({ ic: 'undo', label: '計画どおりに戻す', run: () => resetCellToPlanQuick(weekStart, dayIdx, periodId, ctx) });
   // 予定・活動コマ: 会議などを授業に戻す(担任/専科のみ。エディタで教科を選べる)
   if (onlyActivity && s.mode !== 'fukushiki') acts.push({ ic: 'book', label: '授業に変える…', run: () => openCellEditor(weekStart, dayIdx, periodId, ctx, { asLesson: true }) });
+  // 時数外トグル: テスト監督・自習監督などこの時間を授業時数に数えないコマに(授業コマのみ。中止中は無意味なので出さない)
+  if (lessonEntries.length && !anyCancelled) acts.push({ ic: 'clock', label: allNoCount ? '時数に含める' : '時数外にする', run: () => toggleNoCountCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries) acts.push({ ic: 'lock', label: anyLocked ? 'ロック解除' : 'ロック', run: () => toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) });
   if (hasEntries && !onlyActivity) acts.push({ ic: 'ban', label: anyCancelled ? '中止を解除' : '中止にする', run: () => toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) });
   // 破壊系は下にまとめて区切り線で分ける。語彙はエディタと統一(クリア=中身を空に / 削除=コマごと消す)。赤は「削除」だけ。
@@ -1493,7 +1509,17 @@ function openCellContextMenu(weekStart, dayIdx, periodId, ctx, x, y) {
     ev.stopPropagation();
     closeCellContextMenu();
   };
-  const onKey = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); closeCellContextMenu(); } };
+  // キーボードだけで操作できるように: ↑↓で項目移動(循環)・Home/Endで端へ・Escで閉じる(Enter/Spaceはボタン既定)。
+  const onKey = (ev) => {
+    if (ev.key === 'Escape') { ev.preventDefault(); closeCellContextMenu(); return; }
+    const items = [...menu.querySelectorAll('.cm-item')];
+    if (!items.length) return;
+    const cur = items.indexOf(document.activeElement);
+    if (ev.key === 'ArrowDown') { ev.preventDefault(); items[(cur + 1 + items.length) % items.length].focus(); }
+    else if (ev.key === 'ArrowUp') { ev.preventDefault(); items[(cur - 1 + items.length) % items.length].focus(); }
+    else if (ev.key === 'Home') { ev.preventDefault(); items[0].focus(); }
+    else if (ev.key === 'End') { ev.preventDefault(); items[items.length - 1].focus(); }
+  };
   closeCellContextMenu._cleanup = () => {
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKey, true);
@@ -1670,6 +1696,31 @@ function resetCellToPlanQuick(weekStart, dayIdx, periodId, ctx) {
   store.commit();
   ctx.rerender();
   toast('計画どおりに戻しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+// 単元を予定より早く終えたとき、このコマで締めて残りの計画コマを飛ばす(endUnit)。右クリック用。
+function endUnitHereQuick(weekStart, dayIdx, periodId, ctx) {
+  const cell = store.getCell(weekStart, dayIdx, periodId);
+  const e = (cell?.entries || []).find(x => x.subjectKey && !isActivity(x) && !x.offplan && !x.pin);
+  if (!e) return;
+  store.snapshot('単元を切り上げる');
+  e.endUnit = true;
+  store.commit();
+  ctx.rerender();
+  toast('この時間で単元を切り上げました（残りのコマを飛ばします）', 'info', 2800, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+}
+
+// 授業コマを「時数外」にする/戻す(テスト監督・自習監督などこの時間を授業時数に数えないとき)。右クリック用。
+function toggleNoCountCellQuick(weekStart, dayIdx, periodId, ctx) {
+  const cell = store.getCell(weekStart, dayIdx, periodId);
+  const targets = (cell?.entries || []).filter(e => e.subjectKey && !isActivity(e));
+  if (!targets.length) return;
+  const turningOn = !targets.every(e => e.noCount); // 一部でも時数内ならまず全部を時数外へ
+  store.snapshot(turningOn ? '時数外にする' : '時数に含める');
+  for (const e of targets) e.noCount = turningOn;
+  store.commit();
+  ctx.rerender();
+  toast(turningOn ? '時数外にしました（この時間は時数に数えません）' : '時数に含めました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
 // 本時の中身を空にする(教科・学級は残す)。右クリック「クリア」用。
