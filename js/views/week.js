@@ -2058,24 +2058,49 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
   const render = (modal) => {
     const state = store.state;
     const cellNow = store.getCell(weekStart, dayIdx, periodId) || { entries: [] };
-    // 空きコマの選択画面: 「授業を入れる」(基本時間割があればその教科・学級を併記) と「予定・活動」を選ばせる。
+    // 空きコマの選択画面: ここで教科(担任・複式)/学級(専科)を直接選ばせる。基本時間割の候補を●印で示す。
     if (picking && !cellNow.entries.length) {
       const bl = (store.state.baseTimetables?.[0]?.cells?.[editKey]?.entries || []).filter(e => e.subjectKey && !isActivity(e));
-      const baseLabel = bl.map(e => {
-        const subj = subjectOf(s, e.subjectKey);
-        const sc = s.mode === 'senka' ? (s.senkaClasses.find(c => c.id === e.scope)?.label || '') : s.mode === 'fukushiki' ? `${e.scope}年` : '';
-        return `${subj?.short || subj?.name || ''}${sc ? '・' + sc : ''}`;
-      }).filter(Boolean).join(' / ');
+      const baseSubj = bl[0]?.subjectKey, baseScope = bl[0]?.scope;
+      const senkaSubjKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || '');
+      let palette;
+      if (s.mode === 'senka' && s.senkaClasses.length) {
+        palette = `<div class="cc-label">学級を選ぶ（教科＝${esc(subjectOf(s, senkaSubjKey)?.name || '')}）</div>
+          <div class="cc-palette scope-palette">${s.senkaClasses.map(c =>
+            `<button type="button" data-pick-scope="${esc(c.id)}" class="${c.id === baseScope ? 'suggest' : ''}">${esc(c.label || '学級')}</button>`).join('')}</div>`;
+      } else {
+        palette = `<div class="cc-label">教科を選ぶ${s.mode === 'fukushiki' ? '（両学年）' : ''}</div>
+          <div class="cc-palette subject-palette">${s.subjects.map(x =>
+            `<button type="button" data-pick-subj="${esc(x.key)}" style="background:${esc(x.color)}" class="${x.key === baseSubj ? 'suggest' : ''}">${esc(x.short || x.name)}</button>`).join('')}</div>`;
+      }
       modal.querySelector('.cell-editor-body').innerHTML = `
         <div class="cell-choose">
-          <p class="cc-q">このコマに何を入れますか?</p>
-          <button type="button" class="cc-btn" data-choose-lesson>${icon('book')}<span class="cc-main">授業を入れる</span>${baseLabel ? `<span class="cc-sub">${esc(baseLabel)}</span>` : '<span class="cc-sub">教科を選びます</span>'}</button>
-          ${s.mode !== 'fukushiki' ? `<button type="button" class="cc-btn" data-choose-activity>${icon('memo')}<span class="cc-main">予定・活動</span><span class="cc-sub">会議・自習など</span></button>` : ''}
+          ${palette}
+          ${s.mode !== 'fukushiki' ? `<div class="cc-or">または</div>
+          <button type="button" class="cc-btn" data-choose-activity>${icon('memo')}<span class="cc-main">予定・活動</span><span class="cc-sub">会議・自習など</span></button>` : ''}
         </div>`;
       const ocM = modal.querySelector('.oc-menu'); if (ocM) ocM.style.display = 'none';
-      modal.querySelector('[data-choose-lesson]').onclick = () => { ensureLesson(); prefilled.clear(); picking = false; store.commit(); render(modal); };
-      modal.querySelector('[data-choose-activity]')?.addEventListener('click', () => { makeActivity(); picking = false; store.commit(); render(modal); ctx.rerender(); });
-      modal.querySelector('[data-choose-lesson]')?.focus();
+      // 教科/学級を選んだら、そのコマを作って内容編集へ。●(基本時間割の候補)が分かるので確認も速い。
+      const chooseLesson = (subjectKey, scope) => {
+        const w = store.getWeek(weekStart, true);
+        const key = cellKey(dayIdx, periodId);
+        const cell = w.cells[key] || (w.cells[key] = { entries: [] });
+        if (s.mode === 'fukushiki') {
+          for (const g of s.fukushikiGrades) {
+            let e = cell.entries.find(x => x.scope === g);
+            if (!e) { e = newEntry(); e.scope = g; cell.entries.push(e); }
+            e.subjectKey = subjectKey;
+          }
+          cell.entries.sort((a, b) => (a.scope || 0) - (b.scope || 0));
+        } else {
+          const e = newEntry(); e.subjectKey = subjectKey; e.scope = scope; cell.entries = [e];
+        }
+        prefilled.clear(); picking = false; store.commit(); render(modal);
+      };
+      modal.querySelectorAll('[data-pick-scope]').forEach(b => b.onclick = () => chooseLesson(senkaSubjKey, b.dataset.pickScope));
+      modal.querySelectorAll('[data-pick-subj]').forEach(b => b.onclick = () => chooseLesson(b.dataset.pickSubj, null));
+      modal.querySelector('[data-choose-activity]')?.addEventListener('click', () => { makeActivity(); picking = false; store.commit(); render(modal); });
+      modal.querySelector('.cc-palette button')?.focus();
       return;
     }
     const ordinals = computeOrdinals(state, weekStart);
