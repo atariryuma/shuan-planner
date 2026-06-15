@@ -4,7 +4,7 @@
  */
 
 import { store, defaultSubjects, defaultPeriods } from '../store.js';
-import { esc, uid } from '../utils.js';
+import { esc, uid, fiscalYearOf, addDays, parseDate } from '../utils.js';
 import { openModal, toast, infoHTML } from '../ui.js';
 import { icon } from '../icons.js';
 
@@ -139,6 +139,9 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
   const nextFg = fg1 + 1 > gradeMax ? [fg0, fg1] : [fg0 + 1, fg1 + 1];
   const planCount = store.state.plans.length;
   const baseCount = store.state.baseTimetables.length;
+  // 昨年度の年間行事(週ごとの events)がある週数。あれば「引き継ぐ」を勧める(4月の打ち直しを省く)
+  const oldEventWeeks = Object.entries(store.state.weeks).filter(([ws, w]) =>
+    fiscalYearOf(addDays(parseDate(ws), 3)) === oldFY && (w.events || []).some(e => String(e || '').trim())).length;
   let handled = false;
 
   // 学級欄は担任形態ごとに変える(複式はfukushikiGradesが実体。s.gradeだけ
@@ -178,6 +181,8 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
       <label for="ro-base">基本時間割 ${baseCount}件をクリア</label>${infoHTML('新しい時間割で作り直す場合にチェック')}</div>` : ''}
     ${(s.breaks || []).length ? `<div class="checkline"><input type="checkbox" id="ro-breaks" checked>
       <label for="ro-breaks">長期休業の日付を1年進めて引き継ぐ</label></div>` : ''}
+    ${oldEventWeeks ? `<div class="checkline"><input type="checkbox" id="ro-events" checked>
+      <label for="ro-events">昨年度の年間行事 ${oldEventWeeks}週分を引き継ぐ</label>${infoHTML('運動会・参観日などの行事を、同じ時期・同じ曜日に合わせて今年度へ写します。日付は後で微調整できます')}</div>` : ''}
     <div class="modal-foot">
       <button class="btn" data-skip>あとで</button>
       <button class="btn primary" data-apply>開始</button>
@@ -217,6 +222,7 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
         const bump = (d) => d && /^\d{4}-/.test(d) ? `${Number(d.slice(0, 4)) + 1}${d.slice(4)}` : d;
         for (const b of s.breaks || []) { b.from = bump(b.from); b.to = bump(b.to); }
       }
+      if (modal.querySelector('#ro-events')?.checked) store.carryOverEvents(oldFY, newFY);
       markDone();
       close();
       toast(`${newFY}年度の設定にしました`);

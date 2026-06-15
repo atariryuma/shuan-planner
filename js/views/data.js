@@ -2,7 +2,7 @@
 
 import { store } from '../store.js';
 import { toast, confirmDialog, openModal, openResultLink } from '../ui.js';
-import { esc, fmtDate, fmtMDHM } from '../utils.js';
+import { esc, fmtDate, fmtMDHM, fiscalYearOf } from '../utils.js';
 import { icon } from '../icons.js';
 
 export function renderDataView(root, ctx) {
@@ -54,6 +54,12 @@ export function renderDataView(root, ctx) {
       </div>` : ''}
 
       <div class="panel">
+        <h2>${icon('calendar')}年度の準備</h2>
+        <p class="hint">昨年度の年間行事（運動会・参観日など）を、同じ時期・曜日に合わせて今年度へ写します。4月の打ち直しを省けます（日付は後で微調整できます）。</p>
+        <div class="data-actions"><button class="btn" id="data-carry-events">昨年度の行事を引き継ぐ</button></div>
+      </div>
+
+      <div class="panel">
         <h2>${icon('info')}このアプリについて</h2>
         <p class="app-id"><b>ルーズリーフ</b></p>
         <p class="hint">データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。児童生徒の個人名は入力しない運用を推奨します。</p>
@@ -71,6 +77,18 @@ export function renderDataView(root, ctx) {
   if (gotoGas) gotoGas.onclick = () => { try { localStorage.setItem('shuan-settings-cat', 'sp-google'); } catch {} document.querySelector('.tab[data-tab="settings"]')?.click(); };
 
   root.querySelector('#data-export').onclick = () => exportJSON();
+
+  // 年度はじめの軽量スタート: 昨年度の年間行事を今年度へ複製(同じ時期・曜日)
+  root.querySelector('#data-carry-events')?.addEventListener('click', async () => {
+    const curFY = fiscalYearOf(new Date());
+    const ok = await confirmDialog(`${curFY - 1}年度の年間行事を ${curFY}年度へ引き継ぎますか？\n同じ時期・曜日に写します。今年度に既にある行事は残します。`, { okLabel: '引き継ぐ' });
+    if (!ok) return;
+    store.snapshot('行事の引き継ぎ');
+    const n = store.carryOverEvents(curFY - 1, curFY);
+    if (n) toast(`${curFY - 1}年度の行事 ${n}週分を引き継ぎました`, 'info', 3200, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    else toast(`${curFY - 1}年度の年間行事が見つかりませんでした`, 'info', 3000);
+    ctx.rerender();
+  });
 
   // ファイル選択はボタン経由で起動する(display:noneのfile inputは
   // フォーカス不能のため、label方式だとキーボードから操作できない)

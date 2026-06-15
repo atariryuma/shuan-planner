@@ -2411,6 +2411,29 @@ class Store {
   }
 
   /**
+   * 前年度(fromFY)の年間行事(週ごとの events)を翌年度(toFY)へ複製する。4月の初期入力(行事の打ち直し)を省く。
+   * 同じ「年度内の週番号」へ写すので曜日・季節がほぼ合う(運動会=10月第3週 など)。授業コマ・反省等は触らない。
+   * 翌年度の同じ週・同じ曜日に既に行事があれば上書きしない(部分入力を尊重)。戻り値=引き継いだ週数。
+   */
+  carryOverEvents(fromFY, toFY) {
+    const newFirst = fiscalYearFirstMonday(toFY);
+    let n = 0;
+    for (const [ws, wk] of Object.entries(this.state.weeks)) {
+      const ev = wk.events || [];
+      if (!ev.some(e => String(e || '').trim())) continue;          // 行事の無い週は飛ばす
+      const monday = parseDate(ws);
+      if (fiscalYearOf(addDays(monday, 3)) !== fromFY) continue;     // fromFY の週だけ(木曜で年度判定)
+      const targetWs = fmtDate(addDays(newFirst, (weekNumberInFiscalYear(monday) - 1) * 7));
+      const tw = this.getWeek(targetWs, true);
+      if (!Array.isArray(tw.events) || !tw.events.length) tw.events = ['', '', '', '', '', ''];
+      ev.forEach((e, i) => { const s = String(e || '').trim(); if (s && !String(tw.events[i] || '').trim()) tw.events[i] = e; });
+      n++;
+    }
+    if (n) this.commit();
+    return n;
+  }
+
+  /**
    * この週の時間割を基本時間割として登録(内容・備考は持たない)。
    * 名前付きで最大3件まで(A週/B週・学期替えなどに対応)。
    * nameを省略すると先頭(基本)を上書きする。
@@ -9148,7 +9171,7 @@ __M["views/data.js"] = (function(){
 
 const {store} = __M["store.js"];
 const {toast, confirmDialog, openModal, openResultLink} = __M["ui.js"];
-const {esc, fmtDate, fmtMDHM} = __M["utils.js"];
+const {esc, fmtDate, fmtMDHM, fiscalYearOf} = __M["utils.js"];
 const {icon} = __M["icons.js"];
 
 function renderDataView(root, ctx) {
@@ -9200,6 +9223,12 @@ function renderDataView(root, ctx) {
       </div>` : ''}
 
       <div class="panel">
+        <h2>${icon('calendar')}年度の準備</h2>
+        <p class="hint">昨年度の年間行事（運動会・参観日など）を、同じ時期・曜日に合わせて今年度へ写します。4月の打ち直しを省けます（日付は後で微調整できます）。</p>
+        <div class="data-actions"><button class="btn" id="data-carry-events">昨年度の行事を引き継ぐ</button></div>
+      </div>
+
+      <div class="panel">
         <h2>${icon('info')}このアプリについて</h2>
         <p class="app-id"><b>ルーズリーフ</b></p>
         <p class="hint">データはこの端末内にのみ保存されます(Google連携を設定した場合のみ自分のGoogleアカウントへ)。児童生徒の個人名は入力しない運用を推奨します。</p>
@@ -9217,6 +9246,18 @@ function renderDataView(root, ctx) {
   if (gotoGas) gotoGas.onclick = () => { try { localStorage.setItem('shuan-settings-cat', 'sp-google'); } catch {} document.querySelector('.tab[data-tab="settings"]')?.click(); };
 
   root.querySelector('#data-export').onclick = () => exportJSON();
+
+  // 年度はじめの軽量スタート: 昨年度の年間行事を今年度へ複製(同じ時期・曜日)
+  root.querySelector('#data-carry-events')?.addEventListener('click', async () => {
+    const curFY = fiscalYearOf(new Date());
+    const ok = await confirmDialog(`${curFY - 1}年度の年間行事を ${curFY}年度へ引き継ぎますか？\n同じ時期・曜日に写します。今年度に既にある行事は残します。`, { okLabel: '引き継ぐ' });
+    if (!ok) return;
+    store.snapshot('行事の引き継ぎ');
+    const n = store.carryOverEvents(curFY - 1, curFY);
+    if (n) toast(`${curFY - 1}年度の行事 ${n}週分を引き継ぎました`, 'info', 3200, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    else toast(`${curFY - 1}年度の年間行事が見つかりませんでした`, 'info', 3000);
+    ctx.rerender();
+  });
 
   // ファイル選択はボタン経由で起動する(display:noneのfile inputは
   // フォーカス不能のため、label方式だとキーボードから操作できない)
@@ -9379,7 +9420,7 @@ __M["views/onboarding.js"] = (function(){
  */
 
 const {store, defaultSubjects, defaultPeriods} = __M["store.js"];
-const {esc, uid} = __M["utils.js"];
+const {esc, uid, fiscalYearOf, addDays, parseDate} = __M["utils.js"];
 const {openModal, toast, infoHTML} = __M["ui.js"];
 const {icon} = __M["icons.js"];
 
@@ -9514,6 +9555,9 @@ function maybeYearRollover(ctx, oldFY, newFY) {
   const nextFg = fg1 + 1 > gradeMax ? [fg0, fg1] : [fg0 + 1, fg1 + 1];
   const planCount = store.state.plans.length;
   const baseCount = store.state.baseTimetables.length;
+  // 昨年度の年間行事(週ごとの events)がある週数。あれば「引き継ぐ」を勧める(4月の打ち直しを省く)
+  const oldEventWeeks = Object.entries(store.state.weeks).filter(([ws, w]) =>
+    fiscalYearOf(addDays(parseDate(ws), 3)) === oldFY && (w.events || []).some(e => String(e || '').trim())).length;
   let handled = false;
 
   // 学級欄は担任形態ごとに変える(複式はfukushikiGradesが実体。s.gradeだけ
@@ -9553,6 +9597,8 @@ function maybeYearRollover(ctx, oldFY, newFY) {
       <label for="ro-base">基本時間割 ${baseCount}件をクリア</label>${infoHTML('新しい時間割で作り直す場合にチェック')}</div>` : ''}
     ${(s.breaks || []).length ? `<div class="checkline"><input type="checkbox" id="ro-breaks" checked>
       <label for="ro-breaks">長期休業の日付を1年進めて引き継ぐ</label></div>` : ''}
+    ${oldEventWeeks ? `<div class="checkline"><input type="checkbox" id="ro-events" checked>
+      <label for="ro-events">昨年度の年間行事 ${oldEventWeeks}週分を引き継ぐ</label>${infoHTML('運動会・参観日などの行事を、同じ時期・同じ曜日に合わせて今年度へ写します。日付は後で微調整できます')}</div>` : ''}
     <div class="modal-foot">
       <button class="btn" data-skip>あとで</button>
       <button class="btn primary" data-apply>開始</button>
@@ -9592,6 +9638,7 @@ function maybeYearRollover(ctx, oldFY, newFY) {
         const bump = (d) => d && /^\d{4}-/.test(d) ? `${Number(d.slice(0, 4)) + 1}${d.slice(4)}` : d;
         for (const b of s.breaks || []) { b.from = bump(b.from); b.to = bump(b.to); }
       }
+      if (modal.querySelector('#ro-events')?.checked) store.carryOverEvents(oldFY, newFY);
       markDone();
       close();
       toast(`${newFY}年度の設定にしました`);

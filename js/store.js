@@ -296,6 +296,29 @@ class Store {
   }
 
   /**
+   * 前年度(fromFY)の年間行事(週ごとの events)を翌年度(toFY)へ複製する。4月の初期入力(行事の打ち直し)を省く。
+   * 同じ「年度内の週番号」へ写すので曜日・季節がほぼ合う(運動会=10月第3週 など)。授業コマ・反省等は触らない。
+   * 翌年度の同じ週・同じ曜日に既に行事があれば上書きしない(部分入力を尊重)。戻り値=引き継いだ週数。
+   */
+  carryOverEvents(fromFY, toFY) {
+    const newFirst = fiscalYearFirstMonday(toFY);
+    let n = 0;
+    for (const [ws, wk] of Object.entries(this.state.weeks)) {
+      const ev = wk.events || [];
+      if (!ev.some(e => String(e || '').trim())) continue;          // 行事の無い週は飛ばす
+      const monday = parseDate(ws);
+      if (fiscalYearOf(addDays(monday, 3)) !== fromFY) continue;     // fromFY の週だけ(木曜で年度判定)
+      const targetWs = fmtDate(addDays(newFirst, (weekNumberInFiscalYear(monday) - 1) * 7));
+      const tw = this.getWeek(targetWs, true);
+      if (!Array.isArray(tw.events) || !tw.events.length) tw.events = ['', '', '', '', '', ''];
+      ev.forEach((e, i) => { const s = String(e || '').trim(); if (s && !String(tw.events[i] || '').trim()) tw.events[i] = e; });
+      n++;
+    }
+    if (n) this.commit();
+    return n;
+  }
+
+  /**
    * この週の時間割を基本時間割として登録(内容・備考は持たない)。
    * 名前付きで最大3件まで(A週/B週・学期替えなどに対応)。
    * nameを省略すると先頭(基本)を上書きする。
