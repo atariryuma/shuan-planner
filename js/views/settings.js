@@ -326,6 +326,11 @@ export function renderSettingsView(root, ctx) {
           <button class="btn" id="gas-test">接続テスト</button>
           ${s.gas.url && s.gas.token ? `<span style="display:inline-flex; align-items:center;"><button class="btn" id="gas-add-device">他の端末を追加</button>${infoHTML('スマホや別のPCを、URLと合言葉を手入力せずリンクを開くだけで接続できます')}</span>` : ''}
         </div>
+        <div class="field" style="margin-top:8px;"><label>接続コードで設定${infoHTML('別の端末の「他の端末を追加」で出るリンク/コードを貼ると、接続先URLと合言葉をまとめて取り込みます。リンクを開けないGoogleサイト版(職場用)の接続に便利です')}</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="gas-connect-code" placeholder="接続リンク または コードを貼り付け">
+            <button class="btn" id="gas-connect-apply" style="flex:0 0 auto;">接続</button>
+          </div></div>
 
         <h3>行事の取り込み元</h3>
         <div id="gas-cal-list">
@@ -936,6 +941,17 @@ function wireSettings(root, ctx) {
       const shareBtn = modal.querySelector('#connect-share');
       if (shareBtn) shareBtn.onclick = () => navigator.share({ title: 'ルーズリーフ 接続リンク', url: link }).catch(() => {});
     });
+  };
+
+  // 接続コードを貼って接続(リンクが届かないGoogleサイト版でもURL・合言葉を一括設定)。
+  // 接続・データ取得・自動同期ONは app.js 側の共通処理(shuan-connect-code)に委ねる。
+  const connectApply = root.querySelector('#gas-connect-apply');
+  if (connectApply) connectApply.onclick = () => {
+    const codeInput = root.querySelector('#gas-connect-code');
+    const raw = (codeInput?.value || '').trim();
+    if (!raw) { toast('接続コードを貼り付けてください', 'error'); codeInput?.focus(); return; }
+    const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(raw); // リンクごと貼られてもコード部分を取り出す
+    document.dispatchEvent(new CustomEvent('shuan-connect-code', { detail: m ? m[1] : raw }));
   };
 
   root.querySelector('#gas-autobackup').addEventListener('change', (ev) => {

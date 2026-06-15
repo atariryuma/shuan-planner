@@ -8091,6 +8091,11 @@ function renderSettingsView(root, ctx) {
           <button class="btn" id="gas-test">接続テスト</button>
           ${s.gas.url && s.gas.token ? `<span style="display:inline-flex; align-items:center;"><button class="btn" id="gas-add-device">他の端末を追加</button>${infoHTML('スマホや別のPCを、URLと合言葉を手入力せずリンクを開くだけで接続できます')}</span>` : ''}
         </div>
+        <div class="field" style="margin-top:8px;"><label>接続コードで設定${infoHTML('別の端末の「他の端末を追加」で出るリンク/コードを貼ると、接続先URLと合言葉をまとめて取り込みます。リンクを開けないGoogleサイト版(職場用)の接続に便利です')}</label>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="gas-connect-code" placeholder="接続リンク または コードを貼り付け">
+            <button class="btn" id="gas-connect-apply" style="flex:0 0 auto;">接続</button>
+          </div></div>
 
         <h3>行事の取り込み元</h3>
         <div id="gas-cal-list">
@@ -8701,6 +8706,17 @@ function wireSettings(root, ctx) {
       const shareBtn = modal.querySelector('#connect-share');
       if (shareBtn) shareBtn.onclick = () => navigator.share({ title: 'ルーズリーフ 接続リンク', url: link }).catch(() => {});
     });
+  };
+
+  // 接続コードを貼って接続(リンクが届かないGoogleサイト版でもURL・合言葉を一括設定)。
+  // 接続・データ取得・自動同期ONは app.js 側の共通処理(shuan-connect-code)に委ねる。
+  const connectApply = root.querySelector('#gas-connect-apply');
+  if (connectApply) connectApply.onclick = () => {
+    const codeInput = root.querySelector('#gas-connect-code');
+    const raw = (codeInput?.value || '').trim();
+    if (!raw) { toast('接続コードを貼り付けてください', 'error'); codeInput?.focus(); return; }
+    const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(raw); // リンクごと貼られてもコード部分を取り出す
+    document.dispatchEvent(new CustomEvent('shuan-connect-code', { detail: m ? m[1] : raw }));
   };
 
   root.querySelector('#gas-autobackup').addEventListener('change', (ev) => {
@@ -11266,13 +11282,9 @@ setTimeout(async () => {
  * 接続リンクで開かれたら、接続先URL+合言葉を取り込んで自動で接続・データ取得・自動同期ONまで行う。
  * 新端末では「リンクを開くだけ」で同期が始まる(URLや合言葉を手入力しなくてよい)。
  */
-function consumeConnectLink() {
-  const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
-  if (!m) return;
-  const creds = decodeConnect(m[1]);
-  // 合言葉をアドレスバー・履歴に残さないよう、ハッシュは即座に消す
-  history.replaceState(null, '', location.pathname + location.search);
-  if (!creds) { toast('接続リンクが正しくありません', 'error', 5000); return; }
+function applyConnectCode(rawCode) {
+  const creds = decodeConnect(rawCode);
+  if (!creds) { toast('接続コードが正しくありません', 'error', 5000); return; }
   connecting = true;
   rerender();
   (async () => {
@@ -11306,6 +11318,19 @@ function consumeConnectLink() {
     }
   })();
 }
+
+// 接続リンク(#connect=…)で開かれた場合: ハッシュから取り込む(合言葉を履歴に残さない)
+function consumeConnectLink() {
+  const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  applyConnectCode(m[1]);
+}
+
+// 設定画面の「接続コードを貼り付け」から同じ接続処理を起動できるようにする。
+// GASウェブアプリ版はサンドボックス内のためURLフラグメント(#connect=)が届かず
+// 「リンクを開くだけ」が使えない。そこで接続コードを貼ってこの経路で接続する。
+document.addEventListener('shuan-connect-code', (e) => applyConnectCode(String((e && e.detail) || '')));
 
 // ---------------------------------------------------------------- 初期描画
 

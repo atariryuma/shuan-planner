@@ -530,13 +530,9 @@ setTimeout(async () => {
  * 接続リンクで開かれたら、接続先URL+合言葉を取り込んで自動で接続・データ取得・自動同期ONまで行う。
  * 新端末では「リンクを開くだけ」で同期が始まる(URLや合言葉を手入力しなくてよい)。
  */
-function consumeConnectLink() {
-  const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
-  if (!m) return;
-  const creds = decodeConnect(m[1]);
-  // 合言葉をアドレスバー・履歴に残さないよう、ハッシュは即座に消す
-  history.replaceState(null, '', location.pathname + location.search);
-  if (!creds) { toast('接続リンクが正しくありません', 'error', 5000); return; }
+function applyConnectCode(rawCode) {
+  const creds = decodeConnect(rawCode);
+  if (!creds) { toast('接続コードが正しくありません', 'error', 5000); return; }
   connecting = true;
   rerender();
   (async () => {
@@ -570,6 +566,19 @@ function consumeConnectLink() {
     }
   })();
 }
+
+// 接続リンク(#connect=…)で開かれた場合: ハッシュから取り込む(合言葉を履歴に残さない)
+function consumeConnectLink() {
+  const m = /[#&]connect=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  applyConnectCode(m[1]);
+}
+
+// 設定画面の「接続コードを貼り付け」から同じ接続処理を起動できるようにする。
+// GASウェブアプリ版はサンドボックス内のためURLフラグメント(#connect=)が届かず
+// 「リンクを開くだけ」が使えない。そこで接続コードを貼ってこの経路で接続する。
+document.addEventListener('shuan-connect-code', (e) => applyConnectCode(String((e && e.detail) || '')));
 
 // ---------------------------------------------------------------- 初期描画
 
