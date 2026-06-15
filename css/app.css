@@ -283,6 +283,10 @@ td.cell.off .off-hidden {
   background: #f8fafc; text-align: center; padding: 4px 2px; font-size: 12.5px;
 }
 .week-grid .period-head .p-label { font-weight: 700; font-size: 14px; display: block; }
+/* 校時ラベルはクリックで表示名を変更できる(朝学習→朝の会 など)。控えめなクリック可能の示唆 */
+.week-grid .period-head .p-label[data-rename-period] { cursor: pointer; border-radius: 5px; }
+.week-grid .period-head .p-label[data-rename-period]:hover { background: #e7eef6; text-decoration: underline dotted; text-underline-offset: 2px; }
+.week-grid .period-head .p-label[data-rename-period]:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
 .week-grid .period-head .p-time { color: var(--muted); font-size: 10.5px; display: block; }
 .week-grid .period-head .p-coef { color: #b45309; font-size: 10px; display: block; }
 

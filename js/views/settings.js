@@ -110,7 +110,7 @@ export function renderSettingsView(root, ctx) {
     </div>
 
     <div class="panel" id="sp-schedule">
-      <h2>時程${infoHTML('1校時〜の時間割の枠。係数は時数の数え方です')}</h2>
+      <h2>時程${infoHTML('1校時〜の時間割の枠。「表示名」は朝学習などの呼び名に自由に変えられます(週案画面の校時ラベルをクリックしても変更可)。係数は時数の数え方です')}</h2>
       <div class="table-scroll">
       <table class="edit-table">
         <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=1/3(0.333…)、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>

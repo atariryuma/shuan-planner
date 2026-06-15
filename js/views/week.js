@@ -152,7 +152,7 @@ export function renderWeekView(root, ctx) {
     return `
       <tr>
         <th class="period-head">
-          <span class="p-label">${esc(p.label)}</span>
+          <span class="p-label" data-rename-period="${esc(p.id)}" role="button" tabindex="0" title="クリックで名前を変更(朝学習→朝の会 など)">${esc(p.label)}</span>
           ${p.start ? `<span class="p-time">${esc(p.start)}<br>${esc(p.end || '')}</span>` : ''}
           ${coefTxt}
         </th>
@@ -1602,10 +1602,52 @@ function toggleLockCellQuick(weekStart, dayIdx, periodId, ctx) {
   toast(turningOn ? 'ロックしました(更新で守られます)' : 'ロックを解除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
+// 校時の表示名を変更する(朝学習・朝の会・朝読書など学校の呼び方に合わせる)。
+// labelは週案・印刷の表示すべてを駆動するので、ここを変えれば全画面に反映される。
+function openRenamePeriod(periodId, ctx) {
+  const s = store.settings;
+  const p = s.periods.find(x => x.id === periodId);
+  if (!p) return;
+  openModal(`
+    <h2>表示名を変更</h2>
+    <p class="hint">${p.type === 'module'
+      ? '朝学習・朝の会・朝読書・モジュールなど、学校の呼び方に合わせて自由に変えられます。'
+      : 'この校時の表示名を変えます(例: 1 / 1限 / 朝)。'}週案・印刷の表示に反映されます。</p>
+    <div class="field"><label>表示名</label>
+      <input type="text" id="rn-label" value="${esc(p.label)}" maxlength="12" autocomplete="off"></div>
+    <div class="modal-foot">
+      <button class="btn" data-cancel>キャンセル</button>
+      <button class="btn primary" data-save>保存</button>
+    </div>
+  `, (modal, close) => {
+    const input = modal.querySelector('#rn-label');
+    input.focus(); input.select();
+    const save = () => {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      if (v === p.label) { close(); return; }
+      p.label = v;
+      store.commit();
+      close();
+      ctx.rerender();
+      toast('表示名を変更しました', 'info', 2600, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
+    };
+    modal.querySelector('[data-cancel]').onclick = close;
+    modal.querySelector('[data-save]').onclick = save;
+    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); save(); } });
+  });
+}
+
 // ---------------------------------------------------------------- セル操作
 
 function wireCells(root, weekStart, ctx) {
   closeCellContextMenu(); // 再描画で古いメニューが残らないように
+  // 校時ラベル(左端「朝学習」等)をクリック→その場で表示名を変更(学校ごとの呼び名に対応)
+  root.querySelectorAll('.p-label[data-rename-period]').forEach(el => {
+    const open = () => openRenamePeriod(el.dataset.renamePeriod, ctx);
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } });
+  });
   root.querySelectorAll('td.cell').forEach(td => {
     td.addEventListener('click', (ev) => {
       if (td.classList.contains('off')) return;
