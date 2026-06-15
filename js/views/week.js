@@ -374,7 +374,7 @@ function renderEntriesHTML(state, entries, ordinals) {
           ${subj ? `<span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>` : ''}
           ${scopeLabel ? `<span class="e-scope">${esc(scopeLabel)}</span>` : ''}
           ${guide}${frac}${unsetClass}${changed}${pinned}${offplan}${lockFlag}${noPlan}
-          ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;">中止</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
+          ${e.cancelled ? `<span class="e-flag" style="color:#dc2626;" title="${e.cancelledReason ? '中止: ' + esc(e.cancelledReason) : '中止'}">中止${e.cancelledReason ? '・' + esc(e.cancelledReason) : ''}</span>` : e.noCount ? `<span class="e-flag">時数外</span>` : ''}
           ${!e.cancelled && e.endUnit ? `<span class="e-flag" style="color:#15803d;" title="この時間で単元を終え、次のコマから次の単元へ">単元終</span>` : ''}
           ${progress}
         </div>
@@ -1322,7 +1322,7 @@ function wireDayMenu(root, ctx, monday, weekStart, dayCount) {
                 const dst = w.cells[cellKey(d, p.id)];
                 if (cellHasLock(dst) || cellHasActivity(dst) || cellHasUserEdits(dst)) continue; // ロック・予定・手編集は守る
                 w.cells[cellKey(d, p.id)] = {
-                  entries: src.entries.map(e => ({ ...e, id: uid(), text: '', auto: true, note: '', cancelled: false, cancelledText: '', locked: false })),
+                  entries: src.entries.map(e => ({ ...e, id: uid(), text: '', auto: true, note: '', cancelled: false, cancelledText: '', cancelledReason: '', locked: false })),
                 };
                 n++;
               }
@@ -1499,7 +1499,7 @@ function pasteCellQuick(weekStart, dayIdx, periodId, ctx) {
   // ロック=「更新で守る」約束に従い、貼り付けでも守る(担任=コマ全体／専科・複式=学級単位は下でスキップ)
   if (!isMulti && cellHasLock(w.cells[key])) { toast('ロック中のコマには貼り付けできません（先にロック解除を）', 'info', 3000); return; }
   store.snapshot('コマの貼り付け');
-  const fresh = ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '', locked: false }));
+  const fresh = ctx.cellClipboard.map(e => ({ ...e, id: uid(), cancelled: false, cancelledText: '', cancelledReason: '', locked: false }));
   // 専科・複式は学級/学年(scope)でコマを区別する。貼り付けはセル全体を上書きせず、
   // 同じscopeのコマだけ置き換えて他学級のコマは残す(専科で「貼り付けたら別クラスが消えた」事故を防ぐ)。
   if (isMulti) {
@@ -1526,7 +1526,7 @@ function toggleCancelCellQuick(weekStart, dayIdx, periodId, ctx) {
   store.snapshot(turningOn ? 'コマの中止' : '中止の解除');
   for (const e of cell.entries) {
     if (turningOn) { if (!e.cancelled) { e.cancelledText = resolveEntryText(store.state, e, ordinals).text; e.cancelled = true; } }
-    else { e.cancelled = false; e.cancelledText = ''; }
+    else { e.cancelled = false; e.cancelledText = ''; e.cancelledReason = ''; }
   }
   store.commit();
   ctx.rerender();
@@ -1838,7 +1838,7 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
     e.subjectKey = ''; e.scope = null; e.pin = null; e.offplan = false;
     e.noCount = true; e.override = null; e.text = ''; e.auto = true;
     e.unitName = e.unitName || ''; e.nth = 0; e.unitHours = 0;
-    e.cancelled = false; e.cancelledText = ''; e.endUnit = false; e.fraction = 1; e.guide = null; e.advance = null;
+    e.cancelled = false; e.cancelledText = ''; e.cancelledReason = ''; e.endUnit = false; e.fraction = 1; e.guide = null; e.advance = null;
     return e;
   };
 
@@ -2029,30 +2029,36 @@ export function openCellEditor(weekStart, dayIdx, periodId, ctx) {
         };
       });
 
-      const ncChk = box.querySelector('[name="noCount"]');
-      ncChk.onchange = () => { touch(); entry.noCount = ncChk.checked; store.commit(); ctx.rerender(); };
+      // 実施の記録(詳細から昇格): 時数の割合・時数外・中止 を常時表示のチップで1タップ
+      box.querySelectorAll('[data-frac]').forEach(b => {
+        b.onclick = () => { touch(); entry.fraction = Number(b.dataset.frac); store.commit(); render(modal); ctx.rerender(); };
+      });
+      const ncChip = box.querySelector('[data-chip-nocount]');
+      if (ncChip) ncChip.onclick = () => { touch(); entry.noCount = !entry.noCount; store.commit(); render(modal); ctx.rerender(); };
 
       // この時間で単元を終える(残りの計画コマを飛ばして次の単元へ)
       const euChk = box.querySelector('[name="endUnit"]');
       if (euChk) euChk.onchange = () => { touch(); entry.endUnit = euChk.checked; store.commit(); ctx.rerender(); };
 
-      const cancelChk = box.querySelector('[name="cancelled"]');
-      cancelChk.onchange = () => {
+      const cancelChip = box.querySelector('[data-chip-cancel]');
+      if (cancelChip) cancelChip.onclick = () => {
         touch();
-        if (cancelChk.checked) {
+        if (!entry.cancelled) {
           // 中止前の予定内容を控えておく(印刷・画面に「何が中止か」を残す)
           const ords = computeOrdinals(state, weekStart);
           entry.cancelledText = resolveEntryText(state, entry, ords).text;
           entry.cancelled = true;
         } else {
-          entry.cancelled = false;
-          entry.cancelledText = '';
+          entry.cancelled = false; entry.cancelledText = ''; entry.cancelledReason = '';
         }
         store.commit(); render(modal); ctx.rerender();
       };
-
-      const fracSel = box.querySelector('[name="fraction"]');
-      fracSel.onchange = () => { touch(); entry.fraction = Number(fracSel.value); store.commit(); ctx.rerender(); };
+      // 中止の理由(任意): 学級閉鎖・行事変更など。再描画は確定時のみ(入力中はcommitだけ)
+      const reasonInp = box.querySelector('[name="cancelReason"]');
+      if (reasonInp) {
+        reasonInp.oninput = () => { entry.cancelledReason = reasonInp.value; store.commit(); };
+        reasonInp.onchange = () => ctx.rerender();
+      }
 
       const delBtn = box.querySelector('[data-del-entry]');
       if (delBtn) delBtn.onclick = () => {
@@ -2393,9 +2399,6 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
     autoBlock = '<div class="auto-preview muted">年間指導計画を登録すると、ここに単元・内容が自動で入ります</div>';
   }
 
-  // 既定値から変わっている項目があるときだけ「詳細」を開いておく
-  const advOpen = (entry.fraction ?? 1) !== 1 || entry.advance != null || entry.noCount || entry.cancelled || entry.endUnit;
-
   // 選択済みの教科・学級を先頭1行に出し、パレットは「変更」で開く(編集の常用導線を短く)
   const subj = subjectOf(s, entry.subjectKey);
   const scopeLabel = s.mode === 'senka' ? scopeLabelOf(s, entry.scope) : '';
@@ -2435,23 +2438,24 @@ function entryEditorHTML(state, entry, idx, period, ordinals) {
         <label>備考</label>
         <input type="text" name="note" value="${esc(entry.note || '')}">
       </div>
-      <details class="adv" ${advOpen ? 'open' : ''}>
-        <summary class="fold-label">詳細</summary>
-        <div class="field" style="max-width:200px; margin-top:8px;">
-          <label>時数${infoHTML('1コマを複数の教科で分けるときの割合(例: 国語1/3+行事2/3)')}</label>
-          <select name="fraction">
-            <option value="1" ${(entry.fraction ?? 1) === 1 ? 'selected' : ''}>1</option>
-            <option value="0.6666666666666666" ${Math.abs((entry.fraction ?? 1) - 2 / 3) < 0.01 ? 'selected' : ''}>2/3</option>
-            <option value="0.5" ${Math.abs((entry.fraction ?? 1) - 0.5) < 0.01 ? 'selected' : ''}>1/2</option>
-            <option value="0.3333333333333333" ${Math.abs((entry.fraction ?? 1) - 1 / 3) < 0.01 ? 'selected' : ''}>1/3</option>
-          </select>
+      <div class="lesson-state">
+        <div class="ls-row">
+          <span class="ls-label">時数${infoHTML('1コマを複数で分けるときの割合(例: 国語½+行事½)。ふつうは1のままでOK')}</span>
+          <div class="frac-seg" role="group" aria-label="時数の割合">
+            ${[['1', '1'], ['0.6666666666666666', '⅔'], ['0.5', '½'], ['0.3333333333333333', '⅓']].map(([v, l]) => {
+              const on = Math.abs((entry.fraction ?? 1) - Number(v)) < 0.01;
+              return `<button type="button" class="frac-btn ${on ? 'selected' : ''}" data-frac="${v}" aria-pressed="${on}">${l}</button>`;
+            }).join('')}
+          </div>
+          <span class="ls-grow"></span>
+          <button type="button" class="state-chip ${entry.noCount ? 'on' : ''}" data-chip-nocount aria-pressed="${!!entry.noCount}" title="朝活動・テスト監督など授業時数に含めないコマに。進度とは別の「時数」の話です">時数外</button>
+          <button type="button" class="state-chip cancel ${entry.cancelled ? 'on' : ''}" data-chip-cancel aria-pressed="${!!entry.cancelled}" title="学級閉鎖・行事変更などで実施しなかったコマ。以降の授業内容は自動で繰り下がります">中止</button>
         </div>
-        <div class="checkline"><input type="checkbox" name="noCount" id="nc-${idx}" ${entry.noCount ? 'checked' : ''}>
-          <label for="nc-${idx}">時数に数えない</label>${infoHTML('朝活動・テスト監督など、授業時数に含めないコマに。進度とは別の「時数」の話です')}</div>
-        <div class="checkline"><input type="checkbox" name="cancelled" id="cl-${idx}" ${entry.cancelled ? 'checked' : ''}>
-          <label for="cl-${idx}">中止</label>${infoHTML('学級閉鎖・行事変更などで実施しなかったコマ。以降の授業内容は自動で繰り下がります')}</div>
-        ${s.mode !== 'fukushiki' || !isKnownGrade ? `<button class="btn small danger" data-del-entry>この授業を削除</button>` : ''}
-      </details>
+        ${entry.cancelled ? `<input type="text" class="cancel-reason" name="cancelReason" value="${esc(entry.cancelledReason || '')}" placeholder="中止の理由（学級閉鎖・行事変更など・任意）" aria-label="中止の理由">` : ''}
+      </div>
+      ${(s.mode !== 'fukushiki' || !isKnownGrade) ? `<details class="adv"><summary class="fold-label">その他</summary>
+        <button class="btn small danger" data-del-entry style="margin-top:8px;">この授業を削除</button>
+      </details>` : ''}
     </div>`;
 }
 

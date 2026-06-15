@@ -670,6 +670,7 @@ export function newEntry() {
     fraction: 1,       // 分数時数: このコマに占める割合(1, 2/3, 1/2, 1/3)
     cancelled: false,  // 中止・未実施(時数・進度とも除外、表示は取り消し線)
     cancelledText: '', // 中止時点の予定内容のスナップショット(提出書類に「何が中止か」を残す)
+    cancelledReason: '', // 中止の理由(任意。学級閉鎖・行事変更など)
     endUnit: false,    // この時間で単元を終える(残りの計画コマを飛ばし、次のコマから次の単元へ)
     guide: null,       // 複式: 'direct'(直接指導)|'indirect'(間接)|'guide'(ガイド学習)|null
     pin: null,         // この時間だけ別の単元の本時をやる {unitId, nth}|null。自動の順番から外して差し込む(自転車操業対応)
@@ -838,6 +839,7 @@ function cloneCells(cells, keepText) {
         note: keepText ? e.note : '',
         cancelled: false,
         cancelledText: keepText ? e.cancelledText : '',
+        cancelledReason: keepText ? e.cancelledReason : '',
         override: keepText ? e.override : null,   // ●変更(項目別上書き)は週ごとの実施記録
         locked: false,                      // ロックは複製しない(週ごとの保護。ひな形・前週コピーには持ち込まない)
         pin: keepText ? e.pin : null,       // 別単元・計画外・単元切上げ・分数時数・進度上書きは週ごとの状態。

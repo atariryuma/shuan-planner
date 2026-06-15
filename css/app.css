@@ -362,6 +362,21 @@ td.cell.activity-cell, td.cell.activity-cell.today-col { background: #f1f4f8; }
 td.cell.activity-cell:hover, td.cell.activity-cell.today-col:hover { background: #e8ecf2; }
 td.cell.activity-cell .entry.activity { background: transparent; padding: 3px 4px; }
 
+/* コマ編集: 実施の記録バー(時数の割合・時数外・中止 を常時表示。詳細から昇格して1タップに) */
+.lesson-state { margin-top: 12px; }
+.ls-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ls-label { font-size: 12px; color: #64748b; }
+.ls-grow { flex: 1; }
+.frac-seg { display: inline-flex; border: 1px solid #d6dde6; border-radius: 8px; overflow: hidden; }
+.frac-btn { min-width: 32px; padding: 5px 9px; font-size: 13px; background: #fff; border: none; border-left: 1px solid #e6ebf1; color: #475569; cursor: pointer; }
+.frac-btn:first-child { border-left: none; }
+.frac-btn.selected { background: #2563eb; color: #fff; }
+.state-chip { font-size: 12px; padding: 5px 13px; border: 1px solid #d6dde6; border-radius: 999px; background: #fff; color: #475569; cursor: pointer; }
+.state-chip.on { background: #eef2f7; border-color: #b8c2cf; color: #1e293b; font-weight: 500; }
+.state-chip.cancel.on { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+.cancel-reason { width: 100%; margin-top: 8px; }
+.entry-editor .adv { margin-top: 10px; }
+
 /* コマ編集: 活動(会議・委員会等)の名前プリセット／計画なしコマの単元・時数入力 */
 .memo-presets { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
 .memo-preset { padding: 4px 11px; font-size: 12.5px; }
