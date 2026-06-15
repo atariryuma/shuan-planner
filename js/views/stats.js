@@ -31,7 +31,7 @@ export function renderStatsView(root, ctx) {
   const viewpoints = renderViewpointSummary(state, scopes, weekStart);
   const attendance = renderAttendance(state, weekStart);
 
-  // 番号だらけの表は「教育委員会への報告用」として畳む(普段は上の見通しでパッと分かる)。
+  // 時数の表(実施・標準・残り=教育委員会報告の核)は常に見せる。月別の細かい内訳だけ各表の中で畳む。
   const legend = sections ? `<div class="hours-legend" aria-hidden="true">
         <span><i class="hl-done"></i>実施</span>
         <span><i class="hl-plan"></i>予定</span>
@@ -44,12 +44,9 @@ export function renderStatsView(root, ctx) {
         <p class="empty-title">まだ集計するコマがありません</p>
         <p class="empty-sub">週案タブでコマを入れると、ここに進度と標準時数の見通しが表示されます。</p>
       </div>`;
-  // 見通し(management)があれば、表はその下に「詳しい数値」として畳む。無ければ表を主役に出す。
+  // 見通し(management)があれば、その下に時数の表を見出し付きで出す(隠さない)。無ければ表が主役。
   const numbersBlock = (classSummary || sections)
-    ? (management
-        ? `<details class="stats-numbers"><summary class="fold-label">詳しい数値（月別・標準時数・教育委員会への報告用）</summary>
-            <div class="stats-numbers-body">${legend}${tables}</div></details>`
-        : `${legend}${tables}`)
+    ? `${management ? `<h3 class="stats-tables-head">時数の確保（実施・標準・残り）${infoHTML('教育委員会への実施時数報告はこの表の「実施済」を使います。月別の内訳は各表の中で開けます')}</h3>` : ''}${legend}${tables}`
     : (management ? '' : emptyState);
 
   root.innerHTML = `

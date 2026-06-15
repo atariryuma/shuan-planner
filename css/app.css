@@ -1321,6 +1321,8 @@ td.cell:focus-visible, .day-th:focus-visible {
 .stats-numbers > summary.fold-label { padding: 8px 0; }
 .stats-numbers-body { margin-top: 10px; }
 .mng-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+/* 見通し(カード)と時数の表の境目を少し空ける(隠さず、でも区切る) */
+.stats-tables-head { margin-top: 22px; }
 .mng-card { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; overflow: hidden; }
 .mng-card.behind { border-color: #fcd9a8; }
 .mng-head { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 9px 12px; }
