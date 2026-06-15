@@ -13,7 +13,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, computeHours, computeProgressForecast, computeAttendance, scopeKey, resolveEntryPlanDetails, cellHasLock, isActivity, isEntryEdited, conformEntryToPlan, entryMatchesScope, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, computeHours, computeProgressForecast, computeAttendance, scopeKey, sharedHoursFor, resolveEntryPlanDetails, cellHasLock, isActivity, isEntryEdited, conformEntryToPlan, entryMatchesScope, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
 
 // 活動(会議・委員会等)entry: 教科なし＋見出し＋時数に数えない
 const activityEntry = (name) => ({ id: `act-${name}`, subjectKey: '', scope: null, unitName: name, nth: 0, unitHours: 0, noCount: true, fraction: 1, cancelled: false, auto: true, override: null });
@@ -671,6 +671,24 @@ test('他担当: 「本時を選ぶ」で他担当の単元を教えた分は、
   store.state.weeks[W].cells[cellKey(1,'p1')].entries[0].pin = { unitId: 'u1', nth: 1 };
   const f2 = computeProgressForecast(store.state, W).get(scopeKey('rika', ''));
   assert.equal(f2.units[0].done, 2);          // 単元A は通常の2コマのみ(再実施pinは加算しない)
+});
+
+test('他担当: sharedHoursFor=同僚が受け持つ単元時数の合計(標準時数から差し引ける)', () => {
+  const state = defaultState();
+  state.settings.grade = 5;
+  state.plans = [{ id:'pl', subjectKey:'rika', grade:5, startOffset:0, units:[
+    { id:'u1', name:'単元A', hours:4, lessons:[] },
+    { id:'u2', name:'単元B', hours:3, lessons:[] },
+    { id:'u3', name:'単元C', hours:5, lessons:[] },
+  ] }];
+  store.state = state;
+  // 他担当なし=0
+  assert.equal(sharedHoursFor(store.state, 'rika', ''), 0);
+  // u2とu3を他担当に=3+5=8
+  state.settings.sharedUnits = { [scopeKey('rika', '')]: ['u2', 'u3'] };
+  assert.equal(sharedHoursFor(store.state, 'rika', ''), 8);
+  // 別教科・別学級は0
+  assert.equal(sharedHoursFor(store.state, 'kokugo', ''), 0);
 });
 
 test('授業なし(予定として): 時数に数えず、基本時間割の流し込みで入れ直されない', () => {

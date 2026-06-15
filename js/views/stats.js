@@ -1,6 +1,6 @@
 /** 時数集計ビュー: 進度一覧(専科・複式)・教科別集計・月別/学期別・CSV/印刷 */
 
-import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, computeAttendance, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
+import { store, computeHours, computeMonthlyHours, computeOrdinals, computeViewpointTally, computeProgressForecast, computeAttendance, lessonFromPlan, fmtHours, standardHoursFor, standardTotalHoursFor, sharedHoursFor, scopeKey, cellKey, teachingWeeksLeft, teachingWeeksElapsed, doneRefWeek } from '../store.js';
 import { weekNumberInFiscalYear, fiscalYearOf, parseDate, addDays, fmtDate, fmtMD, esc } from '../utils.js';
 import { toast, infoHTML } from '../ui.js';
 import { icon } from '../icons.js';
@@ -136,20 +136,22 @@ function scopesOf(s, hours) {
  * バーが目標ラインに届かない=標準に未達。標準を多少上回るのは差し支えないため、
  * 過度な超過(標準の115%超)のときだけ淡色を警告色にする。色＋位置(ライン)＋数値で色覚に依存しない。
  */
-function hoursBar(done, total, std) {
+function hoursBar(done, total, std, shared = 0) {
   if (!std) {
-    const max = Math.max(total, done, 1);
-    return `<div class="hbar" title="実施${fmtHours(done)} / 予定${fmtHours(total)}">
+    const max = Math.max(total + shared, done, 1);
+    return `<div class="hbar" title="実施${fmtHours(done)} / 予定${fmtHours(total)}${shared ? ` / 他担当${fmtHours(shared)}` : ''}">
       <div class="hbar-plan" style="width:${Math.min(total / max, 1) * 100}%"></div>
       <div class="hbar-done" style="width:${Math.min(done / max, 1) * 100}%"></div>
+      ${shared ? `<div class="hbar-shared" style="left:${Math.min(total / max, 1) * 100}%; width:${Math.min(shared / max, 1) * 100}%"></div>` : ''}
     </div>`;
   }
-  const max = Math.max(total, std);
+  const max = Math.max(total + shared, std);
   const stdPct = std / max * 100;
-  const over = total > std * 1.15; // 標準を多少超える程度は警告しない(超過は原則差し支えない)
-  return `<div class="hbar ${over ? 'is-over' : ''}" title="実施${fmtHours(done)} / 予定${fmtHours(total)} / 標準${fmtHours(std)}">
+  const over = (total + shared) > std * 1.15; // 標準を多少超える程度は警告しない(超過は原則差し支えない)
+  return `<div class="hbar ${over ? 'is-over' : ''}" title="実施${fmtHours(done)} / 予定${fmtHours(total)}${shared ? ` / 他担当${fmtHours(shared)}` : ''} / 標準${fmtHours(std)}">
     <div class="hbar-plan" style="width:${total / max * 100}%"></div>
     <div class="hbar-done" style="width:${done / max * 100}%"></div>
+    ${shared ? `<div class="hbar-shared" style="left:${total / max * 100}%; width:${shared / max * 100}%"></div>` : ''}
     <div class="hbar-std" style="left:${stdPct}%"></div>
   </div>`;
 }
@@ -162,38 +164,39 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
     if (subj.parent && keys.has(subj.parent)) (childrenOf[subj.parent] = childrenOf[subj.parent] || []).push(subj.key);
   }
 
-  let sumDone = 0, sumYear = 0, sumStd = 0;
+  let sumDone = 0, sumYear = 0, sumStd = 0, sumShared = 0;
   const rows = [];
   for (const sc of scopes) {
     const scopeVal = sc.scope === '' ? null : sc.scope;
-    let done = 0, yearTotal = 0, std = 0;       // 予定計=年間の入力済み(実施済≦予定計を保証・過去週でも矛盾しない)
+    let done = 0, yearTotal = 0, std = 0, sharedH = 0; // 予定計=年間の入力済み(実施済≦予定計を保証・過去週でも矛盾しない)
     for (const subj of s.subjects) {
       if (subj.parent && keys.has(subj.parent)) continue;
-      let t = 0, d = 0;
+      let t = 0, d = 0, sh = 0;
       for (const k of [subj.key, ...(childrenOf[subj.key] || [])]) {
         const v = hours.get(scopeKey(k, scopeVal));
         if (v) t += (v.yearTotal || 0);
         d += hoursDone.get(scopeKey(k, scopeVal))?.done || 0;
+        sh += sharedHoursFor(state, k, scopeVal); // 他担当(同僚の受け持ち)時数
       }
-      if (t > 0 || d > 0) {
-        yearTotal += t; done += d;
+      if (t > 0 || d > 0 || sh > 0) {
+        yearTotal += t; done += d; sharedH += sh;
         const sd = standardHoursFor(s, subj.key, sc.grade);
         if (sd != null) std += sd;
       }
     }
-    if (yearTotal === 0 && done === 0) continue; // 未入力の学級は出さない
-    sumDone += done; sumYear += yearTotal; sumStd += std;
-    const remain = std ? std - yearTotal : null;
+    if (yearTotal === 0 && done === 0 && sharedH === 0) continue; // 未入力の学級は出さない
+    sumDone += done; sumYear += yearTotal; sumStd += std; sumShared += sharedH;
+    const remain = std ? std - yearTotal - sharedH : null; // 残り=標準−自分−他担当
     const totalStd = standardTotalHoursFor(s, sc.grade); // 施行規則 別表の年間総授業時数(法定の総枠)
     rows.push(`
       <tr>
-        <td class="subj">${esc(sc.label || '—')}</td>
+        <td class="subj">${esc(sc.label || '—')}${sharedH > 0 ? `<span class="hint shared-h">他担当 ${fmtHours(sharedH)}h</span>` : ''}</td>
         <td>${fmtHours(done)}</td>
         <td>${fmtHours(yearTotal)}</td>
         <td>${std || '—'}</td>
         <td>${totalStd || '—'}</td>
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
-        <td style="text-align:left;">${hoursBar(done, yearTotal, std)}</td>
+        <td style="text-align:left;">${hoursBar(done, yearTotal, std, sharedH)}</td>
       </tr>`);
   }
   if (rows.length < 2) return ''; // 1学級分しか無ければ通常テーブルで十分
@@ -216,7 +219,7 @@ function renderClassSummary(state, hours, hoursDone, scopes) {
           ${rows.join('')}
           <tr style="background:#f8fafc;">
             <td class="subj">合計</td><td><b>${fmtHours(sumDone)}</b></td><td>${fmtHours(sumYear)}</td>
-            <td>${sumStd || '—'}</td><td></td><td>${sumStd ? fmtHours(sumStd - sumYear) : '—'}</td><td></td>
+            <td>${sumStd || '—'}</td><td></td><td>${sumStd ? fmtHours(sumStd - sumYear - sumShared) : '—'}</td><td></td>
           </tr>
         </tbody>
       </table>
@@ -417,19 +420,23 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
     let done = getDone(subj.key);
     for (const ck of childrenOf[subj.key] || []) done += getDone(ck);
     const std = standardHoursFor(s, subj.key, sc.grade);
-    if (yearTotal === 0 && week === 0 && done === 0 && std == null) continue;
+    // 他担当(分担)の単元時数=同僚が受け持つ分。標準時数から差し引けば「自分が確保すべき残り」になる。
+    let sharedH = sharedHoursFor(state, subj.key, scopeVal);
+    for (const ck of childrenOf[subj.key] || []) sharedH += sharedHoursFor(state, ck, scopeVal);
+    if (yearTotal === 0 && week === 0 && done === 0 && std == null && sharedH === 0) continue;
     any = true;
     // 残り・必要ペース・進捗率・見込みは「年間の着地」指標なので、表示週までの累計(total)でなく年間入力済み(yearTotal)を母数にする
-    const remain = std != null ? std - yearTotal : null;
+    // クラスの確保見込み=自分の年間時数＋他担当(同僚の分)。残り=標準−自分−他担当。
+    const remain = std != null ? std - yearTotal - sharedH : null;
     const pace = remain != null && remain > 0 && weeksLeft > 0 ? remain / weeksLeft : null;
     // 分母は経過「授業」週数(暦週数で割ると夏休み以降の着地を恒常的に過小評価する)
     const projected = yearTotal > 0 ? (yearTotal / weeksElapsed) * (s.hoursBase || 35) : null;
-    const pct = std ? Math.min(100, Math.round((yearTotal / std) * 100)) : 0;
-    const over = std != null && yearTotal > std;
+    const pct = std ? Math.min(100, Math.round(((yearTotal + sharedH) / std) * 100)) : 0;
+    const over = std != null && (yearTotal + sharedH) > std;
     const row = `
       <tr class="${over ? 'over' : ''}">
         <td class="subj"><span class="subj-chip" style="background:${esc(subj.color)}">${esc(subj.short || subj.name)}</span>
-          ${esc(subj.name)}${mergedFrom.length ? `<span class="hint">(+${mergedFrom.map(esc).join('・')})</span>` : ''}</td>
+          ${esc(subj.name)}${mergedFrom.length ? `<span class="hint">(+${mergedFrom.map(esc).join('・')})</span>` : ''}${sharedH > 0 ? `<span class="hint shared-h" title="他の先生と分担している単元の時数。標準時数から差し引いて『自分が確保すべき残り』を出します">他担当 ${fmtHours(sharedH)}h</span>` : ''}</td>
         <td>${fmtHours(week)}</td>
         <td>${fmtHours(done)}</td>
         ${detail ? `<td><b>${fmtHours(yearTotal)}</b></td>` : ''}
@@ -439,7 +446,7 @@ function renderScopeTable(state, hours, hoursDone, monthly, sc, weekNo, weekStar
         <td>${remain != null ? fmtHours(remain) : '—'}</td>
         ${detail ? `<td>${pace != null ? fmtHours(pace) + ' /週' : '—'}</td>
         <td>${projected != null ? Math.round(projected) : '—'}</td>` : ''}
-        <td style="text-align:left;">${hoursBar(done, yearTotal, std)}</td>
+        <td style="text-align:left;">${hoursBar(done, yearTotal, std, sharedH)}</td>
       </tr>`;
     // 専科・複式では「時数0で標準だけある行」を畳む(自分の教科1行を探させない)
     if (s.mode !== 'homeroom' && yearTotal === 0 && week === 0 && done === 0) zeroRows.push(row);

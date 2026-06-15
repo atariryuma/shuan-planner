@@ -1930,5 +1930,20 @@ export function standardTotalHoursFor(settings, grade) {
   return getStandardTotalHours(settings.schoolType, grade);
 }
 
+/**
+ * 他担当(分担)にした単元の年間計画時数の合計。= 同僚が受け持つ時数。
+ * クラスの標準時数から差し引けば「自分が確保すべき残り時数」になる(同僚の時数を別途入力しなくてよい)。
+ */
+export function sharedHoursFor(state, subjectKey, scope) {
+  const settings = state.settings;
+  const shared = sharedUnitSet(settings, subjectKey, scope);
+  if (!shared.size) return 0;
+  const grade = scopeGrade(settings, scope);
+  const plan = state.plans.find(p => p.subjectKey === subjectKey && (p.grade == null || p.grade === grade));
+  if (!plan?.units?.length) return 0;
+  return plan.units.reduce((sum, u) =>
+    shared.has(String(u.id)) ? sum + Math.max(1, Math.round(u.hours || u.lessons?.length || 1)) : sum, 0);
+}
+
 export const store = new Store();
 export { parseDate };
