@@ -13,7 +13,7 @@ class MemoryStorage {
 globalThis.localStorage = new MemoryStorage();
 globalThis.document = { dispatchEvent() {} };
 
-const { defaultState, cellKey, computeOrdinals, computeHours, computeProgressForecast, scopeKey, resolveEntryPlanDetails, cellHasLock, isActivity, isEntryEdited, conformEntryToPlan, entryMatchesScope, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
+const { defaultState, cellKey, computeOrdinals, computeHours, computeProgressForecast, scopeKey, resolveEntryPlanDetails, cellHasLock, isActivity, isNoClass, cellIsNoClass, isEntryEdited, conformEntryToPlan, entryMatchesScope, store, mergeLessonOverride, normalizeOverride } = await import('../js/store.js');
 
 // 活動(会議・委員会等)entry: 教科なし＋見出し＋時数に数えない
 const activityEntry = (name) => ({ id: `act-${name}`, subjectKey: '', scope: null, unitName: name, nth: 0, unitHours: 0, noCount: true, fraction: 1, cancelled: false, auto: true, override: null });
@@ -590,6 +590,28 @@ test('授業マネジメント: 実施済/残り/単元の進み/状態を計画
   assert.ok(['behind','ahead','ontrack','done'].includes(f.status));
   assert.equal(typeof f.projected, 'number');
   assert.ok(!Number.isNaN(f.pace));
+});
+
+test('授業なし: 時数に数えず、基本時間割の流し込みで入れ直されない', () => {
+  const state = defaultState();
+  state.baseTimetables = [{ id:'b', name:'基本', dayPatterns:{}, savedAt:1, cells: {
+    [cellKey(0,'p1')]: { entries:[{ id:'b1', subjectKey:'kokugo', scope:'', fraction:1, auto:true }] },
+    [cellKey(0,'p2')]: { entries:[{ id:'b2', subjectKey:'sansu', scope:'', fraction:1, auto:true }] },
+  } }];
+  const W = '2020-06-01';
+  state.weeks = { [W]: { start:W, cells: {
+    [cellKey(0,'p1')]: { entries:[{ id:'nc', subjectKey:'', noClass:true, auto:true }] },
+  }, events:[], dayNotes:[], attendance:[], dayPatterns:{}, goals:'', reflection:'' } };
+  store.state = state;
+  assert.equal(isNoClass(store.state.weeks[W].cells[cellKey(0,'p1')].entries[0]), true);
+  store.applyBaseTimetable(W, null, { skipNoSchool:true, fillEmptyOnly:true, commit:true }); // 空きだけ埋める
+  const c1 = store.state.weeks[W].cells[cellKey(0,'p1')];
+  const c2 = store.state.weeks[W].cells[cellKey(0,'p2')];
+  assert.equal(c1.entries[0].id, 'nc');               // 授業なしは入れ直されない
+  assert.equal(c2.entries[0].subjectKey, 'sansu');    // 空きだったp2は埋まる
+  const h = computeHours(store.state, W);
+  assert.equal((h.get(scopeKey('kokugo',''))?.yearTotal) || 0, 0); // 授業なしは時数に乗らない
+  assert.equal(h.get(scopeKey('sansu',''))?.yearTotal, 1);
 });
 
 test('前週コピー: ロック済みコマは上書きせず守る', () => {

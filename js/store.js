@@ -282,7 +282,7 @@ class Store {
     const kept = {};
     if (dst.cells) {
       for (const [k, cell] of Object.entries(dst.cells)) {
-        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+        if (cellHasLock(cell) || cellHasActivity(cell) || cellIsNoClass(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
       }
     }
     dst.cells = cloneCells(src.cells, keepText);
@@ -353,8 +353,8 @@ class Store {
     const kept = {};
     if (!fillEmptyOnly) {
       for (const [k, cell] of Object.entries(w.cells)) {
-        // ロック・活動(会議等の予定)は常に保護。手編集は preserveEdits のときだけ保護。
-        if (cellHasLock(cell) || cellHasActivity(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
+        // ロック・活動(会議等)・授業なしは常に保護。手編集は preserveEdits のときだけ保護。
+        if (cellHasLock(cell) || cellHasActivity(cell) || cellIsNoClass(cell) || (preserveEdits && cellHasUserEdits(cell))) kept[k] = cell;
       }
     }
     if (!fillEmptyOnly) {
@@ -792,6 +792,16 @@ export function isActivity(entry) {
 /** セル内に活動(会議・委員会等)があるか。基本時間割に無い週限定の予定を「計画に合わせて更新」で常に守る判定。 */
 export function cellHasActivity(cell) {
   return !!cell && Array.isArray(cell.entries) && cell.entries.some(isActivity);
+}
+
+/** 「授業なし」マーカー: 意図的に授業を入れないコマ(自習・専科に出している・カット等)。
+ * 教科なし・時数に数えない・進度も進めない。活動(会議)とは別物で、基本時間割の自動展開・復元が入れ直さない。 */
+export function isNoClass(entry) {
+  return !!entry && !entry.subjectKey && entry.noClass === true;
+}
+/** そのコマが「授業なし」か(マーカーだけが入っている) */
+export function cellIsNoClass(cell) {
+  return !!cell && Array.isArray(cell.entries) && cell.entries.length > 0 && cell.entries.every(isNoClass);
 }
 
 /** 授業entryの「本時」を計画どおりに戻す(上書き・手入力・別の本時(pin)・計画外・単元切上げ・進度上書きを消してauto化)。
