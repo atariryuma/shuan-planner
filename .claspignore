@@ -1,0 +1,4 @@
+# clasp が gas/ から GASプロジェクトへ送るのは Code.gs / Index.html / appsscript.json だけ。
+# ビルダ(build-webapp.mjs)は送らない(パターンは rootDir=gas からの相対)。
+*.mjs
+**/*.mjs

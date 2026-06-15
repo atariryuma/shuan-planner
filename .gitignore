@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+# clasp: スクリプトIDはアカウント固有なので公開リポジトリに含めない
+.clasp.json
+.clasprc.json
