@@ -6,7 +6,7 @@
  *     新版で読み直す(古いモジュールに新しい動的importがぶつかる事故を防ぐ)。
  * ファイルを更新したら VERSION を必ず上げること。
  */
-const VERSION = 'v3.11.0';
+const VERSION = 'v3.12.0';
 const CACHE = `shuan-planner-${VERSION}`;
 
 const PRECACHE = [

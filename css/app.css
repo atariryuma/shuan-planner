@@ -623,7 +623,8 @@ table.stats-table { border-collapse: collapse; width: 100%; }
 /* 標準時数入力。font-sizeはインラインで書かない(タッチ環境の16px化が負けるため) */
 .stats-table input { font-size: 13.5px; }
 .stats-table th, .stats-table td { border: 1px solid var(--line); padding: 6px 10px; font-size: 13.5px; text-align: right; }
-.stats-table th { background: #f8fafc; text-align: center; }
+/* 見出しは折り返さない=ⓘ説明アイコンが見出し語から離れて改行落ちするのを防ぐ(列は内容に合わせて広がる) */
+.stats-table th { background: #f8fafc; text-align: center; white-space: nowrap; }
 .stats-table td.subj { text-align: left; font-weight: 600; }
 .stats-table tr.over td { background: #fef2f2; }
 
