@@ -455,34 +455,25 @@ class Store {
     return cell.entries.map(label).filter(Boolean).join('・') || null;
   }
 
-  /** 基本時間割からそのスロットを週へ復元する(非破壊)。空きはまるごと、設定済みは「不足している学級(scope)」だけ追加。
-   * 予定(会議等)の入ったコマには授業を入れない。戻り値=実際に追加した授業数。内部用(commitしない)。 */
+  /** 基本時間割からそのスロットを週へ復元する=空きコマの穴埋め(非破壊)。
+   * 既に授業・予定が入っているコマには重ねない(ユーザーが置いた内容を尊重)。
+   * 戻り値=復元したコマの授業数(0=空きでなかった/基本に無い)。内部用(commitしない)。 */
   _placeBaseCell(w, base, dayIdx, periodId) {
     const key = cellKey(dayIdx, periodId);
     const baseCell = base?.cells?.[key];
     if (!baseCell || !baseCell.entries?.length) return 0;
-    const wcell = w.cells[key];
-    if (cellHasActivity(wcell)) return 0;                  // 予定コマには授業を入れない
-    const cloned = cloneCells({ [key]: baseCell }, false)[key];
-    if (!wcell || !wcell.entries?.length) {                // 空き → まるごと復元
-      w.cells[key] = cloned;
-      return cloned.entries.length;
-    }
-    let added = 0;                                         // 設定済み → 不足している学級(scope)の授業だけ追加(既存は非破壊)
-    for (const be of cloned.entries) {
-      if (isActivity(be)) continue;
-      if (!wcell.entries.some(e => (e.scope ?? null) === (be.scope ?? null))) { wcell.entries.push(be); added++; }
-    }
-    return added;
+    if (cellIsClaimed(w.cells[key])) return 0;            // 既に何か入っているコマは触らない(復元=空きの穴埋めだけ)
+    w.cells[key] = cloneCells({ [key]: baseCell }, false)[key];
+    return w.cells[key].entries.length;
   }
 
-  /** 復元すると追加される授業の見出し(「理科 5年1組」等)。何も追加されないなら null。右クリック導線の出し分け用。 */
+  /** 復元で入る授業の見出し(「理科 5年1組」等)。空きコマ かつ 基本に授業があるときだけ返す(右クリック導線の出し分け)。 */
   baseRestoreLabel(weekStart, dayIdx, periodId, id = null) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     const baseCell = base?.cells?.[cellKey(dayIdx, periodId)];
     if (!baseCell || !baseCell.entries?.length) return null;
     const wcell = this.state.weeks[weekStart]?.cells?.[cellKey(dayIdx, periodId)];
-    if (cellHasActivity(wcell)) return null;
+    if (cellIsClaimed(wcell)) return null;                // 既に入っているコマには復元を出さない(穴埋めだけ)
     const s = this.settings;
     const label = (e) => {
       const subj = s.subjects.find(x => x.key === e.subjectKey);
@@ -491,12 +482,11 @@ class Store {
         : (s.mode === 'fukushiki' && e.scope != null ? `${e.scope}年` : '');
       return [subjName, scope].filter(Boolean).join(' ');
     };
-    const missing = baseCell.entries.filter(be => !isActivity(be)
-      && !(wcell?.entries || []).some(e => (e.scope ?? null) === (be.scope ?? null)));
-    return missing.length ? missing.map(label).filter(Boolean).join('・') || null : null;
+    const lessons = baseCell.entries.filter(be => !isActivity(be));
+    return lessons.length ? (lessons.map(label).filter(Boolean).join('・') || null) : null;
   }
 
-  /** 基本時間割からこのコマを復元する(空き=まるごと/設定済み=不足学級のみ)。復元したら true。 */
+  /** 基本時間割からこのコマを復元する(空きコマのみ穴埋め)。復元したら true。 */
   restoreCellFromBase(weekStart, dayIdx, periodId, id = null) {
     const base = id ? this.state.baseTimetables.find(b => b.id === id) : this.state.baseTimetables[0];
     if (!base) return false;
