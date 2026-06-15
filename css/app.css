@@ -435,6 +435,14 @@ td.cell.activity-cell .entry.activity { background: transparent; padding: 3px 4p
   box-shadow: 0 -8px 8px -8px rgba(0,0,0,.18);
 }
 .modal .modal-foot .left { margin-right: auto; }
+/* 空きコマの選択画面(授業を入れる / 予定・活動) */
+.cell-choose { padding: 6px 0 2px; }
+.cc-q { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: var(--ink-2); }
+.cc-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px; margin-bottom: 10px; border: 1px solid var(--line, #e2e8f0); border-radius: 12px; background: #fff; cursor: pointer; text-align: left; }
+.cc-btn:hover, .cc-btn:focus-visible { background: var(--accent-50, #eff6ff); border-color: var(--accent, #3b82f6); }
+.cc-btn .ic { width: 22px; height: 22px; flex: none; color: var(--accent, #3b82f6); }
+.cc-main { font-weight: 700; font-size: 15px; }
+.cc-sub { margin-left: auto; font-size: 12px; color: var(--muted); }
 
 .field { margin-bottom: 12px; }
 .field > label { display: block; font-size: 12.5px; font-weight: 700; color: #374151; margin-bottom: 4px; }

@@ -444,6 +444,14 @@ td.cell.activity-cell .entry.activity { background: transparent; padding: 3px 4p
   box-shadow: 0 -8px 8px -8px rgba(0,0,0,.18);
 }
 .modal .modal-foot .left { margin-right: auto; }
+/* 空きコマの選択画面(授業を入れる / 予定・活動) */
+.cell-choose { padding: 6px 0 2px; }
+.cc-q { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: var(--ink-2); }
+.cc-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 16px; margin-bottom: 10px; border: 1px solid var(--line, #e2e8f0); border-radius: 12px; background: #fff; cursor: pointer; text-align: left; }
+.cc-btn:hover, .cc-btn:focus-visible { background: var(--accent-50, #eff6ff); border-color: var(--accent, #3b82f6); }
+.cc-btn .ic { width: 22px; height: 22px; flex: none; color: var(--accent, #3b82f6); }
+.cc-main { font-weight: 700; font-size: 15px; }
+.cc-sub { margin-left: auto; font-size: 12px; color: var(--muted); }
 
 .field { margin-bottom: 12px; }
 .field > label { display: block; font-size: 12.5px; font-weight: 700; color: #374151; margin-bottom: 4px; }
@@ -6136,6 +6144,8 @@ function deleteCellQuick(weekStart, dayIdx, periodId, ctx) {
   store.snapshot('コマを削除');
   delete w.cells[cellKey(dayIdx, periodId)];
   store.commit(); ctx.rerender();
+  // 削除後もそのコマにフォーカスを残す(行事欄などへ飛ばさない。続けて矢印移動・貼り付けができる)
+  requestAnimationFrame(() => document.querySelector(`td.cell[data-day="${dayIdx}"][data-period="${CSS.escape(periodId)}"]`)?.focus());
   toast('削除しました', 'info', 2400, { label: '元に戻す', onClick: () => { store.undo(); ctx.rerender(); } });
 }
 
@@ -6441,6 +6451,11 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
   // 閉じた場合はcleanupで除去する(開いて閉じるだけで授業が登録されないように)
   const prefilled = new Set();
 
+  // 空きコマは「授業／予定」を選ぶ画面から始める(いきなり授業を見せて、閉じると消える混乱を防ぐ)。
+  // 既存コマ・右クリック指定(asActivity/asLesson)は従来どおり直接エディタへ。
+  const openedEmpty = !(store.state.weeks[weekStart]?.cells?.[editKey]?.entries?.length);
+  let picking = openedEmpty && !opts.asActivity && !opts.asLesson;
+
   const ensureLesson = () => {
     const w = store.getWeek(weekStart, true);
     const key = cellKey(dayIdx, periodId);
@@ -6511,8 +6526,8 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
     }
   };
 
-  // 空きコマもタップで授業エディタを直接開く(タップ＝すぐ授業入力)。会議等は⋯の「予定・活動にする」で切替。
-  ensureLesson();
+  // 空きコマ(picking)は選択画面から始めるので、まだ授業を充填しない。既存コマは従来どおり開いて編集。
+  if (!picking) ensureLesson();
   // 右クリックの「予定・活動にする…」「授業に変える…」から開いたときは、開いた直後に種類を変えておく
   // (このあとエディタで名前・教科を入れてもらう。fukushikiの活動化は学年別で破綻するため担任/専科のみ)。
   if (opts.asActivity && s.mode !== 'fukushiki') { makeActivity(); store.commit(); }
@@ -6520,8 +6535,28 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
 
   const render = (modal) => {
     const state = store.state;
-    const ordinals = computeOrdinals(state, weekStart);
     const cellNow = store.getCell(weekStart, dayIdx, periodId) || { entries: [] };
+    // 空きコマの選択画面: 「授業を入れる」(基本時間割があればその教科・学級を併記) と「予定・活動」を選ばせる。
+    if (picking && !cellNow.entries.length) {
+      const bl = (store.state.baseTimetables?.[0]?.cells?.[editKey]?.entries || []).filter(e => e.subjectKey && !isActivity(e));
+      const baseLabel = bl.map(e => {
+        const subj = subjectOf(s, e.subjectKey);
+        const sc = s.mode === 'senka' ? (s.senkaClasses.find(c => c.id === e.scope)?.label || '') : s.mode === 'fukushiki' ? `${e.scope}年` : '';
+        return `${subj?.short || subj?.name || ''}${sc ? '・' + sc : ''}`;
+      }).filter(Boolean).join(' / ');
+      modal.querySelector('.cell-editor-body').innerHTML = `
+        <div class="cell-choose">
+          <p class="cc-q">このコマに何を入れますか?</p>
+          <button type="button" class="cc-btn" data-choose-lesson>${icon('book')}<span class="cc-main">授業を入れる</span>${baseLabel ? `<span class="cc-sub">${esc(baseLabel)}</span>` : '<span class="cc-sub">教科を選びます</span>'}</button>
+          ${s.mode !== 'fukushiki' ? `<button type="button" class="cc-btn" data-choose-activity>${icon('memo')}<span class="cc-main">予定・活動</span><span class="cc-sub">会議・自習など</span></button>` : ''}
+        </div>`;
+      const ocM = modal.querySelector('.oc-menu'); if (ocM) ocM.style.display = 'none';
+      modal.querySelector('[data-choose-lesson]').onclick = () => { ensureLesson(); prefilled.clear(); picking = false; store.commit(); render(modal); };
+      modal.querySelector('[data-choose-activity]')?.addEventListener('click', () => { makeActivity(); picking = false; store.commit(); render(modal); ctx.rerender(); });
+      modal.querySelector('[data-choose-lesson]')?.focus();
+      return;
+    }
+    const ordinals = computeOrdinals(state, weekStart);
     // 複式: 両学年へまとめて教科をセットする共通パレット
     const commonPalette = s.mode === 'fukushiki' ? `
       <div class="field">
@@ -6828,6 +6863,7 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
       close(); // cleanup は discarded を見て何もしない
       toast('変更を取り消しました', 'info', 2000);
       ctx.rerender();
+      requestAnimationFrame(() => document.querySelector(`td.cell[data-day="${dayIdx}"][data-period="${CSS.escape(periodId)}"]`)?.focus());
     };
     // 削除=このコマを消す→空きに戻す(また流し込みで埋まりうる)。
     modal.querySelector('[data-clear-cell]').onclick = () => {
