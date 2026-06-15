@@ -4490,10 +4490,11 @@ function renderWeekView(root, ctx) {
   const hasLessons = !!wkObj && Object.values(wkObj.cells).some(c => c.entries?.some(e => e.subjectKey));
   const submittedAt = wkObj?.submittedAt;
   const submitDue = hasLessons && weekStart <= fmtDate(mondayOf(new Date())); // 今週以前で授業あり
+  // チップは状態が見れば分かるのでツールチップは付けない(未提出=赤・提出済=緑＋日付。クリックで切替)。
   const submitChip = submittedAt
-    ? `<button class="submit-chip done" id="wk-submit" title="週案を提出したかの目印です（時数・印刷は変わりません）。クリックで「未提出」に戻す">✓ 提出済 ${fmtMD(new Date(submittedAt))}</button>`
+    ? `<button class="submit-chip done" id="wk-submit">✓ 提出済 ${fmtMD(new Date(submittedAt))}</button>`
     : submitDue
-      ? `<button class="submit-chip due" id="wk-submit" title="週案を提出したかの目印です（時数・印刷は変わりません）。まだの週は赤く出ます。クリックで「提出済み」に">未提出</button>`
+      ? `<button class="submit-chip due" id="wk-submit">未提出</button>`
       : '';
 
   const dayHeads = [];
@@ -6680,9 +6681,9 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
       const ncChip = box.querySelector('[data-chip-nocount]');
       if (ncChip) ncChip.onclick = () => { touch(); entry.noCount = !entry.noCount; store.commit(); render(modal); ctx.rerender(); };
 
-      // この時間で単元を終える(残りの計画コマを飛ばして次の単元へ)
-      const euChk = box.querySelector('[name="endUnit"]');
-      if (euChk) euChk.onchange = () => { touch(); entry.endUnit = euChk.checked; store.commit(); ctx.rerender(); };
+      // この時間で単元を終える(残りの計画コマを飛ばして次の単元へ)。状態チップ「切り上げ」のトグル。
+      const euChip = box.querySelector('[data-chip-endunit]');
+      if (euChip) euChip.onclick = () => { touch(); entry.endUnit = !entry.endUnit; store.commit(); render(modal); ctx.rerender(); };
 
       const cancelChip = box.querySelector('[data-chip-cancel]');
       if (cancelChip) cancelChip.onclick = () => {
@@ -6745,7 +6746,7 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
         <summary class="btn small ghost" aria-label="このコマの操作">⋯</summary>
         <div class="menu-items">
           <button class="btn ghost menu-item" data-oc-lock title="「計画に合わせて更新」しても上書きされません">${icon('lock')}ロック</button>
-          <button class="btn ghost menu-item" data-oc-make-activity title="この時間を会議・自習・授業なしなどの予定にする（時数に数えません）">${icon('memo')}予定・活動にする</button>
+          <button class="btn ghost menu-item" data-oc-make-activity title="会議・出張・自習・委員会など、授業以外の予定にします（時数に数えません）">${icon('memo')}予定・活動にする</button>
           <button class="btn ghost menu-item" data-oc-make-lesson title="予定をやめて授業に戻す">${icon('book')}授業に変える</button>
           <button class="btn ghost menu-item" data-oc-clear title="本時のねらい・活動・評価を空に。教科・学級は残ります">${icon('eraser')}クリア</button>
           <button class="btn ghost menu-item" data-oc-move>${icon('refresh')}別の時間へ移動</button>
@@ -6914,6 +6915,11 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
     </div>`;
   }
   const { resolved, details } = resolveEntryPlanDetails(state, entry, ordinals);
+  const lessonMode = entry.offplan ? 'offplan' : entry.pin ? 'pin' : 'plan';
+  // 「単元の切り上げ」を出せるか(計画どおりモードで単元の途中・モジュール以外)。残りコマ数も持つ。
+  // 状態チップ(時数外・中止)の隣に短い「切り上げ」チップとして出す。
+  const euRemain = (lessonMode === 'plan' && details && details.unitHours > 1 && details.nth < details.unitHours && period.type !== 'module')
+    ? (details.unitHours - details.nth) : 0;
   // この時間だけ別の単元の本時をやる(pin)用: 教科・学年に対応する計画と、pin中の単元
   const planForPick = entry.subjectKey
     ? state.plans.find(p => p.subjectKey === entry.subjectKey && (p.grade == null || p.grade === scopeGrade(s, entry.scope)))
@@ -6966,9 +6972,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
   const ovField = (key, label, planVal, effVal, isOv, extra = '') => `
     <div class="ov-field${isOv ? ' is-ov' : ''}">
       <div class="ov-flabel"><b>${label}</b>
-        ${isOv
-          ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>`
-          : (planVal ? '<span class="ov-asplan">計画どおり</span>' : '')}
+        ${isOv ? `<span class="ov-badge">変更</span><button type="button" class="ov-reset" data-ov-reset="${key}">↺ 計画に戻す</button>` : ''}
       </div>
       <textarea class="ov-input" data-ov="${key}" data-plan="${esc(planVal || '')}" rows="2"
         placeholder="${esc(OV_PLACEHOLDERS[key] || '（自由に記録できます）')}">${esc(effVal)}</textarea>
@@ -6988,7 +6992,6 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
     const vprow = `<div class="ov-vprow"><span class="ov-vplabel">観点${infoHTML('評価規準は「何を見取るか」の文。観点はその3区分のどれか:　知=知識・技能　思=思考・判断・表現　態=主体的に学習に取り組む態度')}</span>${vpSeg}${ed.overridden.viewpoint ? '<span class="ov-badge ov-vp-badge">変更</span>' : ''}</div>`;
     // 「この時間だけ別の単元の本時をやる」ピッカー(自転車操業対応)。計画に単元があるときだけ出す。
     const pinUnits = planForPick?.units || [];
-    const lessonMode = entry.offplan ? 'offplan' : entry.pin ? 'pin' : 'plan';
     // 「別の単元」用の単元×本時セレクト(pinモードのときだけ表示)
     const pinSelects = (() => {
       if (!pinUnits.length) return '';
@@ -7012,10 +7015,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
         <div class="lesson-mode" role="group">${lmBtn('plan', '計画どおり')}${pinUnits.length ? lmBtn('pin', '本時を選ぶ') : ''}${lmBtn('offplan', '計画外')}</div>
         ${lessonMode === 'pin' ? pinSelects : ''}
       </div>` : '';
-    // 単元途中で切り上げる(計画どおりモードかつ単元途中のときだけ、単元見出しの近くに出す)
-    // モジュール校時は既定で進度を進めないため単元切上げが効かない→チェックを出さない(無言で無視されるのを防ぐ)
-    const endUnitInline = (lessonMode === 'plan' && details && details.unitHours > 1 && details.nth < details.unitHours && period.type !== 'module')
-      ? `<label class="eu-inline"><input type="checkbox" name="endUnit" ${entry.endUnit ? 'checked' : ''}>この時間で単元を切り上げる（残り${details.unitHours - details.nth}コマを飛ばす）</label>` : '';
+    // 単元の切り上げは下の状態チップ(時数外・中止)の隣に「切り上げ」として出す(euRemainで判定)。
     const modeHeader = lessonMode === 'offplan'
       ? `<div class="ov-head"><span class="ov-kicker">計画外</span><span class="ov-sub">復習・テスト・予備など（進度は進みません）</span></div>`
       : ed.planless
@@ -7025,7 +7025,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
              <label class="pu-field pu-num"><span>何時間目</span><input type="number" name="nth" min="0" inputmode="numeric" value="${ed.nth || ''}"></label>
              <label class="pu-field pu-num"><span>／総時数</span><input type="number" name="unitHours" min="0" inputmode="numeric" value="${ed.unitHours || ''}"></label>
            </div>`
-        : `<div class="ov-head"><span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}${endUnitInline}<span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span></div>`;
+        : `<div class="ov-head"><span class="ov-kicker">${entry.auto ? '年間指導計画' : '年間指導計画（参照）'}</span><strong>${esc(ed.unitName)}</strong>${ed.unitHours > 1 ? `<span class="ov-nth">${ed.nth}/${ed.unitHours}時</span>` : ''}<span class="ov-help">${infoHTML('計画どおりなら触らなくてOK。実際の授業に合わせて直した項目だけが「変更」として記録されます')}</span></div>`;
     autoBlock = `<div class="ov-block">
       ${lessonModeSelector}
       ${modeHeader}
@@ -7092,6 +7092,7 @@ function entryEditorHTML(state, entry, idx, period, ordinals, entriesCount = 1) 
             }).join('')}
           </div>
           <span class="ls-grow"></span>
+          ${euRemain > 0 ? `<button type="button" class="state-chip ${entry.endUnit ? 'on' : ''}" data-chip-endunit aria-pressed="${!!entry.endUnit}" title="この単元をここで終え、残り${euRemain}コマを飛ばします（予定より早く終わったとき）">切り上げ</button>` : ''}
           <button type="button" class="state-chip ${entry.noCount ? 'on' : ''}" data-chip-nocount aria-pressed="${!!entry.noCount}" title="朝活動・テスト監督など授業時数に含めないコマに。進度とは別の「時数」の話です">時数外</button>
           <button type="button" class="state-chip cancel ${entry.cancelled ? 'on' : ''}" data-chip-cancel aria-pressed="${!!entry.cancelled}" title="学級閉鎖・行事変更などで実施しなかったコマ。以降の授業内容は自動で繰り下がります">中止</button>
         </div>
