@@ -444,18 +444,15 @@ td.cell.activity-cell .entry.activity { background: transparent; padding: 3px 4p
   box-shadow: 0 -8px 8px -8px rgba(0,0,0,.18);
 }
 .modal .modal-foot .left { margin-right: auto; }
-/* 空きコマの選択画面(教科/学級を選ぶ → 内容編集 / 予定・活動) */
-.cell-choose { padding: 6px 0 2px; }
-.cc-q { font-size: 14px; font-weight: 600; margin: 0 0 14px; color: var(--ink-2); }
-.cc-label { font-size: 12.5px; font-weight: 700; color: var(--ink-2); margin: 2px 0 8px; }
-.cc-palette { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
-.cc-palette button { padding: 10px 14px; border-radius: 10px; border: 1px solid transparent; font-size: 14px; font-weight: 700; cursor: pointer; }
-.cc-palette.subject-palette button { color: #fff; }
-.cc-palette.scope-palette button { background: var(--gray-100, #f1f5f9); color: var(--ink); }
-.cc-palette button.suggest { box-shadow: 0 0 0 2px var(--accent, #3b82f6); }
-.cc-palette button.suggest::after { content: " ●"; font-size: 9px; vertical-align: middle; }
-.cc-palette button:hover, .cc-palette button:focus-visible { filter: brightness(1.05); outline: 2px solid var(--accent, #3b82f6); }
-.cc-or { font-size: 12px; color: var(--muted); text-align: center; margin: 12px 0 8px; }
+/* 空きコマの選択画面(編集モーダルと同じ教科/学級パレットで選ぶ → 内容編集 / 予定・活動) */
+.cell-choose { padding: 4px 0 2px; }
+.cell-choose .field { margin-bottom: 14px; }
+.cell-choose .field > label { display: flex; align-items: baseline; gap: 8px; }
+.cc-hint { font-weight: 500; font-size: 11px; color: var(--muted); }
+/* 基本時間割の候補(=ふだんここに入る教科・学級)の控えめな印。選択(selected)とは別の弱い手がかり */
+.cell-choose .subject-palette button.suggest,
+.cell-choose .scope-palette button.suggest { box-shadow: 0 0 0 2px var(--accent-soft, #dbeafe); }
+.cc-or { font-size: 12px; color: var(--muted); text-align: center; margin: 10px 0 8px; }
 .cc-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; margin-bottom: 8px; border: 1px solid var(--line, #e2e8f0); border-radius: 12px; background: #fff; cursor: pointer; text-align: left; }
 .cc-btn:hover, .cc-btn:focus-visible { background: var(--accent-50, #eff6ff); border-color: var(--accent, #3b82f6); }
 .cc-btn .ic { width: 22px; height: 22px; flex: none; color: var(--accent, #3b82f6); }
@@ -6515,6 +6512,7 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
   // 既存コマ・右クリック指定(asActivity/asLesson)は従来どおり直接エディタへ。
   const openedEmpty = !(store.state.weeks[weekStart]?.cells?.[editKey]?.entries?.length);
   let picking = openedEmpty && !opts.asActivity && !opts.asLesson;
+  let pickSubj = null; // 専科の選択画面で「下書きの教科」(学級タップで確定)。既定は専科教科。
 
   const ensureLesson = () => {
     const w = store.getWeek(weekStart, true);
@@ -6607,29 +6605,30 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
       const cb = foot.querySelector('[data-close]');
       if (cb) { cb.textContent = isPick ? 'やめる' : '閉じる'; cb.classList.toggle('primary', !isPick); cb.classList.toggle('ghost', isPick); }
     }
-    // 空きコマの選択画面: ここで教科(担任・複式)/学級(専科)を直接選ばせる。基本時間割の候補を●印で示す。
+    // 空きコマの選択画面: 編集モーダルと同じ「教科」「学級」パレットで選ばせる(デザインを揃える)。
+    // 基本時間割の候補は淡い印で示す。専科=教科(下書き)＋学級、担任/複式=教科を選ぶと追加。
     if (picking && !cellNow.entries.length) {
       const bl = (store.state.baseTimetables?.[0]?.cells?.[editKey]?.entries || []).filter(e => e.subjectKey && !isActivity(e));
       const baseSubj = bl[0]?.subjectKey, baseScope = bl[0]?.scope;
       const senkaSubjKey = s.subjects.some(x => x.key === s.senkaSubject) ? s.senkaSubject : (s.subjects[0]?.key || '');
-      let palette;
-      if (s.mode === 'senka' && s.senkaClasses.length) {
-        palette = `<div class="cc-label">学級を選ぶ（教科＝${esc(subjectOf(s, senkaSubjKey)?.name || '')}）</div>
-          <div class="cc-palette scope-palette">${s.senkaClasses.map(c =>
-            `<button type="button" data-pick-scope="${esc(c.id)}" class="${c.id === baseScope ? 'suggest' : ''}">${esc(c.label || '学級')}</button>`).join('')}</div>`;
-      } else {
-        palette = `<div class="cc-label">教科を選ぶ${s.mode === 'fukushiki' ? '（両学年）' : ''}</div>
-          <div class="cc-palette subject-palette">${s.subjects.map(x =>
-            `<button type="button" data-pick-subj="${esc(x.key)}" style="background:${esc(x.color)}" class="${x.key === baseSubj ? 'suggest' : ''}">${esc(x.short || x.name)}</button>`).join('')}</div>`;
-      }
+      const isSenka = s.mode === 'senka' && s.senkaClasses.length;
+      if (isSenka && !pickSubj) pickSubj = senkaSubjKey; // 既定の教科を下書きに
+      // 教科パレット: 専科は下書き選択(selected)、担任/複式は基本時間割の候補に印(suggest)
+      const subjSel = isSenka ? pickSubj : baseSubj;
+      const subjPalette = `<div class="field"><label>教科${s.mode === 'fukushiki' ? '<span class="cc-hint">両学年・選ぶと追加</span>' : (!isSenka ? '<span class="cc-hint">選ぶと追加</span>' : '')}</label>
+        <div class="subject-palette">${s.subjects.map(x =>
+          `<button type="button" data-pick-subj="${esc(x.key)}" style="background:${esc(x.color)}" class="${x.key === subjSel ? (isSenka ? 'selected' : 'suggest') : ''}" aria-pressed="${x.key === subjSel}">${esc(x.short || x.name)}</button>`).join('')}</div></div>`;
+      const scopePalette = isSenka ? `<div class="field"><label>学級<span class="cc-hint">選ぶと追加</span></label>
+        <div class="scope-palette">${s.senkaClasses.map(c =>
+          `<button type="button" data-pick-scope="${esc(c.id)}" class="${c.id === baseScope ? 'suggest' : ''}">${esc(c.label || '学級')}</button>`).join('')}</div></div>` : '';
       modal.querySelector('.cell-editor-body').innerHTML = `
         <div class="cell-choose">
-          ${palette}
+          ${subjPalette}${scopePalette}
           ${s.mode !== 'fukushiki' ? `<div class="cc-or">または</div>
           <button type="button" class="cc-btn" data-choose-activity>${icon('memo')}<span class="cc-main">予定・活動</span><span class="cc-sub">会議・自習など</span></button>` : ''}
         </div>`;
       const ocM = modal.querySelector('.oc-menu'); if (ocM) ocM.style.display = 'none';
-      // 教科/学級を選んだら、そのコマを作って内容編集へ。●(基本時間割の候補)が分かるので確認も速い。
+      // 教科/学級を選んだら、そのコマを作って内容編集へ。
       const chooseLesson = (subjectKey, scope) => {
         const w = store.getWeek(weekStart, true);
         const key = cellKey(dayIdx, periodId);
@@ -6646,10 +6645,15 @@ function openCellEditor(weekStart, dayIdx, periodId, ctx, opts = {}) {
         }
         prefilled.clear(); picking = false; store.commit(); render(modal);
       };
-      modal.querySelectorAll('[data-pick-scope]').forEach(b => b.onclick = () => chooseLesson(senkaSubjKey, b.dataset.pickScope));
-      modal.querySelectorAll('[data-pick-subj]').forEach(b => b.onclick = () => chooseLesson(b.dataset.pickSubj, null));
+      // 専科: 教科は下書きを切替(学級タップで確定)。担任/複式: 教科タップで確定。
+      modal.querySelectorAll('[data-pick-subj]').forEach(b => b.onclick = () => {
+        if (isSenka) { pickSubj = b.dataset.pickSubj; render(modal); }
+        else chooseLesson(b.dataset.pickSubj, null);
+      });
+      modal.querySelectorAll('[data-pick-scope]').forEach(b => b.onclick = () => chooseLesson(pickSubj || senkaSubjKey, b.dataset.pickScope));
       modal.querySelector('[data-choose-activity]')?.addEventListener('click', () => { makeActivity(); picking = false; store.commit(); render(modal); });
-      modal.querySelector('.cc-palette button')?.focus();
+      // フォーカスは「選ぶと追加される」操作列へ: 専科=学級、担任/複式=教科
+      modal.querySelector(isSenka ? '.scope-palette button' : '.subject-palette button')?.focus();
       return;
     }
     const ordinals = computeOrdinals(state, weekStart);
