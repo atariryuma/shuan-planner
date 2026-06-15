@@ -584,6 +584,9 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .units-table .drag-handle { cursor: grab; color: var(--muted); }
 
 .import-area textarea { width: 100%; min-height: 140px; font-family: Consolas, monospace; font-size: 12px; }
+.import-formats { margin: 0 0 10px; }
+.import-formats summary { cursor: pointer; font-weight: 600; }
+.import-formats[open] { line-height: 1.7; }
 .map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .map-grid select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 
@@ -7580,7 +7583,7 @@ function unitEditHTML(u) {
       <div class="field"><label>思考・判断・表現</label><textarea name="ct" rows="2">${esc(u.criteria.thinking)}</textarea></div>
       <div class="field"><label>主体的に学習に取り組む態度</label><textarea name="ca" rows="2">${esc(u.criteria.attitude)}</textarea></div>
     </details>
-    <h3 class="ue-hours-h">各時の指導計画${infoHTML('観点: 知=知識・技能 / 思=思考・判断・表現 / 態=主体的に学習に取り組む態度')}</h3>
+    <h3 class="ue-hours-h">各時の指導計画${infoHTML('知=知識・技能／思=思考・判断・表現／態=主体的に取り組む態度')}</h3>
     <div class="hour-cards">${cards}</div>
     <button class="btn small" id="hour-add" style="margin-top:8px;">＋ 時を追加</button>`;
 }
@@ -7722,14 +7725,13 @@ function downloadText(text, filename) {
 function openImportDialog(ctx) {
   openModal(`
     <h2>年間指導計画の取り込み</h2>
-    <p class="hint">
-      対応形式(自動判定):<br>
-      ① <b>単元名, 時数, 内容</b> の列を持つ表(1行=1単元。内容は「|」か改行区切りで各時に展開)<br>
-      ② <b>単元名, 内容</b> の表(1行=1時間。同じ単元名の行をまとめて時数を数えます)<br>
-      指導目標・学習活動・評価規準・観点の列があれば、それぞれに取り込みます。
-    </p>
+    <details class="hint import-formats"><summary>対応する表の形式</summary>
+      ① <b>単元名, 時数, 内容</b>（1行=1単元。内容は「|」か改行で各時に展開）<br>
+      ② <b>単元名, 内容</b>（1行=1時間。同じ単元名をまとめて時数に）<br>
+      指導目標・学習活動・評価規準・観点の列があれば取り込みます。
+    </details>
     <div class="field import-area">
-      <label>Excelやスプレッドシートから貼り付け${infoHTML('Excel・スプレッドシートのセルを範囲コピーして貼り付け(タブ区切り)。CSVテキストも可')}</label>
+      <label>Excelやスプレッドシートから貼り付け${infoHTML('セルを範囲コピーして貼り付け（タブ区切り）')}</label>
       <textarea name="paste" placeholder="単元名	時数	指導目標	学習活動	評価規準	観点"></textarea>
     </div>
     <div class="field">
@@ -7788,7 +7790,7 @@ function openMappingDialog(ctx, rows, det) {
     <p class="hint">貼り付けた表の各列を、アプリの項目に対応づけます(自動で推定済み。違っていれば直してください)。</p>
     <div class="map-grid">
       <div class="field"><label>取込先の教科</label><select id="imp-subj">${subjOpts}</select></div>
-      <div class="field"><label>取込先の学年${infoHTML('この計画を使う学年。専科で5年・6年を持つなら学年ごとに取り込みます。「全学年共通」はどの学年のコマにも反映します')}</label><select id="imp-grade">${gradeOpts}</select></div>
+      <div class="field"><label>取込先の学年${infoHTML('全学年共通＝どの学年のコマにも反映')}</label><select id="imp-grade">${gradeOpts}</select></div>
       ${fields.map(f => `
         <div class="field"><label>${f.label}${f.required ? ' <span style="color:var(--danger)">*</span>' : ''}${f.hint ? infoHTML(f.hint) : ''}</label>
           <select data-map="${f.key}">${colOptions(det.cols[f.key])}</select></div>`).join('')}
@@ -8531,10 +8533,10 @@ function renderSettingsView(root, ctx) {
     </div>
 
     <div class="panel" id="sp-schedule">
-      <h2>時程${infoHTML('1校時〜の時間割の枠。「表示名」は朝学習などの呼び名に自由に変えられます(週案画面の校時ラベルをクリックしても変更可)。係数は時数の数え方です')}</h2>
+      <h2>時程${infoHTML('表示名は朝学習などに変更可。係数＝時数の数え方')}</h2>
       <div class="table-scroll">
       <table class="edit-table">
-        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=1/3(0.333…)、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
+        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマ＝何時間（モジュール=1/3、朝活動=0）')}</th><th class="ops"></th></tr></thead>
         <tbody id="periods-body">
           ${s.periods.map((p, i) => `
             <tr data-p="${i}">
@@ -8575,7 +8577,7 @@ function renderSettingsView(root, ctx) {
     </div>
 
     <div class="panel" id="sp-base">
-      <h2>基本時間割${infoHTML('毎週の骨組み(校時×曜日の教科)。週を開くと自動で流し込まれ、「⋯ → 計画に合わせて更新」のもとになります。最大3つ')}</h2>
+      <h2>基本時間割${infoHTML('毎週の授業の骨組み。週を開くと自動で流し込まれます（最大3つ）')}</h2>
       ${(store.state.baseTimetables || []).length
         ? store.state.baseTimetables.map(b => baseCardHTML(s, b)).join('')
         : '<p class="hint">まだ基本時間割がありません。下のボタンで作成します。空のグリッドに教科を入れるか、週案で1週間入力してから「今週から作る」が簡単です。</p>'}
@@ -10024,10 +10026,10 @@ function maybeYearRollover(ctx, oldFY, newFY) {
 
   openModal(`
     <h2>${newFY}年度を始めますか?</h2>
-    <p class="hint">昨年度(${oldFY}年度)のデータはそのまま残り、集計は年度ごとに自動で分かれます。</p>
+    <p class="hint">昨年度(${oldFY}年度)のデータは残ります。</p>
     ${classFields}
     ${planCount ? `<div class="checkline"><input type="checkbox" id="ro-plans">
-      <label for="ro-plans">年間指導計画 ${planCount}件を削除</label>${infoHTML('新学年の計画を取り込み直す場合にチェック。残しておけばそのまま使えます')}</div>` : ''}
+      <label for="ro-plans">年間指導計画 ${planCount}件を削除</label>${infoHTML('取り込み直す場合だけチェック')}</div>` : ''}
     ${baseCount ? `<div class="checkline"><input type="checkbox" id="ro-base">
       <label for="ro-base">基本時間割 ${baseCount}件をクリア</label>${infoHTML('新しい時間割で作り直す場合にチェック')}</div>` : ''}
     ${(s.breaks || []).length ? `<div class="checkline"><input type="checkbox" id="ro-breaks" checked>

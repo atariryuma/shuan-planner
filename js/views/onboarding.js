@@ -173,10 +173,10 @@ export function maybeYearRollover(ctx, oldFY, newFY) {
 
   openModal(`
     <h2>${newFY}年度を始めますか?</h2>
-    <p class="hint">昨年度(${oldFY}年度)のデータはそのまま残り、集計は年度ごとに自動で分かれます。</p>
+    <p class="hint">昨年度(${oldFY}年度)のデータは残ります。</p>
     ${classFields}
     ${planCount ? `<div class="checkline"><input type="checkbox" id="ro-plans">
-      <label for="ro-plans">年間指導計画 ${planCount}件を削除</label>${infoHTML('新学年の計画を取り込み直す場合にチェック。残しておけばそのまま使えます')}</div>` : ''}
+      <label for="ro-plans">年間指導計画 ${planCount}件を削除</label>${infoHTML('取り込み直す場合だけチェック')}</div>` : ''}
     ${baseCount ? `<div class="checkline"><input type="checkbox" id="ro-base">
       <label for="ro-base">基本時間割 ${baseCount}件をクリア</label>${infoHTML('新しい時間割で作り直す場合にチェック')}</div>` : ''}
     ${(s.breaks || []).length ? `<div class="checkline"><input type="checkbox" id="ro-breaks" checked>

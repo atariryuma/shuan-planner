@@ -575,6 +575,9 @@ table.units-table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 .units-table .drag-handle { cursor: grab; color: var(--muted); }
 
 .import-area textarea { width: 100%; min-height: 140px; font-family: Consolas, monospace; font-size: 12px; }
+.import-formats { margin: 0 0 10px; }
+.import-formats summary { cursor: pointer; font-weight: 600; }
+.import-formats[open] { line-height: 1.7; }
 .map-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .map-grid select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 

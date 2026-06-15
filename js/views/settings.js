@@ -110,10 +110,10 @@ export function renderSettingsView(root, ctx) {
     </div>
 
     <div class="panel" id="sp-schedule">
-      <h2>時程${infoHTML('1校時〜の時間割の枠。「表示名」は朝学習などの呼び名に自由に変えられます(週案画面の校時ラベルをクリックしても変更可)。係数は時数の数え方です')}</h2>
+      <h2>時程${infoHTML('表示名は朝学習などに変更可。係数＝時数の数え方')}</h2>
       <div class="table-scroll">
       <table class="edit-table">
-        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマを何時間と数えるか。15分モジュール=1/3(0.333…)、教育課程外の朝活動=0')}</th><th class="ops"></th></tr></thead>
+        <thead><tr><th style="width:64px;">表示名</th><th style="width:96px;">種別</th><th style="width:78px;">開始</th><th style="width:78px;">終了</th><th style="width:56px;">分</th><th style="width:64px;">係数${infoHTML('1コマ＝何時間（モジュール=1/3、朝活動=0）')}</th><th class="ops"></th></tr></thead>
         <tbody id="periods-body">
           ${s.periods.map((p, i) => `
             <tr data-p="${i}">
@@ -154,7 +154,7 @@ export function renderSettingsView(root, ctx) {
     </div>
 
     <div class="panel" id="sp-base">
-      <h2>基本時間割${infoHTML('毎週の骨組み(校時×曜日の教科)。週を開くと自動で流し込まれ、「⋯ → 計画に合わせて更新」のもとになります。最大3つ')}</h2>
+      <h2>基本時間割${infoHTML('毎週の授業の骨組み。週を開くと自動で流し込まれます（最大3つ）')}</h2>
       ${(store.state.baseTimetables || []).length
         ? store.state.baseTimetables.map(b => baseCardHTML(s, b)).join('')
         : '<p class="hint">まだ基本時間割がありません。下のボタンで作成します。空のグリッドに教科を入れるか、週案で1週間入力してから「今週から作る」が簡単です。</p>'}

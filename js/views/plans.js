@@ -231,7 +231,7 @@ function unitEditHTML(u) {
       <div class="field"><label>思考・判断・表現</label><textarea name="ct" rows="2">${esc(u.criteria.thinking)}</textarea></div>
       <div class="field"><label>主体的に学習に取り組む態度</label><textarea name="ca" rows="2">${esc(u.criteria.attitude)}</textarea></div>
     </details>
-    <h3 class="ue-hours-h">各時の指導計画${infoHTML('観点: 知=知識・技能 / 思=思考・判断・表現 / 態=主体的に学習に取り組む態度')}</h3>
+    <h3 class="ue-hours-h">各時の指導計画${infoHTML('知=知識・技能／思=思考・判断・表現／態=主体的に取り組む態度')}</h3>
     <div class="hour-cards">${cards}</div>
     <button class="btn small" id="hour-add" style="margin-top:8px;">＋ 時を追加</button>`;
 }
@@ -373,14 +373,13 @@ function downloadText(text, filename) {
 function openImportDialog(ctx) {
   openModal(`
     <h2>年間指導計画の取り込み</h2>
-    <p class="hint">
-      対応形式(自動判定):<br>
-      ① <b>単元名, 時数, 内容</b> の列を持つ表(1行=1単元。内容は「|」か改行区切りで各時に展開)<br>
-      ② <b>単元名, 内容</b> の表(1行=1時間。同じ単元名の行をまとめて時数を数えます)<br>
-      指導目標・学習活動・評価規準・観点の列があれば、それぞれに取り込みます。
-    </p>
+    <details class="hint import-formats"><summary>対応する表の形式</summary>
+      ① <b>単元名, 時数, 内容</b>（1行=1単元。内容は「|」か改行で各時に展開）<br>
+      ② <b>単元名, 内容</b>（1行=1時間。同じ単元名をまとめて時数に）<br>
+      指導目標・学習活動・評価規準・観点の列があれば取り込みます。
+    </details>
     <div class="field import-area">
-      <label>Excelやスプレッドシートから貼り付け${infoHTML('Excel・スプレッドシートのセルを範囲コピーして貼り付け(タブ区切り)。CSVテキストも可')}</label>
+      <label>Excelやスプレッドシートから貼り付け${infoHTML('セルを範囲コピーして貼り付け（タブ区切り）')}</label>
       <textarea name="paste" placeholder="単元名	時数	指導目標	学習活動	評価規準	観点"></textarea>
     </div>
     <div class="field">
@@ -439,7 +438,7 @@ function openMappingDialog(ctx, rows, det) {
     <p class="hint">貼り付けた表の各列を、アプリの項目に対応づけます(自動で推定済み。違っていれば直してください)。</p>
     <div class="map-grid">
       <div class="field"><label>取込先の教科</label><select id="imp-subj">${subjOpts}</select></div>
-      <div class="field"><label>取込先の学年${infoHTML('この計画を使う学年。専科で5年・6年を持つなら学年ごとに取り込みます。「全学年共通」はどの学年のコマにも反映します')}</label><select id="imp-grade">${gradeOpts}</select></div>
+      <div class="field"><label>取込先の学年${infoHTML('全学年共通＝どの学年のコマにも反映')}</label><select id="imp-grade">${gradeOpts}</select></div>
       ${fields.map(f => `
         <div class="field"><label>${f.label}${f.required ? ' <span style="color:var(--danger)">*</span>' : ''}${f.hint ? infoHTML(f.hint) : ''}</label>
           <select data-map="${f.key}">${colOptions(det.cols[f.key])}</select></div>`).join('')}
